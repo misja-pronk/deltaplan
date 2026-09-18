@@ -16,6 +16,7 @@ class and warnings.
 
 from __future__ import annotations
 
+import io
 from collections.abc import Iterable
 
 from rich.console import Console
@@ -108,7 +109,10 @@ def render_plan(plan: Plan, console: Console) -> None:
 
 def plan_text(plan: Plan, *, width: int = 100) -> str:
     """The same output as a plain string — for tests, pipes and files."""
-    console = Console(width=width, no_color=True, highlight=False, record=True)
+    # Its own buffer: a recording console still writes to stdout otherwise.
+    console = Console(
+        file=io.StringIO(), width=width, no_color=True, highlight=False, record=True
+    )
     render_plan(plan, console)
     return console.export_text()
 
