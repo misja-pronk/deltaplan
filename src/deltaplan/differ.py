@@ -20,6 +20,7 @@ from __future__ import annotations
 from deltaplan.model.change import Change
 from deltaplan.model.table import PrimaryKey, Table
 from deltaplan.model.types import Array, DataType, Field, Map, Struct, type_kind
+from deltaplan.sql import normalise_expression
 
 # Live properties that are Delta's own bookkeeping rather than anyone's intent.
 # They are never reported as unmanaged, because seeing them would be noise.
@@ -315,7 +316,9 @@ def _diff_constraints(desired: Table, actual: Table) -> list[Change]:
         live = live_checks.get(check.name)
         if live is None:
             changes.append(Change(desired.name, "add_constraint", after=check))
-        elif live.expression != check.expression:
+        elif normalise_expression(live.expression) != normalise_expression(
+            check.expression
+        ):
             # A check's definition can't be altered in place, so it is replaced.
             changes.append(Change(desired.name, "drop_constraint", before=live))
             changes.append(Change(desired.name, "add_constraint", after=check))

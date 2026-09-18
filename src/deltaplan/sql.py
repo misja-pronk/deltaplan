@@ -75,3 +75,35 @@ def maybe_quote_ident(name: str) -> str:
 def quote_literal(value: str) -> str:
     """Single-quote a string literal, doubling embedded quotes."""
     return "'" + value.replace("'", "''") + "'"
+
+
+def normalise_expression(expression: str) -> str:
+    """Normalise a constraint expression so both sides of a diff can be compared.
+
+    Databricks echoes a `CHECK` clause back wrapped in parentheses and with its
+    own spacing, so `amount > 0` in a spec comes back as `(amount > 0)`. Outer
+    parentheses are stripped and whitespace runs collapsed; beyond that the
+    comparison is textual, so write the expression the way the catalog reports
+    it if you want a stable diff.
+    """
+    text = " ".join(expression.split())
+    while text.startswith("(") and text.endswith(")") and _outer_parens_wrap(text):
+        text = text[1:-1].strip()
+    return text
+
+
+def _outer_parens_wrap(text: str) -> bool:
+    """Do the first and last parentheses pair with each other?
+
+    `(a > 0) AND (b > 0)` starts and ends with a parenthesis but is not wrapped
+    in one. (Parentheses inside string literals are not accounted for.)
+    """
+    depth = 0
+    for index, char in enumerate(text):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index == len(text) - 1
+    return False
