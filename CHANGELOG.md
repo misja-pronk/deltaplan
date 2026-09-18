@@ -15,6 +15,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   filters, column tags today) is refused with its line and a pointer to YAML.
   View queries and function bodies are kept exactly as written. A project can mix
   both formats.
+- **`import --format sql`** writes SQL specs, and YAML for a table SQL can't
+  describe (column tags, masks, row filters), saying which. A foreign key into
+  the imported catalog now goes behind `${catalog}` too, in both formats.
 - **A supported-features list** for YAML and SQL (`docs/formats.md`), generated
   from `deltaplan.features` and proven row by row by the tests.
 

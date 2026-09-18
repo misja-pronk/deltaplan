@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -34,7 +34,13 @@ from sqlglot import exp
 from sqlglot.errors import ParseError, TokenError
 from sqlglot.tokens import Token, TokenType
 
-from deltaplan.loader import VARIABLE, Loc, SpecError
+from deltaplan.loader import (
+    VARIABLE,
+    Loc,
+    SpecError,
+    spec_properties,
+    with_catalog_variable,
+)
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.table import (
     Check,
@@ -43,10 +49,18 @@ from deltaplan.model.table import (
     Grant,
     PrimaryKey,
     Table,
+    is_bookkeeping,
 )
-from deltaplan.model.types import DataType, Field, Identity
+from deltaplan.model.types import DataType, Field, Identity, render_type
 from deltaplan.model.view import Relation, View
-from deltaplan.sql import FUNCTION_PRIVILEGES, TABLE_PRIVILEGES, privilege_sql
+from deltaplan.sql import (
+    FUNCTION_PRIVILEGES,
+    TABLE_PRIVILEGES,
+    maybe_quote_ident,
+    privilege_sql,
+    quote_ident,
+    quote_literal,
+)
 from deltaplan.typeparser import TypeParseError, parse_type
 
 DIALECT = "databricks"
@@ -65,6 +79,145 @@ def load_sql_spec(
         raise SpecError(f"cannot read spec: {error}", Loc(path, 1, 1)) from error
     text = _substitute(path, raw, variables or {}, unresolved or {})
     return _Reader(path, text).read()
+
+
+def sql_cannot_say(relation: Relation) -> str | None:
+    """Why a SQL spec couldn't describe this object — or None when it can.
+
+    `import --format sql` writes YAML for these instead. Kept in step with the
+    — rows of `deltaplan.features`.
+    """
+    if not isinstance(relation, Table):
+        return None
+    found: list[str] = []
+    if any(column.tags for column in relation.columns):
+        found.append("column tags")
+    if any(column.mask is not None for column in relation.columns):
+        found.append("column masks")
+    if relation.row_filter is not None:
+        found.append("a row filter")
+    return ", ".join(found) or None
+
+
+def dump_sql_spec(relation: Relation, *, catalog_variable: str | None = None) -> str:
+    """Render an object as a SQL spec, the way `import --format sql` writes it.
+
+    The result loads back into the same model — tested — so it must only use
+    what `load_sql_spec` reads. Check `sql_cannot_say` first.
+    """
+    reason = sql_cannot_say(relation)
+    if reason is not None:
+        raise ValueError(f"a SQL spec can't say {reason}")
+    catalog = relation.name.partition(".")[0]
+
+    def name(full: str) -> str:
+        shown = with_catalog_variable(full, catalog, catalog_variable)
+        if shown != full:
+            first, _, rest = shown.partition(".")
+            return ".".join([first, *(maybe_quote_ident(p) for p in rest.split("."))])
+        return ".".join(maybe_quote_ident(part) for part in full.split("."))
+
+    if isinstance(relation, Table):
+        statements, kind = [_create_table(relation, name)], "TABLE"
+    elif isinstance(relation, View):
+        statements, kind = [_create_view(relation, name)], "VIEW"
+    else:
+        statements, kind = [_create_function(relation, name)], "FUNCTION"
+    if relation.tags and not isinstance(relation, Function):
+        tags = ", ".join(
+            f"{quote_literal(k)} = {quote_literal(v)}" for k, v in relation.tags
+        )
+        statements.append(f"ALTER {kind} {name(relation.name)} SET TAGS ({tags});")
+    for grant in relation.grants:
+        statements.append(
+            f"GRANT {', '.join(grant.privileges)} ON {kind} {name(relation.name)} "
+            f"TO {quote_ident(grant.principal)};"
+        )
+    return "\n\n".join(statements) + "\n"
+
+
+def _create_table(table: Table, name: Callable[[str], str]) -> str:
+    lines = [f"  {_column(column)}" for column in table.columns]
+    for constraint in table.constraints:
+        prefix = (
+            f"CONSTRAINT {maybe_quote_ident(constraint.name)} " if constraint.name else ""
+        )
+        if isinstance(constraint, PrimaryKey):
+            columns = ", ".join(maybe_quote_ident(c) for c in constraint.columns)
+            lines.append(f"  {prefix}PRIMARY KEY ({columns})")
+        elif isinstance(constraint, ForeignKey):
+            columns = ", ".join(maybe_quote_ident(c) for c in constraint.columns)
+            referenced = ", ".join(
+                maybe_quote_ident(c) for c in constraint.referenced_columns
+            )
+            lines.append(
+                f"  {prefix}FOREIGN KEY ({columns}) "
+                f"REFERENCES {name(constraint.references)} ({referenced})"
+            )
+        else:
+            lines.append(f"  {prefix}CHECK ({constraint.expression})")
+    text = f"CREATE TABLE {name(table.name)} (\n" + ",\n".join(lines) + "\n)"
+    if table.comment is not None:
+        text += f"\nCOMMENT {quote_literal(table.comment)}"
+    if table.cluster_auto:
+        text += "\nCLUSTER BY AUTO"
+    elif table.cluster_by:
+        text += (
+            f"\nCLUSTER BY ({', '.join(maybe_quote_ident(c) for c in table.cluster_by)})"
+        )
+    properties = spec_properties(table)
+    if properties:
+        entries = ",\n".join(
+            f"  {quote_literal(k)} = {quote_literal(v)}" for k, v in properties.items()
+        )
+        text += f"\nTBLPROPERTIES (\n{entries}\n)"
+    return text + ";"
+
+
+def _column(column: Field) -> str:
+    text = f"{maybe_quote_ident(column.name)} {render_type(column.type, upper=True)}"
+    if not column.nullable:
+        text += " NOT NULL"
+    if column.generated is not None:
+        text += f" GENERATED ALWAYS AS ({column.generated})"
+    if column.identity is not None:
+        how = "ALWAYS" if column.identity.always else "BY DEFAULT"
+        text += (
+            f" GENERATED {how} AS IDENTITY (START WITH {column.identity.start} "
+            f"INCREMENT BY {column.identity.increment})"
+        )
+    if column.default is not None:
+        text += f" DEFAULT {column.default}"
+    if column.comment is not None:
+        text += f" COMMENT {quote_literal(column.comment)}"
+    return text
+
+
+def _create_view(view: View, name: Callable[[str], str]) -> str:
+    text = f"CREATE VIEW {name(view.name)}"
+    if view.comment is not None:
+        text += f"\nCOMMENT {quote_literal(view.comment)}"
+    properties = {k: v for k, v in view.properties if not is_bookkeeping(k)}
+    if properties:
+        entries = ",\n".join(
+            f"  {quote_literal(k)} = {quote_literal(v)}" for k, v in properties.items()
+        )
+        text += f"\nTBLPROPERTIES (\n{entries}\n)"
+    # Written as the catalog holds it, catalog names and all — rewriting names
+    # inside SQL isn't something to do by text search.
+    return f"{text}\nAS\n{view.query.strip().rstrip(';')};"
+
+
+def _create_function(function: Function, name: Callable[[str], str]) -> str:
+    parameters = ", ".join(
+        f"{maybe_quote_ident(p.name)} {render_type(p.type, upper=True)}"
+        for p in function.parameters
+    )
+    text = f"CREATE FUNCTION {name(function.name)}({parameters})"
+    text += f"\nRETURNS {render_type(function.returns, upper=True)}"
+    if function.comment is not None:
+        text += f"\nCOMMENT {quote_literal(function.comment)}"
+    return f"{text}\nRETURN {function.body.strip().rstrip(';')};"
 
 
 # ---------------------------------------------------------------------------

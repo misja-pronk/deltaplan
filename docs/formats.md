@@ -11,7 +11,8 @@ table, view or function.
   about the same object.
 
 Both are read into the same model, so a SQL spec and the YAML spec that says the same
-thing plan identically.
+thing plan identically. `deltaplan import -f sql` writes SQL specs for what's already
+there.
 
 ```sql
 CREATE TABLE ${catalog}.sales.customers (

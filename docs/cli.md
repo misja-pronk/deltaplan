@@ -36,13 +36,20 @@ anything is wrong.
 ## `import`
 
 ```sh
-deltaplan import main.sales -o tables -t dev
+deltaplan import main.sales -o tables -t dev             # YAML specs
+deltaplan import main.sales -o tables -t dev -f sql      # SQL specs
 ```
 
-Generates specs from tables that already exist, so adoption doesn't start with a blank
-file. If the target has a variable whose value is that catalog, the generated spec uses
-`${catalog}` instead of the literal name, so it fits every target. Views and non-Delta
-tables are reported and skipped. Imported tables are marked managed on their first apply.
+Generates specs from the tables, views and SQL functions that already exist, so adoption
+doesn't start with a blank file. If the target has a variable whose value is that
+catalog, the generated spec uses `${catalog}` instead of the literal name — foreign keys
+into the same catalog too — so it fits every target. Non-Delta tables are reported and
+skipped, and so are the platform's defaults and Unity Catalog's own bookkeeping
+properties. An imported table is claimed as managed on its first apply.
+
+`-f sql` writes `CREATE` statements. A table with column tags, masks or a row filter —
+[what SQL specs can't say](formats.md#what-each-format-supports) — is written as YAML
+instead, and the output says so.
 
 ## `plan`
 

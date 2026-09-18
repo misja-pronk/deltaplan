@@ -14,7 +14,7 @@ from deltaplan import cli
 from deltaplan.cli import app, package_version
 from deltaplan.loader import load_table
 from deltaplan.model.table import Table
-from helpers import FakeRunner, Row, fake_runner
+from helpers import FakeRunner, Row, col, fake_runner, table
 
 runner = CliRunner()
 
@@ -518,3 +518,44 @@ def test_import_with_nothing_to_import(
     monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake_runner())
     result = runner.invoke(app, ["import", "main.sales", "-o", str(tmp_path / "out")])
     assert "No Delta tables, views or functions found" in result.output
+
+
+def test_import_as_sql_falls_back_to_yaml_for_what_sql_cannot_say(
+    project: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from dataclasses import replace
+
+    from deltaplan.loader import load_spec
+    from deltaplan.model.types import Field, Mask, Primitive
+    from fake_warehouse import FakeWarehouse
+
+    plain = table(col("id", "bigint"), name="main.sales.orders", comment="It's plain")
+    masked = replace(
+        table(col("id", "bigint"), name="main.sales.people"),
+        columns=(Field("email", Primitive("string"), mask=Mask("main.sales.m")),),
+    )
+    fake = FakeWarehouse.of(plain, masked)
+    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    destination = tmp_path / "imported"
+    result = runner.invoke(
+        app,
+        [
+            "import",
+            "main.sales",
+            "-o",
+            str(destination),
+            "-f",
+            "sql",
+            "-t",
+            "dev",
+            "--config",
+            str(project / "deltaplan.yml"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert (destination / "orders.sql").exists()
+    assert (destination / "people.yml").exists()
+    # Collapsed: the terminal wraps long paths.
+    assert "YAML: SQL can't say column masks" in " ".join(result.output.split())
+    loaded = load_spec(destination / "orders.sql", {"catalog": "main"})
+    assert loaded.comment == "It's plain"

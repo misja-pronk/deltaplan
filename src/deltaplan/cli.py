@@ -43,6 +43,7 @@ from deltaplan.render.json import dumps as plan_json
 from deltaplan.render.json import loads as plan_loads
 from deltaplan.render.markdown import render_markdown
 from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, plan_text, render_plan
+from deltaplan.sqlspec import dump_sql_spec, sql_cannot_say
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
@@ -69,6 +70,13 @@ ProfileOption = Annotated[
         help="~/.databrickscfg profile to connect with (default: the target's).",
     ),
 ]
+
+
+class SpecFormat(StrEnum):
+    """Which spec format `import` writes."""
+
+    yaml = "yaml"
+    sql = "sql"
 
 
 class Format(StrEnum):
@@ -185,6 +193,14 @@ def import_schema(
         str | None, typer.Option("--warehouse-id", help="SQL warehouse to read through.")
     ] = None,
     profile: ProfileOption = None,
+    spec_format: Annotated[
+        SpecFormat,
+        typer.Option(
+            "--format",
+            "-f",
+            help="yaml, or sql — which falls back to YAML for what SQL can't say.",
+        ),
+    ] = SpecFormat.yaml,
 ) -> None:
     """Write specs for tables that already exist."""
     parts = schema.split(".")
@@ -211,9 +227,16 @@ def import_schema(
         if stem in written:
             stem = f"{stem}.function"
         written.add(stem)
-        path = directory / f"{stem}.yml"
-        path.write_text(dump_spec(relation, catalog_variable=variable), encoding="utf-8")
-        out.print(f"[green]+[/] {path}")
+        reason = sql_cannot_say(relation) if spec_format is SpecFormat.sql else None
+        if spec_format is SpecFormat.sql and reason is None:
+            path = directory / f"{stem}.sql"
+            text = dump_sql_spec(relation, catalog_variable=variable)
+        else:
+            path = directory / f"{stem}.yml"
+            text = dump_spec(relation, catalog_variable=variable)
+        path.write_text(text, encoding="utf-8")
+        note = f" [dim](YAML: SQL can't say {reason})[/]" if reason else ""
+        out.print(f"[green]+[/] {path}{note}")
 
     for name, reason in live.skipped:
         out.print(

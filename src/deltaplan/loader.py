@@ -1233,6 +1233,46 @@ def _lint_field(
 # ---------------------------------------------------------------------------
 
 
+def spec_properties(table: Table) -> dict[str, str]:
+    """The properties an imported spec declares, in either format.
+
+    Delta's own bookkeeping and deltaplan's marker are not intent — a spec that
+    declared them would fight Delta for them — and the platform's defaults
+    aren't the table's.
+    """
+    return {
+        key: value
+        for key, value in table.properties
+        if (not is_bookkeeping(key) or key in PREREQUISITE_PROPERTIES)
+        and not is_platform_default(key, value)
+    }
+
+
+def with_catalog_variable(name: str, catalog: str, variable: str | None) -> str:
+    """`dev.sales.customers` -> `${catalog}.sales.customers`, when the name is in
+    the catalog the variable stands for."""
+    first, dot, rest = name.partition(".")
+    if variable and dot and first.lower() == catalog.lower():
+        return f"${{{variable}}}.{rest}"
+    return name
+
+
+def _with_catalog_variable(
+    document: dict[str, object], table: str, variable: str | None
+) -> dict[str, object]:
+    """A foreign key into the same catalog refers to it through the variable
+    too, or the imported spec would point every target at one catalog."""
+    body = document.get("foreign_key")
+    if isinstance(body, dict) and isinstance(body.get("references"), str):
+        catalog = table.partition(".")[0]
+        body = {
+            **body,
+            "references": with_catalog_variable(body["references"], catalog, variable),
+        }
+        return {"foreign_key": body}
+    return document
+
+
 def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
     """Render a table or view as a spec file, the way `import` writes it.
 
@@ -1260,14 +1300,7 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
         document["cluster_by"] = list(table.cluster_by)
     if table.tags:
         document["tags"] = dict(table.tags)
-    # Delta's own bookkeeping and deltaplan's marker are not intent; a spec that
-    # declared them would fight Delta for them.
-    properties = {
-        key: value
-        for key, value in table.properties
-        if (not is_bookkeeping(key) or key in PREREQUISITE_PROPERTIES)
-        and not is_platform_default(key, value)
-    }
+    properties = spec_properties(table)
     if properties:
         document["properties"] = properties
     document["columns"] = [_column_document(column) for column in table.columns]
@@ -1277,7 +1310,9 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
         if constraint is not None
     ]
     if constraints:
-        document["constraints"] = constraints
+        document["constraints"] = [
+            _with_catalog_variable(c, table.name, catalog_variable) for c in constraints
+        ]
     if table.row_filter is not None:
         document["row_filter"] = {
             "function": table.row_filter.function,
