@@ -8,7 +8,14 @@ doubling it; string literals use single quotes, escaped by doubling.
 https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-identifiers
 """
 
+import functools
+import logging
 import re
+
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import ParseError, TokenError
+from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
 
 # Unquoted identifiers Databricks accepts as-is, and which we therefore leave
 # bare inside type strings for readability (never inside statements).
@@ -77,16 +84,36 @@ def quote_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+@functools.lru_cache(maxsize=4096)
 def normalise_expression(expression: str) -> str:
-    """Normalise a constraint expression so both sides of a diff can be compared.
+    """An expression in one canonical spelling, so both sides of a diff compare
+    by what they say rather than how they were typed.
 
-    Databricks echoes a `CHECK` clause back wrapped in parentheses and with its
-    own spacing, so `amount > 0` in a spec comes back as `(amount > 0)`. Outer
-    parentheses are stripped and whitespace runs collapsed; beyond that the
-    comparison is textual, so write the expression the way the catalog reports
-    it if you want a stable diff.
+    The catalog echoes expressions back its own way — a CHECK wrapped in
+    parentheses, a generation as `( CAST(placed_at AS DATE) )` (verified live).
+    So the expression is parsed with sqlglot and written back in its canonical
+    form, with unquoted identifiers in lower case since Databricks ignores their
+    case: `cast(Placed_At as date)` and `( CAST(placed_at AS DATE) )` are the
+    same expression. String literals keep their case. When sqlglot can't parse
+    it, whitespace runs are collapsed and outer parentheses stripped instead.
     """
-    text = " ".join(expression.split())
+    text = _strip_outer(" ".join(expression.split()))
+    logger = logging.getLogger("sqlglot")
+    level = logger.level
+    logger.setLevel(logging.ERROR)
+    try:
+        parsed = sqlglot.parse_one(text, read="databricks")
+    except (ParseError, TokenError):
+        return text
+    finally:
+        logger.setLevel(level)
+    if parsed is None or isinstance(parsed, exp.Command):
+        return text
+    canonical = normalize_identifiers(parsed, dialect="databricks")
+    return _strip_outer(canonical.sql(dialect="databricks"))
+
+
+def _strip_outer(text: str) -> str:
     while text.startswith("(") and text.endswith(")") and _outer_parens_wrap(text):
         text = text[1:-1].strip()
     return text

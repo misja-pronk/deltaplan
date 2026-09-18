@@ -38,6 +38,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A second read through the same introspector returned the first one's state**
   — it cached `DESCRIBE DETAIL` for its whole life. With plan and apply sharing
   one, apply's staleness check could never see a change. Caches now last one read.
+- **Identity, generated and default columns were never read back**, nor NOT NULL
+  and comments inside structs: `information_schema.columns` doesn't report them
+  on a live workspace. Introspection now reads each table's `SHOW CREATE TABLE`
+  (parsed with sqlglot) for them. A definition it can't read is reported, and
+  keeps the table from being rewritten.
+- **Expressions compare by meaning.** Checks, generations and defaults are
+  canonicalised with sqlglot before comparing, so the catalog's
+  `( CAST(placed_at AS DATE) )` matches a spec's `cast(placed_at as date)`.
 - **CHECK constraints were never read back**, so every plan re-added them. Delta
   keeps them as `delta.constraints.<name>` properties, not in
   `information_schema`; they're read from there, and no longer reported as

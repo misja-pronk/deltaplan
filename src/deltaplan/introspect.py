@@ -22,6 +22,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
+from deltaplan.ddl import DdlError, read_columns
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.table import (
     CHECK_PROPERTY_PREFIX,
@@ -199,11 +200,14 @@ class Introspector:
                 continue
             detail = self._describe_detail(full_name)
             properties = _json_map(detail.get("properties"))
+            table_columns, definition_notes = self._with_definitions(
+                full_name, columns.get(name, [])
+            )
             tables.append(
                 LiveTable(
                     table=Table(
                         name=full_name,
-                        columns=tuple(columns.get(name, ())),
+                        columns=tuple(table_columns),
                         comment=comments.get(name),
                         cluster_by=_json_list(detail.get("clusteringColumns")),
                         # A top-level DESCRIBE DETAIL field — verified live.
@@ -229,7 +233,9 @@ class Introspector:
                     ),
                     size_bytes=_as_int(detail.get("sizeInBytes")),
                     data_format=table_type,
-                    unmodelled=_unmodelled(detail, column_features.get(name, [])),
+                    unmodelled=_unmodelled(
+                        detail, [*column_features.get(name, []), *definition_notes]
+                    ),
                     features=_json_list(detail.get("tableFeatures")),
                 )
             )
@@ -297,10 +303,11 @@ class Introspector:
     ) -> tuple[dict[str, list[Column]], dict[str, list[str]]]:
         """Each table's columns, with how they get values they weren't given.
 
-        The second result is kept for column features deltaplan doesn't model;
-        today there are none — identity, generated and default are all modelled.
-        TODO(verify): the identity, generation and default columns of
-        information_schema.columns against a live workspace.
+        The second result is kept for column features deltaplan doesn't model.
+        Verified live: this view reports no identity, generation or default,
+        and loses NOT NULL and comments inside structs — `_with_definitions`
+        completes the columns from SHOW CREATE TABLE. They're still read here,
+        for a workspace that does report them.
         https://docs.databricks.com/aws/en/sql/language-manual/information-schema/columns
         """
         rows = self.runner.query(
@@ -653,6 +660,40 @@ class Introspector:
             ref_table, ref_columns = usage
             found[name] = (f"{ref_catalog}.{ref_schema}.{ref_table}", tuple(ref_columns))
         return found
+
+    def _with_definitions(
+        self, name: str, columns: list[Column]
+    ) -> tuple[list[Column], list[str]]:
+        """Columns completed from `SHOW CREATE TABLE`: identity, generation,
+        default and the full nested type live there and nowhere else — see
+        `deltaplan.ddl`. Returns the columns and anything worth reporting."""
+        rows = self.runner.query(f"SHOW CREATE TABLE {quote_qualified(name)}")
+        statement = rows[0].get("createtab_stmt") if rows else None
+        if not statement:
+            return columns, ["a definition SHOW CREATE TABLE didn't return"]
+        try:
+            definitions = {k.casefold(): v for k, v in read_columns(statement).items()}
+        except DdlError as error:
+            return columns, [f"a definition deltaplan couldn't read ({error})"]
+        completed: list[Column] = []
+        notes: list[str] = []
+        for column in columns:
+            found = definitions.get(column.name.casefold())
+            if found is None:
+                completed.append(column)
+                continue
+            if found.collation:
+                notes.append(f"collation {found.collation} on {column.name}")
+            completed.append(
+                replace(
+                    column,
+                    type=found.type if found.type is not None else column.type,
+                    identity=found.identity or column.identity,
+                    generated=found.generated or column.generated,
+                    default=found.default or column.default,
+                )
+            )
+        return completed, notes
 
     def _describe_detail(self, name: str) -> Row:
         if name in self._detail_cache:

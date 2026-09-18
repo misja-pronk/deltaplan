@@ -437,7 +437,9 @@ def _diff_generation(table: str, desired: Field, actual: Field) -> list[Change]:
 
 
 def _expression(text: str | None) -> str | None:
-    """TODO(verify): how the catalog echoes generation and default expressions."""
+    """Compared by meaning: the catalog echoes a generation as
+    `( CAST(placed_at AS DATE) )` (verified live), which normalises to the same
+    expression a spec writes."""
     return normalise_expression(text) if text is not None else None
 
 

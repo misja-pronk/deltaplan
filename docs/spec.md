@@ -482,9 +482,10 @@ must be declared `nullable: false` — `validate` says so if they aren't. A fore
 point at the referenced table's primary key. Foreign keys are planned last, after every
 table, so the table they reference always exists first. One is matched by what it means —
 columns, table, referenced columns — so an unnamed key in the spec is satisfied by the
-same key under any name; name it only if the name matters. A check expression is compared
-textually after stripping outer parentheses and collapsing whitespace, so write it the
-way the catalog echoes it back.
+same key under any name; name it only if the name matters. Expressions — checks,
+generated columns, defaults — are compared by what they say, not how they're spelled:
+both sides are parsed and written back in one canonical form, so `cast(Placed_At as
+date)` in a spec matches the catalog's `( CAST(placed_at AS DATE) )`.
 
 ## What deltaplan leaves alone
 

@@ -62,6 +62,7 @@ _FRAGMENTS = {
     "routines": "information_schema.routines",
     "parameters": "information_schema.parameters",
     "routine_grants": "information_schema.routine_privileges",
+    "show_create": "SHOW CREATE TABLE",
 }
 
 
@@ -87,6 +88,13 @@ def fake_runner(**rows: tuple[Row, ...]) -> FakeRunner:
         raise ValueError(f"no query fragment for {sorted(unknown)}")
     # Unless a test says otherwise, the schema being read exists.
     rows.setdefault("schemata", ({"schema_name": "present"},))
+    # And SHOW CREATE TABLE answers with a statement that adds nothing, so the
+    # columns are what information_schema says. (Without an answer, a table is
+    # flagged as having a definition deltaplan couldn't read.)
+    rows.setdefault(
+        "show_create",
+        ({"createtab_stmt": "CREATE TABLE t (placeholder INT) USING delta"},),
+    )
     return FakeRunner(
         {fragment: rows.get(key, ()) for key, fragment in _FRAGMENTS.items()}
     )

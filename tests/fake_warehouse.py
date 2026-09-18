@@ -181,7 +181,9 @@ class FakeWarehouse:
     def ddl(self) -> list[str]:
         """Only the statements that changed something."""
         return [
-            s for s in self.statements if not s.upper().startswith(("SELECT", "DESCRIBE"))
+            s
+            for s in self.statements
+            if not s.upper().startswith(("SELECT", "DESCRIBE", "SHOW"))
         ]
 
     # -- dispatch ----------------------------------------------------------
@@ -211,6 +213,9 @@ class FakeWarehouse:
             return ()
         if upper.startswith("ALTER VIEW"):
             return self._alter_view(flat)
+        if upper.startswith("SHOW CREATE TABLE"):
+            table = self._table(_unquote(flat[len("SHOW CREATE TABLE ") :]))
+            return ({"createtab_stmt": _show_create(table)},)
         if upper.startswith("SHOW TBLPROPERTIES"):
             view = self._view(_unquote(flat[len("SHOW TBLPROPERTIES ") :]))
             return tuple({"key": k, "value": v} for k, v in view.properties)
@@ -336,10 +341,14 @@ class FakeWarehouse:
                     "table_name": table.short_name,
                     "column_name": column.name,
                     "ordinal_position": str(position),
-                    "full_data_type": _render(column.type),
+                    # As a warehouse answers: no NOT NULL or comments inside
+                    # structs, and nothing about identity, generation or
+                    # defaults — those are in SHOW CREATE TABLE. Verified live.
+                    "full_data_type": _render(_bare(column.type)),
                     "is_nullable": "YES" if column.nullable else "NO",
                     "comment": column.comment,
-                    **_generation_row(column),
+                    "is_identity": "NO",
+                    "is_generated": "NO",
                     **self.column_features.get((table.name, column.name), {}),
                 }
                 for table in tables
@@ -1017,19 +1026,112 @@ def _replace_column(table: Table, column: Field) -> Table:
 # -- little parsers ---------------------------------------------------------
 
 
-def _generation_row(column: Field) -> Row:
-    """The information_schema.columns values a column's generation shows up as."""
-    row: Row = {"column_default": column.default}
-    if column.identity is not None:
-        row |= {
-            "is_identity": "YES",
-            "identity_generation": "ALWAYS" if column.identity.always else "BY DEFAULT",
-            "identity_start": str(column.identity.start),
-            "identity_increment": str(column.identity.increment),
-        }
+def _bare(data_type: DataType) -> DataType:
+    """A type as information_schema.columns shows it: nested fields without
+    NOT NULL or comments."""
+    match data_type:
+        case Struct(fields=fields):
+            return Struct(tuple(Field(f.name, _bare(f.type)) for f in fields))
+        case Array(element=element, contains_null=contains_null):
+            return Array(_bare(element), contains_null)
+        case Map(key=key, value=value):
+            return Map(_bare(key), _bare(value))
+        case _:
+            return data_type
+
+
+def _show_create(table: Table) -> str:
+    """SHOW CREATE TABLE, shaped like a warehouse's (compare tests/unit/test_ddl.py,
+    which holds the real thing): COLLATE UTF8_BINARY after every string,
+    `( expr )` around a generation, identity with its START and INCREMENT, masks
+    and the row filter in place, CHECKs among the properties."""
+    lines = [f"  {_ddl_column(column)}" for column in table.columns]
+    for constraint in table.constraints:
+        if isinstance(constraint, PrimaryKey):
+            columns = ", ".join(f"`{c}`" for c in constraint.columns)
+            lines.append(
+                f"  CONSTRAINT `{_constraint_name(constraint, table)}` "
+                f"PRIMARY KEY ({columns})"
+            )
+        elif isinstance(constraint, ForeignKey):
+            columns = ", ".join(f"`{c}`" for c in constraint.columns)
+            referenced = ", ".join(f"`{c}`" for c in constraint.referenced_columns)
+            lines.append(
+                f"  CONSTRAINT `{_constraint_name(constraint, table)}` FOREIGN KEY "
+                f"({columns}) REFERENCES {constraint.references} ({referenced})"
+            )
+    statement = [f"CREATE TABLE {table.name} (", ",\n".join(lines) + ")", "USING delta"]
+    if table.row_filter is not None:
+        on = ", ".join(table.row_filter.columns)
+        statement.append(f"WITH ROW FILTER {table.row_filter.function} ON ({on})")
+    if table.comment is not None:
+        statement.append(f"COMMENT {_ddl_literal(table.comment)}")
+    if table.cluster_auto:
+        statement.append("CLUSTER BY AUTO")
+    elif table.cluster_by:
+        statement.append(f"CLUSTER BY ({', '.join(table.cluster_by)})")
+    properties = dict(table.properties) | {
+        f"delta.constraints.{c.name}": c.expression
+        for c in table.constraints
+        if isinstance(c, Check)
+    }
+    if properties:
+        entries = ",\n".join(
+            f"  {_ddl_literal(k)} = {_ddl_literal(v)}"
+            for k, v in sorted(properties.items())
+        )
+        statement.append(f"TBLPROPERTIES (\n{entries})")
+    return "\n".join(statement)
+
+
+def _ddl_column(column: Field) -> str:
+    text = f"{column.name} {_ddl_type(column.type)}"
+    if not column.nullable:
+        text += " NOT NULL"
     if column.generated is not None:
-        row |= {"is_generated": "ALWAYS", "generation_expression": column.generated}
-    return row
+        text += f" GENERATED ALWAYS AS ( {column.generated} )"
+    if column.identity is not None:
+        how = "ALWAYS" if column.identity.always else "BY DEFAULT"
+        text += (
+            f" GENERATED {how} AS IDENTITY (START WITH {column.identity.start} "
+            f"INCREMENT BY {column.identity.increment})"
+        )
+    if column.default is not None:
+        text += f" DEFAULT {column.default}"
+    if column.mask is not None:
+        text += f" MASK {column.mask.function}"
+        if column.mask.using_columns:
+            text += f" USING COLUMNS({', '.join(column.mask.using_columns)})"
+    if column.comment is not None:
+        text += f" COMMENT {_ddl_literal(column.comment)}"
+    return text
+
+
+def _ddl_type(data_type: DataType) -> str:
+    from deltaplan.model.types import render_type
+
+    match data_type:
+        case Struct(fields=fields):
+            inner = ", ".join(
+                f"{f.name}: {_ddl_type(f.type)}"
+                + ("" if f.nullable else " NOT NULL")
+                + (f" COMMENT {_ddl_literal(f.comment)}" if f.comment is not None else "")
+                for f in fields
+            )
+            return f"STRUCT<{inner}>"
+        case Array(element=element):
+            return f"ARRAY<{_ddl_type(element)}>"
+        case Map(key=key, value=value):
+            return f"MAP<{_ddl_type(key)}, {_ddl_type(value)}>"
+        case _:
+            rendered = render_type(data_type, upper=True)
+            if rendered == "STRING" or rendered.startswith(("VARCHAR", "CHAR")):
+                return f"{rendered} COLLATE UTF8_BINARY"
+            return rendered
+
+
+def _ddl_literal(text: str) -> str:
+    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
 def _same(a: str, b: str) -> bool:
