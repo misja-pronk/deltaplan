@@ -276,3 +276,26 @@ def test_a_view_in_a_pull_request_comment() -> None:
     rendered = render_markdown(planned([ORDERS, BIG], fake))
     assert "+ view" in rendered
     assert "CREATE VIEW IF NOT EXISTS" in rendered
+
+
+def test_a_replace_carries_properties_nobody_declared() -> None:
+    live = View(
+        BIG.name,
+        BIG.query,
+        BIG.comment,
+        (*MANAGED, ("owner.team", "finance")),
+        BIG.tags,
+        BIG.grants,
+    )
+    fake = FakeWarehouse.of(ORDERS, live)
+    changed = View(
+        BIG.name,
+        "SELECT id FROM main.sales.orders",
+        BIG.comment,
+        (),
+        BIG.tags,
+        BIG.grants,
+    )
+    plan = converge([ORDERS, changed], fake)
+    assert "'owner.team' = 'finance'" in (plan.steps[0].sql or "")
+    assert fake.views[BIG.name].properties_map()["owner.team"] == "finance"

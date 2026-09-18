@@ -23,6 +23,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A lossy conversion could NULL values silently.** The staging step now
   checks that every row arrived and no converted column gained NULLs, and stops
   the run — before the original table is touched — if either did.
+- **A rewrite dropped properties and constraints nobody declared** — a
+  retention setting such as `delta.logRetentionDuration`, a CHECK or primary key
+  someone else added. The replacement now carries them across, as it already
+  did tags and grants; a view replace carries its properties the same way.
 - A failed postcheck reports what it means, not a generic message.
 - The live suite skipped entirely unless `DATABRICKS_HOST` was set, so anyone
   authenticating with a profile would never have run it. It now accepts any

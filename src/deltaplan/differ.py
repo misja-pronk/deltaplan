@@ -133,6 +133,22 @@ def _diff_governance(desired: Securable, actual: Securable) -> list[Change]:
     return changes
 
 
+def unmanaged_properties(
+    desired: Securable, actual: Securable
+) -> tuple[tuple[str, str], ...]:
+    """Live properties the spec doesn't declare, bookkeeping aside.
+
+    What a rebuild — a rewrite, a view replace — has to carry across, so that
+    replacing an object never diffs away what deltaplan doesn't manage.
+    """
+    declared = desired.properties_map()
+    return tuple(
+        (key, value)
+        for key, value in actual.properties
+        if key not in declared and key not in _BOOKKEEPING_PROPERTIES
+    )
+
+
 def unmanaged_view(desired: View, actual: View) -> tuple[str, ...]:
     """What a live view carries that its spec doesn't mention."""
     return tuple(_unmanaged_governance(desired, actual))

@@ -143,3 +143,58 @@ def test_lost_values_stop_the_run_before_the_table_is_touched() -> None:
         s.startswith("CREATE OR REPLACE TABLE `main`.`sales`.`orders`\n")
         for s in fake.ddl
     )
+
+
+# ---------------------------------------------------------------------------
+# what a rewrite must carry across
+# ---------------------------------------------------------------------------
+#
+# The replacement table is built from a query, so it has only the properties and
+# constraints deltaplan gives it. Anything the spec doesn't declare has to be
+# handed across explicitly, or replacing the table diffs it away.
+
+
+def test_properties_nobody_declared_survive_a_rewrite() -> None:
+    from helpers import run
+
+    live = table(
+        col("id", "bigint"),
+        col("amount", "decimal(10,2)"),
+        name=NAME,
+        properties=(
+            *MANAGED,
+            # How far back RESTORE can reach — the last thing to lose in a rewrite.
+            ("delta.logRetentionDuration", "interval 90 days"),
+            ("delta.minReaderVersion", "3"),  # bookkeeping: not carried
+        ),
+    )
+    desired = table(col("id", "bigint"), col("amount", "string"), name=NAME)
+    fake, plan = plan_against(desired, live)
+    replace_sql = next(s.sql for s in plan.steps if s.title == "REPLACE TABLE") or ""
+    assert "'delta.logRetentionDuration' = 'interval 90 days'" in replace_sql
+    assert "minReaderVersion" not in replace_sql
+
+    run(plan, fake)
+    after = fake.tables[NAME]
+    assert after.properties_map()["delta.logRetentionDuration"] == "interval 90 days"
+
+
+def test_constraints_nobody_declared_survive_a_rewrite() -> None:
+    from deltaplan.model.table import Check, PrimaryKey
+    from helpers import run
+
+    live = table(
+        col("id", "bigint", nullable=False),
+        col("amount", "decimal(10,2)"),
+        name=NAME,
+        properties=MANAGED,
+        constraints=(PrimaryKey(("id",), "orders_pk"), Check("positive", "id > 0")),
+    )
+    desired = table(
+        col("id", "bigint", nullable=False), col("amount", "string"), name=NAME
+    )
+    fake, plan = plan_against(desired, live)
+    run(plan, fake)
+    after = fake.tables[NAME]
+    assert after.primary_key() == PrimaryKey(("id",), "orders_pk")
+    assert after.checks() == (Check("positive", "id > 0"),)

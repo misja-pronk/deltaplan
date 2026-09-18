@@ -89,7 +89,11 @@ rather than one statement per change:
    restore point worth having, and the swap is a single statement, so readers never see
    an empty table.
 3. A query result carries names, types and an order and nothing else, so what it can't
-   carry — `NOT NULL`, comments, tags, constraints — is put back with ordinary `ALTER`s.
+   carry — `NOT NULL`, comments, tags, constraints, grants — is put back with ordinary
+   `ALTER`s. That includes what the spec *doesn't* declare: properties someone else set
+   (a retention setting, say), their tags, their constraints and their grants are all
+   carried across exactly as they were. Rebuilding a table never diffs away what
+   deltaplan doesn't manage.
 4. The staging table is dropped.
 
 deltaplan writes the conversion itself where it honestly can: a cast between scalars, a

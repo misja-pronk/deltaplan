@@ -20,10 +20,11 @@ References:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import assert_never
 
 from deltaplan.differ import diff as compute_changes
+from deltaplan.differ import unmanaged_properties
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Risk, Step, TableDiff, TableFacts
 from deltaplan.model.table import (
@@ -341,11 +342,17 @@ class _Planner:
         # spec removed goes with it — which makes this step destructive, whatever
         # else it is.
         dropped = [c.path for c in table_diff.changes if c.kind == "drop_column"]
+        # Properties the spec doesn't declare — retention settings, a feature
+        # someone enabled — go into the replacement as they were.
+        carried_properties = unmanaged_properties(desired, live)
         self.emit(
             table_diff.table,
             "REPLACE TABLE",
             "destructive" if dropped else "rewrite",
-            sql=replace_table_sql(desired, source=staging),
+            sql=replace_table_sql(
+                replace(desired, properties=(*desired.properties, *carried_properties)),
+                source=staging,
+            ),
             est_bytes=facts.size_bytes,
             undo_hint=_restore_hint(facts),
             warnings=(
@@ -364,6 +371,17 @@ class _Planner:
         for change in finishing:
             if change not in unreachable:
                 self.plan_change(change, facts)
+        # Constraints the spec doesn't declare are put back too: a query result
+        # carries none.
+        declared_checks = {check.name.casefold() for check in desired.checks()}
+        for check in live.checks():
+            if check.name.casefold() not in declared_checks:
+                self._emit_check(table_diff.table, check)
+        live_key = live.primary_key()
+        if desired.primary_key() is None and live_key is not None:
+            self._add_constraint(
+                Change(table_diff.table, "add_constraint", after=live_key)
+            )
         # The same goes for access. Declared grants come back through the diff
         # above; grants to principals the spec doesn't name are put back here.
         declared = desired.grants_map()
@@ -575,11 +593,12 @@ class _Planner:
     def _replace_view(self, change: Change) -> None:
         view, previous = change.after, change.before
         assert isinstance(view, View) and isinstance(previous, View)
+        carried = unmanaged_properties(view, previous)
         self.emit(
             view.name,
             "REPLACE VIEW",
             "meta",
-            sql=create_view_sql(view),
+            sql=create_view_sql(replace(view, properties=(*view.properties, *carried))),
             undo_hint=create_view_sql(previous),
             note="readers see the new definition from the moment it runs",
         )
