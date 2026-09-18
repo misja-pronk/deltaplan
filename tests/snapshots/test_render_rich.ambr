@@ -1,0 +1,65 @@
+# serializer version: 1
+# name: test_create_table_output
+  '''
+  sales.orders   + create
+    + 2 columns
+      1. CREATE TABLE orders          [meta]
+      2. ADD CONSTRAINT positive CHECK [meta]
+         ⚠ Databricks validates every existing row, which scans the table
+      3. SET TAGS                     [meta]
+  
+  Plan: 1 add, 0 change, 0 destroy · 3 steps · 0 rewrites · 1 warning
+  
+  '''
+# ---
+# name: test_rewrites_show_their_size_and_why
+  '''
+  sales.orders   ~ update  (412 GB)
+    ~ amount  STRING → BIGINT
+      1. REWRITE                      [rewrite]  (412 GB)
+         · not a supported widening, so the data has to be rewritten. Rewrites are planned but not 
+  generated in v1 (milestone 3)
+  
+  Plan: 0 add, 1 change, 0 destroy · 1 steps · 1 rewrites · 0 warnings
+  
+  '''
+# ---
+# name: test_table_level_changes_and_unmanaged_report
+  '''
+  sales.orders   ~ update
+    ~ comment
+      1. COMMENT ON TABLE             [meta]
+    ~ cluster_by [id]
+      2. CLUSTER BY                   [meta]
+         · applies to new data; run OPTIMIZE to recluster what is there
+      ~ property delta.enableChangeDataFeed = 'true'
+      3. SET TBLPROPERTIES            [meta]
+    · property delta.enableDeletionVectors — unmanaged, left untouched
+    · tag owner — unmanaged, left untouched
+  
+  Plan: 0 add, 1 change, 0 destroy · 3 steps · 0 rewrites · 0 warnings
+  
+  '''
+# ---
+# name: test_the_design_documents_plan_output
+  '''
+  sales.orders   ~ update  (412 GB)
+    ~ amount  DECIMAL(10,2) → (18,2)
+      1. enable typeWidening          [feature]
+         · raises the table's protocol version; older clients lose access
+      2. ALTER COLUMN TYPE            [meta]
+    ~ address
+      + zip STRING
+      3. ADD COLUMN address.zip       [meta]
+    → customer_ref (was cust_id)
+      4. enable columnMapping         [feature]
+         ⚠ breaks streaming readers — they must be restarted from scratch
+         · column mapping cannot be turned off again
+      5. RENAME COLUMN                [meta]
+    - legacy_flag
+      6. DROP COLUMN                  [destructive]
+  
+  Plan: 0 add, 1 change, 0 destroy · 6 steps · 0 rewrites · 1 warning
+  
+  '''
+# ---

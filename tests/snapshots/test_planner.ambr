@@ -19,6 +19,7 @@
 # name: test_the_design_documents_example_plan
   tuple(
     Step(
+      change=0,
       est_bytes=None,
       id=1,
       note="raises the table's protocol version; older clients lose access",
@@ -34,6 +35,7 @@
       ),
     ),
     Step(
+      change=0,
       est_bytes=None,
       id=2,
       note=None,
@@ -49,6 +51,7 @@
       ),
     ),
     Step(
+      change=1,
       est_bytes=None,
       id=3,
       note=None,
@@ -64,6 +67,7 @@
       ),
     ),
     Step(
+      change=2,
       est_bytes=None,
       id=4,
       note='column mapping cannot be turned off again',
@@ -85,6 +89,7 @@
       ),
     ),
     Step(
+      change=2,
       est_bytes=None,
       id=5,
       note=None,
@@ -94,12 +99,13 @@
       risk='meta',
       sql='ALTER TABLE `main`.`sales`.`orders` RENAME COLUMN `cust_id` TO `customer_ref`',
       table='main.sales.orders',
-      title='RENAME COLUMN cust_id -> customer_ref',
+      title='RENAME COLUMN',
       undo_hint=None,
       warnings=tuple(
       ),
     ),
     Step(
+      change=3,
       est_bytes=None,
       id=6,
       note=None,
@@ -109,7 +115,7 @@
       risk='destructive',
       sql='ALTER TABLE `main`.`sales`.`orders` DROP COLUMN `legacy_flag`',
       table='main.sales.orders',
-      title='DROP COLUMN legacy_flag',
+      title='DROP COLUMN',
       undo_hint=None,
       warnings=tuple(
       ),

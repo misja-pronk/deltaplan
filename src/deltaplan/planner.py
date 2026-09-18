@@ -115,6 +115,7 @@ class _Planner:
         self.steps: list[Step] = []
         self._column_mapping: set[str] = set()
         self._type_widening: set[str] = set()
+        self._change = -1
 
     # -- emitting ----------------------------------------------------------
     def emit(
@@ -138,6 +139,7 @@ class _Planner:
                 table=table,
                 title=title,
                 risk=risk,
+                change=self._change,
                 path=path,
                 sql=sql,
                 precheck=precheck,
@@ -193,6 +195,7 @@ class _Planner:
     # -- dispatch ----------------------------------------------------------
     def plan_table(self, diff: TableDiff) -> None:
         for change in diff.changes:
+            self._change += 1
             self.plan_change(change, diff.facts)
 
     def plan_change(self, change: Change, facts: TableFacts) -> None:
@@ -271,17 +274,14 @@ class _Planner:
             "CLUSTER BY",
             "meta",
             sql=f"ALTER TABLE {quote_qualified(change.table)} CLUSTER BY {clause}",
-            note=(
-                "clustering applies to data written from here on; run OPTIMIZE to "
-                "recluster what is already there"
-            ),
+            note="applies to new data; run OPTIMIZE to recluster what is there",
         )
 
     def _property(self, change: Change) -> None:
         value = change.after if isinstance(change.after, str) else ""
         self.emit(
             change.table,
-            f"SET TBLPROPERTIES {change.path}",
+            "SET TBLPROPERTIES",
             "meta",
             path=change.path,
             sql=(
@@ -294,7 +294,7 @@ class _Planner:
         value = change.after if isinstance(change.after, str) else ""
         self.emit(
             change.table,
-            f"SET TAGS {change.path}",
+            "SET TAGS",
             "meta",
             path=change.path,
             sql=set_tags_sql(change.table, ((change.path, value),)),
@@ -329,7 +329,7 @@ class _Planner:
         self.need_column_mapping(facts, change.path)
         self.emit(
             change.table,
-            f"DROP COLUMN {change.path}",
+            "DROP COLUMN",
             "destructive",
             path=change.path,
             sql=(
@@ -345,7 +345,7 @@ class _Planner:
         old_path = _replace_leaf(change.path, old_name)
         self.emit(
             change.table,
-            f"RENAME COLUMN {old_name} -> {change.leaf}",
+            "RENAME COLUMN",
             "meta",
             path=change.path,
             sql=(
@@ -362,7 +362,7 @@ class _Planner:
             self._emit_rewrite(
                 change,
                 facts,
-                title=f"REWRITE for {change.path}",
+                title="REWRITE",
                 note=(
                     "a map key cannot be altered in place"
                     if is_map_key
@@ -391,7 +391,7 @@ class _Planner:
             self._emit_rewrite(
                 change,
                 facts,
-                title=f"REWRITE for {change.path}",
+                title="REWRITE",
                 note="nullability of a nested field cannot be altered in place",
             )
             return
@@ -400,7 +400,7 @@ class _Planner:
             return
         self.emit(
             change.table,
-            f"DROP NOT NULL {change.path}",
+            "DROP NOT NULL",
             "meta",
             path=change.path,
             sql=(
@@ -419,7 +419,7 @@ class _Planner:
         table = quote_qualified(change.table)
         self.emit(
             change.table,
-            f"SET NOT NULL {change.path}",
+            "SET NOT NULL",
             "meta",
             path=change.path,
             sql=(
@@ -439,7 +439,7 @@ class _Planner:
         literal = quote_literal(comment) if isinstance(comment, str) else "NULL"
         self.emit(
             change.table,
-            f"COMMENT ON COLUMN {change.path}",
+            "COMMENT ON COLUMN",
             "meta",
             path=change.path,
             sql=(

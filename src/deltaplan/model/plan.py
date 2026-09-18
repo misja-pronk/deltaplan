@@ -29,12 +29,19 @@ RISK_ORDER: dict[Risk, int] = {"meta": 0, "feature": 1, "rewrite": 2, "destructi
 
 @dataclass(frozen=True, slots=True)
 class Step:
-    """One statement, and everything needed to run it safely."""
+    """One statement, and everything needed to run it safely.
+
+    `change` is the index of the change this step implements, in the plan's own
+    change order. A prerequisite carries the index of the change that needed it,
+    which is what lets a renderer nest "enable columnMapping" under the rename
+    that asked for it.
+    """
 
     id: int
     table: str
     title: str
     risk: Risk
+    change: int = -1
     path: str = ""
     sql: str | None = None
     precheck: str | None = None
@@ -121,6 +128,9 @@ class Plan:
 
     def steps_for(self, table: str) -> tuple[Step, ...]:
         return tuple(step for step in self.steps if step.table == table)
+
+    def steps_for_change(self, change: int) -> tuple[Step, ...]:
+        return tuple(step for step in self.steps if step.change == change)
 
     @property
     def summary(self) -> Summary:

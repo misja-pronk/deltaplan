@@ -103,7 +103,7 @@ def test_a_rename_inserts_column_mapping_first() -> None:
     plan = plan_of(desired, live)
     assert outline(plan) == [
         (1, "enable columnMapping", "feature"),
-        (2, "RENAME COLUMN cust_id -> customer_ref", "meta"),
+        (2, "RENAME COLUMN", "meta"),
     ]
     assert plan.steps[0].warnings == (
         "breaks streaming readers — they must be restarted from scratch",
@@ -118,9 +118,7 @@ def test_column_mapping_is_skipped_when_the_table_already_has_it() -> None:
     live = table(col("cust_id", "string"))
     desired = table(col("customer_ref", "string", renamed_from="cust_id"))
     facts = TableFacts(TABLE, properties=(("delta.columnMapping.mode", "name"),))
-    assert outline(plan_of(desired, live, facts=facts)) == [
-        (1, "RENAME COLUMN cust_id -> customer_ref", "meta")
-    ]
+    assert outline(plan_of(desired, live, facts=facts)) == [(1, "RENAME COLUMN", "meta")]
 
 
 def test_prerequisites_are_planned_once_per_table() -> None:
@@ -201,7 +199,7 @@ def test_dropping_a_column_is_destructive_and_needs_column_mapping() -> None:
     plan = plan_of(desired, live)
     assert outline(plan) == [
         (1, "enable columnMapping", "feature"),
-        (2, "DROP COLUMN legacy_flag", "destructive"),
+        (2, "DROP COLUMN", "destructive"),
     ]
     assert plan.highest_risk == "destructive"
 
@@ -212,7 +210,7 @@ def test_adding_a_not_null_column_is_two_steps_and_says_why() -> None:
     plan = plan_of(desired, live)
     assert outline(plan) == [
         (1, "ADD COLUMN region", "meta"),
-        (2, "SET NOT NULL region", "meta"),
+        (2, "SET NOT NULL", "meta"),
     ]
     assert plan.steps[0].sql == (
         "ALTER TABLE `main`.`sales`.`orders` ADD COLUMNS (`region` STRING)"
@@ -355,8 +353,8 @@ def test_the_design_documents_example_plan(snapshot: SnapshotAssertion) -> None:
         (2, "ALTER COLUMN TYPE", "meta"),
         (3, "ADD COLUMN address.zip", "meta"),
         (4, "enable columnMapping", "feature"),
-        (5, "RENAME COLUMN cust_id -> customer_ref", "meta"),
-        (6, "DROP COLUMN legacy_flag", "destructive"),
+        (5, "RENAME COLUMN", "meta"),
+        (6, "DROP COLUMN", "destructive"),
     ]
     assert str(plan.summary) == (
         "Plan: 0 add, 1 change, 0 destroy · 6 steps · 0 rewrites · 1 warning"
