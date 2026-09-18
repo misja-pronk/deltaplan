@@ -38,6 +38,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A second read through the same introspector returned the first one's state**
   — it cached `DESCRIBE DETAIL` for its whole life. With plan and apply sharing
   one, apply's staleness check could never see a change. Caches now last one read.
+- **Apostrophes were silently dropped** from every comment, tag and property
+  deltaplan wrote. It escaped quotes by doubling them, and Databricks reads
+  `'It''s'` as two literals joined: `Its`. Literals are backslash-escaped now
+  (`'It\'s'`), as Databricks expects and writes them back.
 - **Identity, generated and default columns were never read back**, nor NOT NULL
   and comments inside structs: `information_schema.columns` doesn't report them
   on a live workspace. Introspection now reads each table's `SHOW CREATE TABLE`

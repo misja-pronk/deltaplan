@@ -151,7 +151,7 @@ def test_a_tag_value_can_hold_anything() -> None:
     column = Field("c", Primitive("string"), tags=(("note", "it's | fine"),))
     live = table(col("c", "string"), name=NAME, properties=MANAGED)
     fake, plan = plan_against(table(column, name=NAME), live)
-    assert "'it''s | fine'" in (plan.steps[0].sql or "")
+    assert "'it\\'s | fine'" in (plan.steps[0].sql or "")
     run(plan, fake)
     after = Introspector(fake).table(NAME)
     assert after is not None and diff(table(column, name=NAME), after.table) == ()

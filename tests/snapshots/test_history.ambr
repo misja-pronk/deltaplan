@@ -54,7 +54,7 @@
   '''
   INSERT INTO `main`.`deltaplan`.`runs` SELECT 'run1', 'spec:live', 'prod', current_user(), '0.1.0', 'running', current_timestamp(), CAST(NULL AS TIMESTAMP)
   
-  INSERT INTO `main`.`deltaplan`.`steps` SELECT 'run1', 6, 'main.sales.orders', 'ALTER TABLE `main`.`sales`.`orders` DROP COLUMN `legacy_flag`', 'failed', current_timestamp(), current_timestamp(), 'it''s fine, I said it''s fine', 17
+  INSERT INTO `main`.`deltaplan`.`steps` SELECT 'run1', 6, 'main.sales.orders', 'ALTER TABLE `main`.`sales`.`orders` DROP COLUMN `legacy_flag`', 'failed', current_timestamp(), current_timestamp(), 'it\'s fine, I said it\'s fine', 17
   
   UPDATE `main`.`deltaplan`.`runs` SET status = 'failed', ended_at = current_timestamp() WHERE run_id = 'run1'
   '''

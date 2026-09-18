@@ -160,3 +160,33 @@ def test_a_function_and_the_mask_that_calls_it_in_one_plan(
     )
     apply(planned([spec, function], introspector), runner, introspector)
     assert planned([spec, function], introspector).empty
+
+
+def test_quotes_in_strings_survive(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """Databricks reads `'It''s'` as two literals joined — `Its` — so doubling
+    quotes silently dropped every apostrophe deltaplan wrote. Literals are
+    backslash-escaped now; here is every place deltaplan writes one.
+    https://docs.databricks.com/aws/en/sql/language-manual/data-types/string-type
+    """
+    from deltaplan.model.types import Struct
+
+    spec = Table(
+        name=f"{schema}.quoted",
+        comment="It's the table's comment",
+        columns=(
+            Field("id", Primitive("int"), comment="the id's comment"),
+            Field(
+                "address",
+                Struct((Field("street", Primitive("string"), comment="it's nested"),)),
+            ),
+        ),
+        tags=(("owner", "o'brien"),),
+        properties=(("note", "don't \\ panic"),),
+    )
+    apply(planned([spec], introspector), runner, introspector)
+    again = planned([spec], introspector)
+    assert again.empty, [
+        (c.kind, c.path, c.before, c.after) for d in again.diffs for c in d.changes
+    ]

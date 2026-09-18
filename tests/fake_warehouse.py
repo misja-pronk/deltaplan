@@ -777,7 +777,7 @@ def _check_columns(flat: str) -> None:
     if unknown_views:
         raise FakeSqlError(f"no such information_schema view: {unknown_views}")
     allowed = frozenset().union(*(INFORMATION_SCHEMA_COLUMNS[v] for v in views))
-    code = re.sub(r"'(?:[^']|'')*'|`[^`]*`", " ", flat)
+    code = re.sub(r"'(?:[^'\\]|\\.|'')*'|`[^`]*`", " ", flat)
     code = re.sub(r"\S*information_schema\.\w+( \w+)?", " ", code)
     for match in _IDENTIFIER.finditer(code.lower()):
         word = match.group(1)
@@ -1164,7 +1164,9 @@ def _unliteral(text: str) -> str:
     stripped = text.strip()
     if not (stripped.startswith("'") and stripped.endswith("'")):
         raise FakeSqlError(f"not a string literal: {text}")
-    return stripped[1:-1].replace("''", "'")
+    # As Databricks reads it: backslash escapes. (A doubled quote is two
+    # literals to Databricks; deltaplan no longer writes one.)
+    return re.sub(r"\\(.)", r"\1", stripped[1:-1])
 
 
 def _idents(text: str) -> Iterable[str]:
@@ -1173,7 +1175,7 @@ def _idents(text: str) -> Iterable[str]:
 
 def _pairs(text: str) -> dict[str, str]:
     found: dict[str, str] = {}
-    for part in re.findall(r"('(?:[^']|'')*')\s*=\s*('(?:[^']|'')*')", text):
+    for part in re.findall(r"('(?:[^'\\]|\\.|'')*')\s*=\s*('(?:[^'\\]|\\.|'')*')", text):
         found[_unliteral(part[0])] = _unliteral(part[1])
     if not found:
         raise FakeSqlError(f"no key = value pairs in: {text}")
@@ -1203,13 +1205,13 @@ def _literal_after(text: str, marker: str) -> str | None:
     if index < 0:
         return None
     rest = text[index + len(marker) :]
-    match = re.match(r"'(?:[^']|'')*'", rest)
+    match = re.match(r"'(?:[^'\\]|\\.|'')*'", rest)
     return _unliteral(match.group(0)) if match else None
 
 
 _VIEW = re.compile(
     r"(?P<verb>CREATE VIEW IF NOT EXISTS|CREATE OR REPLACE VIEW) (?P<name>\S+)"
-    r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
+    r"(?:\nCOMMENT (?P<comment>'(?:[^'\\]|\\.|'')*'))?"
     r"\nTBLPROPERTIES \((?P<properties>.*?)\n\)"
     r"\nAS\n(?P<query>.*)",
     re.DOTALL,
@@ -1219,7 +1221,7 @@ _FUNCTION = re.compile(
     r"(?P<verb>CREATE FUNCTION IF NOT EXISTS|CREATE OR REPLACE FUNCTION) "
     r"(?P<name>[^(\s]+)\((?P<parameters>.*?)\)"
     r"\nRETURNS (?P<returns>[^\n]+)"
-    r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
+    r"(?:\nCOMMENT (?P<comment>'(?:[^'\\]|\\.|'')*'))?"
     r"\nRETURN (?P<body>.*)",
     re.DOTALL,
 )
@@ -1227,7 +1229,7 @@ _FUNCTION = re.compile(
 _CTAS = re.compile(
     r"CREATE OR REPLACE TABLE (?P<name>\S+)"
     r"(?:\nCLUSTER BY (?:\((?P<cluster>[^)]*)\)|(?P<auto>AUTO)))?"
-    r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
+    r"(?:\nCOMMENT (?P<comment>'(?:[^'\\]|\\.|'')*'))?"
     r"(?:\nTBLPROPERTIES \((?P<properties>.*?)\n\))?"
     r"\s+AS\s+SELECT\s+(?P<select>.*?)\s+FROM (?P<source>\S+)",
     re.DOTALL,
@@ -1237,7 +1239,7 @@ _CREATE = re.compile(
     r"CREATE (?:TABLE IF NOT EXISTS|OR REPLACE TABLE) (?P<name>\S+) "
     r"\((?P<body>.*?)\n\)\nUSING DELTA"
     r"(?:\nCLUSTER BY (?:\((?P<cluster>[^)]*)\)|(?P<auto>AUTO)))?"
-    r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
+    r"(?:\nCOMMENT (?P<comment>'(?:[^'\\]|\\.|'')*'))?"
     r"(?:\nTBLPROPERTIES \((?P<properties>.*?)\n\))?"
     r"(?:\nWITH ROW FILTER (?P<filter>\S+) ON \((?P<filter_columns>[^)]*)\))?",
     re.DOTALL,

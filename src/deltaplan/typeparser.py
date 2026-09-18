@@ -64,7 +64,7 @@ def _tokenise(text: str) -> list[_Token]:
             tokens.append(_Token("ident", value, start))
         elif char in "'\"":
             start = index
-            value, index = _read_quoted(text, index, char)
+            value, index = _read_string(text, index, char)
             tokens.append(_Token("string", value, start))
         elif char.isdigit():
             start = index
@@ -79,6 +79,33 @@ def _tokenise(text: str) -> list[_Token]:
         else:
             raise TypeParseError(f"unexpected character {char!r}", text, index)
     return tokens
+
+
+_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0"}
+
+
+def _read_string(text: str, start: int, quote: str) -> tuple[str, int]:
+    """Read a string literal. Databricks escapes with a backslash (`'it\\'s'`),
+    and that is how it writes comments back; a doubled quote is read as one
+    quote too, as specs written that way have always been."""
+    index = start + 1
+    chunks: list[str] = []
+    while index < len(text):
+        char = text[index]
+        if char == "\\" and index + 1 < len(text):
+            following = text[index + 1]
+            chunks.append(_ESCAPES.get(following, following))
+            index += 2
+            continue
+        if char == quote:
+            if index + 1 < len(text) and text[index + 1] == quote:
+                chunks.append(quote)
+                index += 2
+                continue
+            return "".join(chunks), index + 1
+        chunks.append(char)
+        index += 1
+    raise TypeParseError(f"unterminated {quote}", text, start)
 
 
 def _read_quoted(text: str, start: int, quote: str) -> tuple[str, int]:

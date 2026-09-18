@@ -245,7 +245,7 @@ def test_names_are_quoted_and_filters_are_literals() -> None:
     Introspector(runner).schema("odd catalog", "odd'schema")
     statements = " ".join(runner.statements)
     assert "`odd catalog`.information_schema" in statements
-    assert "'odd''schema'" in statements
+    assert "'odd\\'schema'" in statements
 
 
 @pytest.mark.parametrize(

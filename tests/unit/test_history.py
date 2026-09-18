@@ -60,7 +60,7 @@ def test_run_and_step_records(snapshot: SnapshotAssertion) -> None:
     store.finish_run("run1", "failed")
     assert "\n\n".join(runner.statements) == snapshot
     # An error message with a quote in it can't break out of the literal.
-    assert "'it''s fine, I said it''s fine'" in runner.statements[1]
+    assert "'it\\'s fine, I said it\\'s fine'" in runner.statements[1]
 
 
 def test_a_step_with_no_version_or_error_writes_typed_nulls() -> None:

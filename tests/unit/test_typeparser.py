@@ -77,10 +77,14 @@ def test_backticks_are_escaped_by_doubling() -> None:
     assert render_type(parsed) == "struct<`odd``name`:string>"
 
 
-def test_comment_quotes_are_escaped_by_doubling() -> None:
-    parsed = parse_type("struct<a:int comment 'it''s fine'>")
+def test_comment_quotes_are_escaped_with_a_backslash() -> None:
+    """Databricks reads `'it''s'` as two literals, joined: `its` — verified live.
+    So a quote is written `\\'`, which is also how the catalog writes it back; a
+    doubled quote is still *read* as one, for specs written that way."""
+    parsed = parse_type("struct<a:int comment 'it\\'s fine'>")
     assert parsed == Struct((Field("a", Primitive("int"), comment="it's fine"),))
-    assert render_type(parsed) == "struct<a:int comment 'it''s fine'>"
+    assert render_type(parsed) == "struct<a:int comment 'it\\'s fine'>"
+    assert parse_type("struct<a:int comment 'it''s fine'>") == parsed
 
 
 def test_double_quoted_comments_are_accepted_and_normalised() -> None:

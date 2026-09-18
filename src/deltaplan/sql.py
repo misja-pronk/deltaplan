@@ -80,8 +80,13 @@ def maybe_quote_ident(name: str) -> str:
 
 
 def quote_literal(value: str) -> str:
-    """Single-quote a string literal, doubling embedded quotes."""
-    return "'" + value.replace("'", "''") + "'"
+    """Single-quote a string literal, escaping with backslashes.
+
+    Not by doubling quotes: Databricks reads `'It''s'` as two adjacent literals
+    and joins them into `Its` — verified live. `'It\\'s'` is `It's`.
+    https://docs.databricks.com/aws/en/sql/language-manual/data-types/string-type
+    """
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
 @functools.lru_cache(maxsize=4096)
