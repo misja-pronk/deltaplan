@@ -1,0 +1,24 @@
+# A deltaplan project: where the specs are, and what a target substitutes into
+# them. Run `deltaplan validate -t dev` from this directory to try it.
+version: 1
+
+# Files or directories holding specs, relative to this file. Directories are
+# searched recursively for *.yml / *.yaml.
+specs: [tables]
+
+# Where `apply` will keep its run history and lock (milestone 2).
+history_schema: main.deltaplan
+
+targets:
+  dev:
+    vars:
+      catalog: dev
+    # Optional — falls back to $DATABRICKS_WAREHOUSE_ID.
+    # warehouse_id: abc123def456
+
+  prod:
+    vars:
+      catalog: prod
+    # `additive` (the default) never drops anything. `strict` lets deltaplan
+    # drop tables it created once `apply` lands.
+    mode: additive

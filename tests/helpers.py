@@ -40,3 +40,42 @@ def table(
         tags=tags,
         constraints=constraints,
     )
+
+
+Row = dict[str, str | None]
+
+#: Which query each canned result set answers, by a fragment of the statement.
+_FRAGMENTS = {
+    "tables": "information_schema.tables",
+    "columns": "information_schema.columns",
+    "tags": "information_schema.table_tags",
+    "constraints": "information_schema.table_constraints",
+    "keys": "information_schema.key_column_usage",
+    "detail": "DESCRIBE DETAIL",
+    "history": "DESCRIBE HISTORY",
+}
+
+
+class FakeRunner:
+    """A `SqlRunner` that answers by matching a fragment of the statement."""
+
+    def __init__(self, responses: dict[str, tuple[Row, ...]]) -> None:
+        self.responses = responses
+        self.statements: list[str] = []
+
+    def query(self, statement: str) -> tuple[Row, ...]:
+        self.statements.append(statement)
+        for fragment, rows in self.responses.items():
+            if fragment in statement:
+                return rows
+        return ()
+
+
+def fake_runner(**rows: tuple[Row, ...]) -> FakeRunner:
+    """`fake_runner(tables=..., columns=..., detail=...)` — see `_FRAGMENTS`."""
+    unknown = set(rows) - set(_FRAGMENTS)
+    if unknown:
+        raise ValueError(f"no query fragment for {sorted(unknown)}")
+    return FakeRunner(
+        {fragment: rows.get(key, ()) for key, fragment in _FRAGMENTS.items()}
+    )

@@ -16,38 +16,14 @@ from deltaplan.introspect import (
 from deltaplan.model.table import Check, PrimaryKey
 from deltaplan.model.types import Primitive, render_type
 from deltaplan.sql import normalise_expression
-from helpers import col, table
+from helpers import col, fake_runner, table
 
 CATALOG = "main"
 SCHEMA = "sales"
 
 
-class FakeRunner:
-    """Answers queries by matching a fragment of the statement."""
-
-    def __init__(self, responses: dict[str, tuple[Row, ...]]) -> None:
-        self.responses = responses
-        self.statements: list[str] = []
-
-    def query(self, statement: str) -> tuple[Row, ...]:
-        self.statements.append(statement)
-        for fragment, rows in self.responses.items():
-            if fragment in statement:
-                return rows
-        return ()
-
-
 def live_schema(**responses: tuple[Row, ...]) -> LiveSchema:
-    lookup = {
-        "information_schema.tables": responses.get("tables", ()),
-        "information_schema.columns": responses.get("columns", ()),
-        "information_schema.table_tags": responses.get("tags", ()),
-        "information_schema.table_constraints": responses.get("constraints", ()),
-        "information_schema.key_column_usage": responses.get("keys", ()),
-        "DESCRIBE DETAIL": responses.get("detail", ()),
-        "DESCRIBE HISTORY": responses.get("history", ()),
-    }
-    return Introspector(FakeRunner(lookup)).schema(CATALOG, SCHEMA)
+    return Introspector(fake_runner(**responses)).schema(CATALOG, SCHEMA)
 
 
 ORDERS_TABLE: tuple[Row, ...] = (
@@ -244,13 +220,13 @@ def test_an_introspected_table_diffs_clean_against_its_spec() -> None:
 
 
 def test_latest_version() -> None:
-    runner = FakeRunner({"DESCRIBE HISTORY": ({"version": "17"},)})
+    runner = fake_runner(history=({"version": "17"},))
     assert Introspector(runner).latest_version("main.sales.orders") == 17
     assert "DESCRIBE HISTORY `main`.`sales`.`orders` LIMIT 1" in runner.statements[0]
 
 
 def test_names_are_quoted_and_filters_are_literals() -> None:
-    runner = FakeRunner({})
+    runner = fake_runner()
     Introspector(runner).schema("odd catalog", "odd'schema")
     statements = " ".join(runner.statements)
     assert "`odd catalog`.information_schema" in statements

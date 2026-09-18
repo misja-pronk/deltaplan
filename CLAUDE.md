@@ -51,9 +51,20 @@ uv run ty check
 `mise tasks` lists the rest. Docs: `mise run docs` (mkdocs-material, published to
 Pages). Releases are version-driven from `pyproject.toml` — see CONTRIBUTING.md.
 
-## Milestone 1 (read-only) — do in this order
+## Milestone 1 (read-only) — done
 
-Item 1 is done. Note the one deliberate change: `ty`, not pyright.
+All eight items are built, lint/type/test clean, with golden plans in
+`tests/snapshots/` and a live suite in `tests/integration/`. Deliberate
+departures from this document, each explained in the commit that made it:
+`ty` instead of pyright; a hand-written validator in the loader rather than
+Pydantic/msgspec, so errors carry file:line:column; `deltaplan.yml` invented for
+the project/target config; nested YAML types extended from struct to array and
+map; `sql.py` added for `quote_ident()`; foreign keys rejected rather than
+modelled; rewrites classified but not generated (milestone 3); the Markdown
+renderer deferred to milestone 4.
+
+Next up is **milestone 2 (apply)**: executor, history, locking, fingerprint
+check, resume.
 
 1. ~~Scaffold: `pyproject.toml` (uv, src layout, Apache-2.0), ruff, ty, pytest, GitHub Actions for lint + unit tests, README stub, move `DESIGN.md` to `docs/`.~~ **Done.**
 2. `model/types.py` + `typeparser.py`: type tree and parser for Databricks type strings incl. nested struct/array/map, decimal, backticked field names, `NOT NULL` and comments inside structs. Round-trip tests.

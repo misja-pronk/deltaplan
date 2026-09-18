@@ -20,7 +20,13 @@ from typing import Literal, TypeAlias
 import yaml
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
-from deltaplan.model.table import Check, Constraint, PrimaryKey, Table
+from deltaplan.model.table import (
+    MANAGED_PROPERTY,
+    Check,
+    Constraint,
+    PrimaryKey,
+    Table,
+)
 from deltaplan.model.types import (
     Array,
     Column,
@@ -29,6 +35,7 @@ from deltaplan.model.types import (
     Map,
     Primitive,
     Struct,
+    render_type,
 )
 from deltaplan.typeparser import TypeParseError, parse_type
 
@@ -621,3 +628,65 @@ def _lint_field(
             _lint_field(Field("value", value), f"{path}.value", table, error, warn)
         case _:
             pass
+
+
+# ---------------------------------------------------------------------------
+# writing specs back out (the inverse of `load_table`, kept next to it)
+# ---------------------------------------------------------------------------
+
+
+def dump_spec(table: Table, *, catalog_variable: str | None = None) -> str:
+    """Render a table as a spec file, the way `import` writes it.
+
+    Types are written in the string notation, which carries nested comments and
+    nullability, so the result round-trips through `load_table` unchanged.
+    `catalog_variable` puts the catalog back behind a `${var}`, so one imported
+    spec serves every target.
+    """
+    name = table.name
+    if catalog_variable:
+        _, _, rest = name.partition(".")
+        name = f"${{{catalog_variable}}}.{rest}"
+
+    document: dict[str, object] = {"table": name}
+    if table.comment is not None:
+        document["comment"] = table.comment
+    if table.cluster_by:
+        document["cluster_by"] = list(table.cluster_by)
+    if table.tags:
+        document["tags"] = dict(table.tags)
+    properties = {
+        key: value for key, value in table.properties if key != MANAGED_PROPERTY
+    }
+    if properties:
+        document["properties"] = properties
+    document["columns"] = [_column_document(column) for column in table.columns]
+    constraints = [
+        constraint
+        for constraint in (_constraint_document(c) for c in table.constraints)
+        if constraint is not None
+    ]
+    if constraints:
+        document["constraints"] = constraints
+
+    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False, width=100)
+
+
+def _column_document(column: Field) -> dict[str, object]:
+    rendered: dict[str, object] = {"name": column.name, "type": render_type(column.type)}
+    if not column.nullable:
+        rendered["nullable"] = False
+    if column.comment is not None:
+        rendered["comment"] = column.comment
+    return rendered
+
+
+def _constraint_document(constraint: Constraint) -> dict[str, object] | None:
+    if isinstance(constraint, PrimaryKey):
+        body: dict[str, object] = {"columns": list(constraint.columns)}
+        if constraint.name:
+            body["name"] = constraint.name
+        return {"primary_key": body}
+    if isinstance(constraint, Check):
+        return {"check": {"name": constraint.name, "expression": constraint.expression}}
+    return None  # pragma: no cover - the union has no third member

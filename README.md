@@ -11,8 +11,9 @@ then apply it.
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-> **Status: pre-alpha.** Milestone 1 (read-only: `validate`, `import`, `plan`) is under
-> construction. Nothing here writes to a workspace yet.
+> **Status: pre-alpha.** The read-only milestone works — `validate`, `import` and
+> `plan`. `apply`, `drift` and `force-unlock` are designed but not built, so nothing
+> here writes to a workspace yet.
 
 **[Read the docs →](https://misja-pronk.github.io/deltaplan/)** — the spec format, the
 commands, and the safety model. [`docs/DESIGN.md`](docs/DESIGN.md) is the source of truth.
@@ -73,11 +74,13 @@ Plan: 0 add, 1 change, 0 destroy · 6 steps · 0 rewrites · 1 warning
 ## Commands
 
 ```sh
-deltaplan validate            # spec lint, no connection needed
-deltaplan import <schema>     # live tables -> YAML specs
-deltaplan plan -t <target> [-o plan.json] [--format rich|md|json]
+deltaplan validate -t dev             # spec lint, no connection needed
+deltaplan import main.sales -o tables # live tables -> YAML specs
+deltaplan plan -t dev [-o plan.json] [--format rich|json]
+
+# designed, not built yet
 deltaplan apply plan.json [--allow-destructive]
-deltaplan drift -t <target>   # exit code != 0 on drift, for CI
+deltaplan drift -t dev                # exit code != 0 on drift, for CI
 deltaplan force-unlock
 ```
 

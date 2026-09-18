@@ -113,6 +113,9 @@ class Plan:
     state_fingerprint: str
     diffs: tuple[TableDiff, ...] = ()
     steps: tuple[Step, ...] = ()
+    #: Live tables in the schemas we looked at that no spec describes. Reported
+    #: so you know they are there; never touched.
+    unmanaged_tables: tuple[str, ...] = ()
 
     @property
     def changes(self) -> tuple[Change, ...]:

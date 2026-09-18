@@ -65,6 +65,19 @@ def render_plan(plan: Plan, console: Console) -> None:
 
     if not printed:
         console.print(Text("No changes. Live tables match your specs.", style="green"))
+    if plan.unmanaged_tables:
+        console.print()
+        console.print(
+            Text(
+                f"{len(plan.unmanaged_tables)} unmanaged "
+                f"{'table' if len(plan.unmanaged_tables) == 1 else 'tables'} "
+                "in these schemas, left untouched:",
+                style="dim",
+            )
+        )
+        for name in plan.unmanaged_tables:
+            console.print(Text(f"  · {name}", style="dim"))
+    if not printed:
         return
     console.print()
     console.print(Text(str(plan.summary), style="bold"))

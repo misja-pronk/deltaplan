@@ -18,7 +18,7 @@ Two rules shape everything here:
 from __future__ import annotations
 
 from deltaplan.model.change import Change
-from deltaplan.model.table import PrimaryKey, Table
+from deltaplan.model.table import MANAGED_PROPERTY, PrimaryKey, Table
 from deltaplan.model.types import Array, DataType, Field, Map, Struct, type_kind
 from deltaplan.sql import normalise_expression
 
@@ -29,6 +29,11 @@ _BOOKKEEPING_PROPERTIES = frozenset(
         "delta.columnMapping.maxColumnId",
         "delta.minReaderVersion",
         "delta.minWriterVersion",
+        # deltaplan's own ownership marker. A spec never writes it, and reporting
+        # it as unmanaged would be reporting ourselves.
+        # TODO(milestone 2): `apply` claims ownership by setting it on tables
+        # that came from `import`.
+        MANAGED_PROPERTY,
     }
 )
 
