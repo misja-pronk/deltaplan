@@ -123,6 +123,21 @@ exactly what sqlglot parses into structure — never hand-parse around sqlglot t
 add a feature to SQL; add it to YAML and mark it `—` for SQL in `FEATURES`.
 Every row of `FEATURES` is a test, and `docs/formats.md` is generated from it.
 
+**Also since:** schemas and managed volumes as specs (`model/schema.py`,
+`model/volume.py` — never dropped: nothing marks them as deltaplan's, and a
+dropped volume loses its files); `spec_schema.py`, the editors' JSON Schema,
+built from the loader's key sets (every accepted key set is a named constant
+in `loader.py` — add keys there, never inline); `ddl.py`, which reads column
+details from `SHOW CREATE TABLE` because `information_schema.columns` doesn't
+report identity, generation or defaults on a live workspace. Introspection
+reads only described tables in full and runs per-table queries in parallel.
+
+**Live verification is done by hand** (`uv run pytest -m integration` with the
+workspace env; see memory for its details). Run it from a separate `git
+worktree` of the commit under test — editing files mid-run mixes old and new
+modules. Before building on a Databricks behaviour, probe it on the workspace
+in a throwaway `deltaplan_probe_*` schema and drop the schema after.
+
 What remains is verification, not construction: nothing has run against a real
 workspace. Every `TODO(verify)` in `src/` names an assumption the live suite in
 `tests/integration/` is written to settle — run it (`uv run pytest -m
