@@ -63,8 +63,25 @@ map; `sql.py` added for `quote_ident()`; foreign keys rejected rather than
 modelled; rewrites classified but not generated (milestone 3); the Markdown
 renderer deferred to milestone 4.
 
-Next up is **milestone 2 (apply)**: executor, history, locking, fingerprint
-check, resume.
+**Milestone 2 (apply) is done too**: `executor.py`, `history.py` (the design's
+runs/steps/lock tables), `apply` and `force-unlock`. Two more departures worth
+knowing: the design's per-step precheck/postcheck queries are replaced by
+`differ.is_applied()`, which asks the *model* whether a change is already true
+of the live table — it reuses tested code instead of inventing SQL we cannot
+verify (`precheck` survives as a precondition guard, e.g. SET NOT NULL); and
+`history.py` is a new module the layout above doesn't list, because putting the
+history tables inside `executor.py` would have made one file do two jobs.
+
+Testing without a workspace: `tests/fake_warehouse.py` is an in-memory catalog
+that interprets deltaplan's own SQL, so plan → apply → re-plan can be asserted
+offline for every change kind. It proves our SQL matches our intent; only
+`tests/integration/` proves Databricks agrees. Read `docs/testing.md` before
+adding a test, and keep the fake's `FakeSqlError` loud — a statement shape it
+doesn't know must fail, not pass.
+
+Next up is **milestone 3 (feature + rewrite)**: rewrites (`CREATE OR REPLACE
+TABLE … AS SELECT`), restore points, `SHALLOW CLONE`, and claiming ownership of
+imported tables on first apply.
 
 1. ~~Scaffold: `pyproject.toml` (uv, src layout, Apache-2.0), ruff, ty, pytest, GitHub Actions for lint + unit tests, README stub, move `DESIGN.md` to `docs/`.~~ **Done.**
 2. `model/types.py` + `typeparser.py`: type tree and parser for Databricks type strings incl. nested struct/array/map, decimal, backticked field names, `NOT NULL` and comments inside structs. Round-trip tests.

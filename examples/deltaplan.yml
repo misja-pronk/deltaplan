@@ -6,7 +6,8 @@ version: 1
 # searched recursively for *.yml / *.yaml.
 specs: [tables]
 
-# Where `apply` will keep its run history and lock (milestone 2).
+# Where `apply` keeps its run history and lock. The schema must exist;
+# deltaplan creates the three tables inside it on first use.
 history_schema: main.deltaplan
 
 targets:
@@ -19,6 +20,6 @@ targets:
   prod:
     vars:
       catalog: prod
-    # `additive` (the default) never drops anything. `strict` lets deltaplan
-    # drop tables it created once `apply` lands.
+    # `additive` (the default) never drops anything. `strict` will let deltaplan
+    # drop tables it created.
     mode: additive

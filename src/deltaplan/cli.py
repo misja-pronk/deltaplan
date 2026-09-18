@@ -15,6 +15,8 @@ import typer
 from rich.console import Console
 
 from deltaplan.differ import diff, unmanaged
+from deltaplan.executor import ExecutionError, ExecutionResult, Executor
+from deltaplan.history import DeltaHistory, HistoryStore, Status
 from deltaplan.introspect import (
     IntrospectionError,
     Introspector,
@@ -35,11 +37,13 @@ from deltaplan.loader import (
     spec_files,
     validate_table,
 )
-from deltaplan.model.plan import Plan, TableDiff, TableFacts, fingerprint
+from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts, fingerprint
 from deltaplan.model.table import Table
 from deltaplan.planner import build_plan
+from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_json
-from deltaplan.render.rich import plan_text, render_plan
+from deltaplan.render.json import loads as plan_loads
+from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, plan_text, render_plan
 
 app = typer.Typer(
     name="deltaplan",
@@ -328,6 +332,136 @@ def _plan(
         state_fingerprint=fingerprint(live_tables),
     )
     return replace(built, unmanaged_tables=live_only)
+
+
+# ---------------------------------------------------------------------------
+# apply
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def apply(
+    plan_file: Annotated[
+        Path, typer.Argument(help="A plan written by `deltaplan plan`.")
+    ],
+    allow_destructive: Annotated[
+        bool,
+        typer.Option("--allow-destructive", help="Permit steps that drop something."),
+    ] = False,
+    config: Annotated[
+        Path | None, typer.Option("--config", "-c", help="Path to deltaplan.yml.")
+    ] = None,
+    warehouse_id: Annotated[
+        str | None, typer.Option("--warehouse-id", help="SQL warehouse to run on.")
+    ] = None,
+) -> None:
+    """Run a plan. Resumes an interrupted one instead of starting over."""
+    built = _read_plan(plan_file)
+    project = _project(config)
+    target = _target(project, built.target)
+    runner = _warehouse(warehouse_id, target)
+    history = _history(project, runner)
+
+    out.print(
+        f"[bold]{built.target}[/] · {len(built.steps)} step(s) · "
+        f"highest risk [{RISK_STYLE[built.highest_risk]}]{built.highest_risk}[/]"
+    )
+
+    executor = Executor(
+        runner=runner,
+        introspector=Introspector(runner),
+        history=history,
+        observer=_show_step,
+    )
+    try:
+        result = executor.apply(built, allow_destructive=allow_destructive)
+    except ExecutionError as error:
+        err.print(f"[red]{error}[/]")
+        raise typer.Exit(1) from error
+
+    _report(result, built, plan_file)
+    if not result.ok:
+        raise typer.Exit(1)
+
+
+def _show_step(step: Step, status: Status, note: str | None) -> None:
+    colour = {"succeeded": "green", "skipped": "dim", "failed": "red"}[status]
+    label = {"succeeded": "ok", "skipped": "skipped", "failed": "failed"}[status]
+    line = (
+        f"  [dim]{step.id}.[/] {step.title.ljust(TITLE_WIDTH)} "
+        f"[{RISK_STYLE[step.risk]}][{step.risk}][/] [{colour}]{label}[/]"
+    )
+    if status == "skipped" and note:
+        line += f" [dim]({note})[/]"
+    out.print(line)
+    if status == "failed" and note:
+        err.print(f"     [red]{note}[/]")
+
+
+def _report(result: ExecutionResult, built: Plan, plan_file: Path) -> None:
+    ran, skipped = len(result.ran), len(result.skipped)
+    if result.ok:
+        out.print(
+            f"\n[green]Applied[/] {ran} step(s), skipped {skipped} · run "
+            f"[bold]{result.run_id}[/]"
+        )
+        return
+    err.print(
+        f"\n[red]Failed at step {result.failed} of {len(built.steps)}[/] · run "
+        f"[bold]{result.run_id}[/]\n"
+        f"Fix the cause and run `deltaplan apply {plan_file}` again — it resumes "
+        "from here rather than starting over."
+    )
+
+
+# ---------------------------------------------------------------------------
+# force-unlock
+# ---------------------------------------------------------------------------
+
+
+@app.command("force-unlock")
+def force_unlock(
+    target: Annotated[
+        str | None, typer.Option("--target", "-t", help="Which target to unlock.")
+    ] = None,
+    config: Annotated[
+        Path | None, typer.Option("--config", "-c", help="Path to deltaplan.yml.")
+    ] = None,
+    warehouse_id: Annotated[
+        str | None, typer.Option("--warehouse-id", help="SQL warehouse to run on.")
+    ] = None,
+) -> None:
+    """Release the apply lock after a run died holding it."""
+    project = _project(config)
+    chosen = _target(project, target)
+    runner = _warehouse(warehouse_id, chosen)
+    holder = _history(project, runner).force_unlock(chosen.name)
+    if holder is None:
+        out.print(f"[green]{chosen.name} was not locked.[/]")
+        return
+    out.print(f"[yellow]Released[/] {chosen.name}, which run [bold]{holder}[/] held.")
+
+
+def _read_plan(path: Path) -> Plan:
+    try:
+        return plan_loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        err.print(f"[red]cannot read {path}: {error}[/]")
+        raise typer.Exit(1) from error
+    except PlanFileError as error:
+        err.print(f"[red]{path}: {error}[/]")
+        raise typer.Exit(1) from error
+
+
+def _history(project: Project, runner: WarehouseRunner) -> HistoryStore:
+    if not project.history_schema:
+        err.print(
+            "[red]No history_schema in deltaplan.yml. `apply` records every run "
+            "in Delta tables; tell it which schema to keep them in, e.g.\n"
+            "  history_schema: main.deltaplan[/]"
+        )
+        raise typer.Exit(1)
+    return DeltaHistory(runner, project.history_schema)
 
 
 # ---------------------------------------------------------------------------

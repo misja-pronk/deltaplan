@@ -220,7 +220,8 @@ def test_adding_a_not_null_column_is_two_steps_and_says_why() -> None:
         "backfilled",
     )
     assert plan.steps[1].precheck == (
-        "SELECT count(*) AS nulls FROM `main`.`sales`.`orders` WHERE `region` IS NULL"
+        "SELECT count(*) > 0 AS blocked FROM `main`.`sales`.`orders` "
+        "WHERE `region` IS NULL"
     )
 
 

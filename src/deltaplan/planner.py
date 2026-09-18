@@ -24,7 +24,9 @@ from collections.abc import Sequence
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Risk, Step, TableDiff, TableFacts
 from deltaplan.model.table import (
+    COLUMN_MAPPING_PROPERTY,
     MANAGED_PROPERTY,
+    TYPE_WIDENING_PROPERTY,
     Check,
     PrimaryKey,
     Table,
@@ -38,9 +40,6 @@ from deltaplan.model.types import (
     render_type,
 )
 from deltaplan.sql import quote_ident, quote_literal, quote_qualified
-
-COLUMN_MAPPING_PROPERTY = "delta.columnMapping.mode"
-TYPE_WIDENING_PROPERTY = "delta.enableTypeWidening"
 
 STREAMING_WARNING = "breaks streaming readers — they must be restarted from scratch"
 IRREVERSIBLE_NOTE = "column mapping cannot be turned off again"
@@ -426,8 +425,10 @@ class _Planner:
                 f"ALTER TABLE {table} ALTER COLUMN "
                 f"{column_path_sql(change.path)} SET NOT NULL"
             ),
+            # Databricks would reject the ALTER anyway; asking first turns a raw
+            # SQL error into deltaplan's own warning.
             precheck=(
-                f"SELECT count(*) AS nulls FROM {table} "
+                f"SELECT count(*) > 0 AS blocked FROM {table} "
                 f"WHERE {column_path_sql(change.path)} IS NULL"
             ),
             warnings=warnings,

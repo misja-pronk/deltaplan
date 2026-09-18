@@ -1,7 +1,12 @@
-"""The plan as JSON: the artefact `apply` consumes and CI diffs.
+"""The plan file format: the artefact `apply` consumes and CI diffs.
 
-Model objects become plain data here — types render back to Databricks type
-strings, so a plan file is readable without deltaplan to hand.
+Both directions live here, so the writer and the reader can't drift apart. Model
+objects become plain data — types render back to Databricks type strings — and
+come back as the same objects, which a round-trip test asserts.
+
+Every planned table is written out, including the ones with no changes: `apply`
+recomputes the state fingerprint over exactly the tables that went into it, in
+the same order, and a missing entry would make a valid plan look stale.
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
 from deltaplan.model.table import Check, PrimaryKey, Table
 from deltaplan.model.types import Field, as_data_type, render_type
+from deltaplan.typeparser import parse_type
 
 #: Bumped when the shape below changes in a way `apply` has to know about.
 PLAN_FORMAT_VERSION = 1
@@ -36,7 +42,7 @@ def plan_to_dict(plan: Plan) -> dict[str, Any]:
             "highest_risk": plan.highest_risk,
         },
         "unmanaged_tables": list(plan.unmanaged_tables),
-        "tables": [_diff_to_dict(diff) for diff in plan.diffs if diff.changes],
+        "tables": [_diff_to_dict(diff) for diff in plan.diffs],
         "steps": [_step_to_dict(step) for step in plan.steps],
     }
 
@@ -134,3 +140,139 @@ def _table_to_dict(table: Table) -> dict[str, Any]:
         "columns": [_field_to_dict(column) for column in table.columns],
         "constraints": [_value(constraint) for constraint in table.constraints],
     }
+
+
+# ---------------------------------------------------------------------------
+# reading a plan file back
+# ---------------------------------------------------------------------------
+
+
+class PlanFileError(Exception):
+    """A plan file deltaplan can't read."""
+
+
+def loads(text: str) -> Plan:
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise PlanFileError(f"not valid JSON: {error}") from error
+    if not isinstance(document, dict):
+        raise PlanFileError("a plan file is a JSON object")
+    return plan_from_dict(document)
+
+
+def plan_from_dict(document: dict[str, Any]) -> Plan:
+    version = document.get("format_version")
+    if version != PLAN_FORMAT_VERSION:
+        raise PlanFileError(
+            f"plan format version {version!r} — this deltaplan writes and reads "
+            f"version {PLAN_FORMAT_VERSION}. Re-run `deltaplan plan`."
+        )
+    try:
+        return Plan(
+            tool_version=str(document["tool_version"]),
+            target=str(document["target"]),
+            spec_hash=str(document["spec_hash"]),
+            state_fingerprint=str(document["state_fingerprint"]),
+            diffs=tuple(_diff_from_dict(entry) for entry in document["tables"]),
+            steps=tuple(_step_from_dict(entry) for entry in document["steps"]),
+            unmanaged_tables=tuple(document.get("unmanaged_tables", ())),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise PlanFileError(f"malformed plan file: {error}") from error
+
+
+def _diff_from_dict(entry: dict[str, Any]) -> TableDiff:
+    table = str(entry["table"])
+    facts = entry.get("facts", {})
+    return TableDiff(
+        table=table,
+        changes=tuple(_change_from_dict(table, c) for c in entry.get("changes", ())),
+        facts=TableFacts(
+            table,
+            exists=bool(facts.get("exists", True)),
+            properties=tuple(sorted(facts.get("properties", {}).items())),
+            size_bytes=facts.get("size_bytes"),
+            delta_version=facts.get("delta_version"),
+        ),
+        unmanaged=tuple(entry.get("unmanaged", ())),
+    )
+
+
+def _step_from_dict(entry: dict[str, Any]) -> Step:
+    return Step(
+        id=int(entry["id"]),
+        table=str(entry["table"]),
+        title=str(entry["title"]),
+        risk=entry["risk"],
+        change=int(entry.get("change", -1)),
+        path=str(entry.get("path", "")),
+        sql=entry.get("sql"),
+        precheck=entry.get("precheck"),
+        postcheck=entry.get("postcheck"),
+        est_bytes=entry.get("est_bytes"),
+        undo_hint=entry.get("undo_hint"),
+        warnings=tuple(entry.get("warnings", ())),
+        note=entry.get("note"),
+    )
+
+
+def _change_from_dict(table: str, entry: dict[str, Any]) -> Change:
+    kind = entry["kind"]
+    return Change(
+        table=table,
+        kind=kind,
+        path=str(entry.get("path", "")),
+        before=_value_from(kind, entry.get("before")),
+        after=_value_from(kind, entry.get("after")),
+    )
+
+
+def _value_from(kind: str, raw: Any) -> Any:
+    """Rebuild what a change carries. The kind says how to read it."""
+    if raw is None:
+        return None
+    match kind:
+        case "create_table":
+            return _table_from_dict(raw)
+        case "add_column" | "drop_column":
+            return _field_from_dict(raw)
+        case "change_type":
+            return parse_type(str(raw))
+        case "add_constraint" | "drop_constraint":
+            return _constraint_from_dict(raw)
+        case "set_cluster_by" | "reorder_columns":
+            return tuple(str(item) for item in raw)
+        case _:
+            return raw
+
+
+def _field_from_dict(entry: dict[str, Any]) -> Field:
+    return Field(
+        str(entry["name"]),
+        parse_type(str(entry["type"])),
+        nullable=bool(entry.get("nullable", True)),
+        comment=entry.get("comment"),
+    )
+
+
+def _constraint_from_dict(entry: dict[str, Any]) -> PrimaryKey | Check:
+    if "primary_key" in entry:
+        body = entry["primary_key"]
+        return PrimaryKey(tuple(body["columns"]), body.get("name"))
+    body = entry["check"]
+    return Check(str(body["name"]), str(body["expression"]))
+
+
+def _table_from_dict(entry: dict[str, Any]) -> Table:
+    return Table(
+        name=str(entry["table"]),
+        columns=tuple(_field_from_dict(column) for column in entry["columns"]),
+        comment=entry.get("comment"),
+        cluster_by=tuple(entry.get("cluster_by", ())),
+        properties=tuple(sorted(entry.get("properties", {}).items())),
+        tags=tuple(sorted(entry.get("tags", {}).items())),
+        constraints=tuple(
+            _constraint_from_dict(item) for item in entry.get("constraints", ())
+        ),
+    )

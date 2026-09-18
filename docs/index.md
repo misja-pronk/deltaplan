@@ -3,9 +3,10 @@
 Declarative, Terraform-style `plan` / `apply` for Databricks SQL tables — Unity Catalog and Delta.
 
 !!! warning "Pre-alpha"
-    The read-only milestone works: `validate`, `import` and `plan`. `apply`, `drift`
-    and `force-unlock` are designed but not built, so nothing here writes to a
-    workspace. [DESIGN.md](DESIGN.md) is the source of truth for the rest.
+    `validate`, `import`, `plan`, `apply` and `force-unlock` work. `apply` runs
+    metadata and table-feature steps; rewrites are classified but not generated yet,
+    and a plan that needs one is refused rather than half-applied. `drift` is still to
+    come. [DESIGN.md](DESIGN.md) is the source of truth for the rest.
 
 Describe the tables you want in YAML, diff that against live Unity Catalog, review a
 plan, then apply it. deltaplan knows which Delta changes are metadata-only, which need

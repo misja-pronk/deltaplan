@@ -1,0 +1,52 @@
+# serializer version: 1
+# name: test_acquiring_the_lock
+  '''
+  MERGE INTO `main`.`deltaplan`.`lock` AS held USING (SELECT 'prod' AS id) AS candidate ON held.id = candidate.id WHEN NOT MATCHED THEN INSERT (id, holder) VALUES (candidate.id, NULL)
+  
+  UPDATE `main`.`deltaplan`.`lock` SET holder = 'run1', acquired_at = current_timestamp(), expires_at = current_timestamp() + INTERVAL 60 MINUTES WHERE id = 'prod' AND (holder IS NULL OR expires_at < current_timestamp())
+  
+  SELECT holder FROM `main`.`deltaplan`.`lock` WHERE id = 'prod'
+  '''
+# ---
+# name: test_ensure_creates_three_tables
+  '''
+  CREATE TABLE IF NOT EXISTS `main`.`deltaplan`.`runs` (
+    `run_id` STRING,
+    `plan_hash` STRING,
+    `target` STRING,
+    `user` STRING,
+    `tool_version` STRING,
+    `status` STRING,
+    `started_at` TIMESTAMP,
+    `ended_at` TIMESTAMP
+  ) USING DELTA
+  
+  CREATE TABLE IF NOT EXISTS `main`.`deltaplan`.`steps` (
+    `run_id` STRING,
+    `step_id` BIGINT,
+    `table_name` STRING,
+    `sql` STRING,
+    `status` STRING,
+    `started_at` TIMESTAMP,
+    `ended_at` TIMESTAMP,
+    `error` STRING,
+    `delta_version_before` BIGINT
+  ) USING DELTA
+  
+  CREATE TABLE IF NOT EXISTS `main`.`deltaplan`.`lock` (
+    `id` STRING,
+    `holder` STRING,
+    `acquired_at` TIMESTAMP,
+    `expires_at` TIMESTAMP
+  ) USING DELTA
+  '''
+# ---
+# name: test_run_and_step_records
+  '''
+  INSERT INTO `main`.`deltaplan`.`runs` SELECT 'run1', 'spec:live', 'prod', current_user(), '0.1.0', 'running', current_timestamp(), CAST(NULL AS TIMESTAMP)
+  
+  INSERT INTO `main`.`deltaplan`.`steps` SELECT 'run1', 6, 'main.sales.orders', 'ALTER TABLE `main`.`sales`.`orders` DROP COLUMN `legacy_flag`', 'failed', current_timestamp(), current_timestamp(), 'it''s fine, I said it''s fine', 17
+  
+  UPDATE `main`.`deltaplan`.`runs` SET status = 'failed', ended_at = current_timestamp() WHERE run_id = 'run1'
+  '''
+# ---

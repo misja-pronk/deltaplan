@@ -66,11 +66,21 @@ House rules worth repeating:
 
 ## Tests
 
-- `tests/unit/` — differ and planner against golden plan snapshots (syrupy). Fast,
-  offline, and the bar for every PR.
-- `tests/integration/` — marked `@pytest.mark.integration`, skipped without
-  credentials, and run nightly against a real workspace in an ephemeral schema.
-- Every discovered Databricks limitation becomes a test.
+Three layers, each honest about what it proves:
+
+1. **Unit tests** (`tests/unit/`) — the pure middle of the pipeline, with golden plans
+   in `tests/snapshots/`.
+2. **Convergence against a fake warehouse** (`tests/fake_warehouse.py`) — an in-memory
+   catalog that interprets the statements the planner generates, so `plan → apply →
+   re-plan is empty` can be asserted offline, for every kind of change. It proves our
+   SQL means what our changes mean; it cannot prove Databricks accepts it.
+3. **Integration tests** (`tests/integration/`) — marked `@pytest.mark.integration`,
+   skipped without credentials, run nightly against a real workspace in an ephemeral
+   schema. The only source of truth about Databricks.
+
+Every discovered Databricks limitation becomes a test in layer 3, with a link to the
+documentation in its docstring. There is a fuller description in
+[docs/testing.md](docs/testing.md).
 
 ## Commits & PRs
 

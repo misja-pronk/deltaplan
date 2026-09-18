@@ -8,6 +8,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Milestone 2 (apply) is complete**: `deltaplan apply plan.json` and
+  `deltaplan force-unlock`.
+- Executor with the design's four promises: a fresh run refuses a stale plan
+  (recomputed state fingerprint), steps are skipped when the change they
+  implement is already true of the live table, a failed run resumes from the
+  history table instead of starting over, and a lock row per target keeps two
+  applies apart. A restore point is recorded before every destructive step.
+- Run history in Delta tables (`runs`, `steps`, `lock`) in the schema named by
+  `history_schema`, created on first use.
+- The plan file is now read as well as written, so `apply` consumes exactly what
+  `plan` produced — asserted by a round-trip test.
+- A fake warehouse (`tests/fake_warehouse.py`) that interprets deltaplan's own
+  SQL against in-memory models, so `plan → apply → re-plan is empty` is asserted
+  offline for every kind of change. See [docs/testing.md](docs/testing.md).
+
+### Fixed
+
+- The table features deltaplan enables itself as prerequisites
+  (`delta.columnMapping.mode`, `delta.enableTypeWidening`) are no longer reported
+  back as unmanaged properties after an apply.
+
+## [0.1.0 — milestone 1]
+
+### Added
+
 - **Milestone 1 (read-only) is complete**: `validate`, `import` and `plan`.
 - Type tree and parser for Databricks type strings, including nested
   struct/array/map, decimals, backticked field names, and `not null` / `comment`

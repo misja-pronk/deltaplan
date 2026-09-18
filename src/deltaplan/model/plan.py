@@ -44,7 +44,12 @@ class Step:
     change: int = -1
     path: str = ""
     sql: str | None = None
+    #: A query returning one row with one boolean column `blocked`. When it comes
+    #: back true the step is refused before it runs, with its `warnings` as the
+    #: explanation — a precondition the statement itself would only fail on.
     precheck: str | None = None
+    #: A query returning one row with one boolean column `ok`. False means the
+    #: statement ran but didn't take, which fails the run.
     postcheck: str | None = None
     est_bytes: int | None = None
     undo_hint: str | None = None

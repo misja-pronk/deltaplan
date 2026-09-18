@@ -39,8 +39,11 @@ Prerequisites are steps, not side effects: if a rename needs column mapping, you
 DDL is not transactional across statements, so deltaplan makes no rollback promise. It
 makes narrower ones instead:
 
-- **Idempotent steps.** Each has a precheck and a postcheck, so re-running is safe.
-- **Resume, don't restart.** `apply` picks up from the history table.
+- **Idempotent steps.** Before each step, deltaplan asks whether the change it implements
+  is already true of the live table, and skips it if so — so a repeated run is a no-op
+  rather than an error.
+- **Resume, don't restart.** Every step's outcome goes to the history table, and the next
+  `apply` of the same plan continues from where it stopped.
 - **A restore point before every rewrite.** The Delta version is recorded first
   (`delta_version_before`), so `RESTORE` is one command. A `SHALLOW CLONE` is optional.
 - **No stale applies.** The state fingerprint is recomputed at apply time; if the world

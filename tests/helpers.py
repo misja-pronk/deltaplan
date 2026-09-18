@@ -1,8 +1,10 @@
 """Small builders, so tests read as tables rather than as constructor calls."""
 
+from deltaplan.model.plan import Plan
 from deltaplan.model.table import Constraint, Table
 from deltaplan.model.types import Column, Field
 from deltaplan.typeparser import parse_type
+from fake_warehouse import FakeWarehouse
 
 
 def col(
@@ -79,3 +81,55 @@ def fake_runner(**rows: tuple[Row, ...]) -> FakeRunner:
     return FakeRunner(
         {fragment: rows.get(key, ()) for key, fragment in _FRAGMENTS.items()}
     )
+
+
+def plan_against(
+    desired: Table,
+    live: Table | None = None,
+    *,
+    check_order: bool = False,
+    size_bytes: int | None = None,
+) -> tuple[FakeWarehouse, Plan]:
+    """Introspect a fake warehouse, diff a spec against it, and plan.
+
+    The same shape as the CLI's pipeline and the integration suite's, so an
+    offline test and a live one assert the same thing.
+    """
+    from deltaplan.differ import diff, unmanaged
+    from deltaplan.introspect import Introspector
+    from deltaplan.model.plan import TableDiff, TableFacts
+    from deltaplan.planner import build_plan
+
+    fake = FakeWarehouse.of(
+        *((live,) if live is not None else ()),
+        sizes={live.name: size_bytes} if live is not None and size_bytes else {},
+    )
+    found = Introspector(fake).table(desired.name)
+    live_now = found.table if found else None
+    return fake, build_plan(
+        [
+            TableDiff(
+                desired.name,
+                diff(desired, live_now, compare_order=check_order),
+                TableFacts(
+                    desired.name,
+                    exists=live_now is not None,
+                    properties=live_now.properties if live_now else (),
+                    size_bytes=found.size_bytes if found else None,
+                ),
+                unmanaged(desired, live_now) if live_now else (),
+            )
+        ],
+        target="test",
+        tool_version="0.1.0",
+        spec_hash="spec",
+        state_fingerprint="live",
+    )
+
+
+def run(plan: Plan, fake: FakeWarehouse) -> None:
+    """Run every statement in a plan against the fake, in order."""
+    for step in plan.steps:
+        if step.sql is None:
+            raise AssertionError(f"step {step.id} ({step.title}) has no SQL")
+        fake.query(step.sql)

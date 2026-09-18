@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
@@ -121,6 +122,19 @@ class Introspector:
         """One table by its full `catalog.schema.table` name."""
         catalog, schema, short = _split(name)
         return self.schema(catalog, schema).get(f"{catalog}.{schema}.{short}")
+
+    def tables(self, names: Sequence[str]) -> dict[str, Table | None]:
+        """Look up several tables at once — one schema scan per schema, not per table."""
+        found: dict[str, Table | None] = {}
+        scanned: dict[tuple[str, str], LiveSchema] = {}
+        for name in names:
+            catalog, schema, _ = _split(name)
+            key = (catalog, schema)
+            if key not in scanned:
+                scanned[key] = self.schema(catalog, schema)
+            live = scanned[key].get(name)
+            found[name] = live.table if live else None
+        return found
 
     def latest_version(self, name: str) -> int | None:
         """The table's current Delta version — the restore point for a plan."""

@@ -9,11 +9,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeAlias
 
-from deltaplan.model.types import Column
+from deltaplan.model.types import Array, Column, DataType, Field, Map, Struct
 
 #: Set on every table deltaplan creates. Only tables carrying it can ever become
 #: drop candidates; everything else is reported as unmanaged and left alone.
 MANAGED_PROPERTY = "deltaplan.managed"
+
+#: Delta table features deltaplan turns on itself, as prerequisites for a change
+#: that needs them. A spec doesn't list them, and reporting them as unmanaged
+#: would be reporting our own work back at the user.
+#: https://docs.databricks.com/aws/en/delta/column-mapping
+#: https://docs.databricks.com/aws/en/delta/type-widening
+COLUMN_MAPPING_PROPERTY = "delta.columnMapping.mode"
+TYPE_WIDENING_PROPERTY = "delta.enableTypeWidening"
+PREREQUISITE_PROPERTIES = frozenset({COLUMN_MAPPING_PROPERTY, TYPE_WIDENING_PROPERTY})
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,3 +119,46 @@ class Table:
 def default_primary_key_name(table: Table) -> str:
     """Databricks requires every constraint to be named; this is our default."""
     return f"{table.short_name}_pk"
+
+
+def type_at(table: Table, path: str) -> DataType | None:
+    """The type at a nested path, or None if nothing lives there.
+
+    Paths are Databricks' own: `amount`, `address.zip`, `lines.element.sku`,
+    `by_code.key` / `by_code.value`.
+    """
+    parts = path.split(".")
+    column = table.column(parts[0])
+    if column is None:
+        return None
+    current: DataType = column.type
+    for part in parts[1:]:
+        match current:
+            case Struct():
+                member = current.field(part)
+                if member is None:
+                    return None
+                current = member.type
+            case Array(element, _) if part == "element":
+                current = element
+            case Map(key, _) if part == "key":
+                current = key
+            case Map(_, value) if part == "value":
+                current = value
+            case _:
+                return None
+    return current
+
+
+def field_at(table: Table, path: str) -> Field | None:
+    """The field at a nested path — a column, or a struct member inside one.
+
+    Array elements and map keys/values are types, not fields, so they have no
+    name, comment or nullability of their own and return None here.
+    """
+    parts = path.split(".")
+    column = table.column(parts[0])
+    if column is None or len(parts) == 1:
+        return column
+    parent = type_at(table, ".".join(parts[:-1]))
+    return parent.field(parts[-1]) if isinstance(parent, Struct) else None

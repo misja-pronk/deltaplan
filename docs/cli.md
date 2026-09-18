@@ -10,8 +10,9 @@ deltaplan force-unlock
 ```
 
 !!! warning "Pre-alpha"
-    `validate`, `import` and `plan` work today. `apply`, `drift` and `force-unlock`
-    are designed but not built yet, and nothing writes to a workspace.
+    `validate`, `import`, `plan`, `apply` and `force-unlock` work today. `apply`
+    runs metadata and table-feature steps; rewrites are classified but not yet
+    generated, and a plan containing one is refused. `drift` is still to come.
 
 Every command takes `--config` to point at a `deltaplan.yml`, and `-t/--target` to pick
 the target whose variables are substituted. `plan` and `import` also take
@@ -58,14 +59,56 @@ never touched.
 
 ## `apply`
 
-Executes a plan file. Each step is idempotent (precheck → SQL → postcheck → history
-row), so an interrupted run resumes from the history table rather than starting over.
+```sh
+deltaplan apply plan.json [--allow-destructive]
+```
 
-Before it runs anything, `apply` recomputes the state fingerprint and refuses a plan
-that no longer matches the live tables — a plan reviewed yesterday can't quietly do
-something else today.
+Runs a plan, printing each step as it resolves:
 
-`--allow-destructive` is required for any step in the `destructive` class.
+```
+dev · 6 step(s) · highest risk destructive
+
+  1. enable typeWidening          [feature]  ok
+  2. ALTER COLUMN TYPE            [meta]     ok
+  3. ADD COLUMN address.zip       [meta]     skipped (already applied)
+  4. enable columnMapping         [feature]  ok
+  5. RENAME COLUMN                [meta]     ok
+  6. DROP COLUMN                  [destructive] ok
+
+Applied 5 step(s), skipped 1 · run 3f9a2b1c4d5e
+```
+
+Four promises, and no others — DDL is not transactional across statements, so there is
+no rollback:
+
+- **Nothing runs from a stale plan.** Before a fresh run, `apply` re-reads every table
+  the plan was built from and recomputes the state fingerprint. If anything moved, it
+  refuses and tells you to plan again. (Which is also why applying the same file twice
+  is refused: the second time, it *is* stale.)
+- **Steps don't repeat themselves.** Before each step, deltaplan asks whether the change
+  it implements is already true of the live table, and skips it if so.
+- **A failed run resumes.** Every step's outcome is written to the history table, so
+  running `deltaplan apply plan.json` again picks up from the step that failed instead
+  of starting over. The fingerprint is not re-checked on a resume — of course the tables
+  changed, the first half of the plan changed them.
+- **One run at a time.** A lock row per target, taken with a conditional update and
+  confirmed by reading it back, with a one-hour TTL.
+
+`--allow-destructive` is required for any step in the `destructive` class; without it
+`apply` refuses before running anything at all. A restore point — the table's Delta
+version before the step — is recorded for every destructive step, so `RESTORE TABLE …
+TO VERSION AS OF n` is one command.
+
+### History
+
+`apply` keeps three Delta tables in the schema named by `history_schema` in
+`deltaplan.yml`, and creates them on first use (the schema itself must exist):
+
+| Table | One row per |
+|---|---|
+| `runs` | apply — with its plan hash, target, user, tool version and status |
+| `steps` | step — with the SQL, the outcome, any error, and the Delta version before it |
+| `lock` | target — held while a run is in flight |
 
 ## `drift`
 
@@ -74,5 +117,10 @@ out when someone edits a table by hand.
 
 ## `force-unlock`
 
-`apply` takes a lock so two runs can't fight over the same tables. If a run dies hard,
-this releases it.
+```sh
+deltaplan force-unlock -t prod
+```
+
+`apply` takes a lock so two runs can't fight over the same tables. If a run dies hard
+without releasing it, this does — and tells you which run was holding it. The lock also
+expires by itself after an hour.
