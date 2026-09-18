@@ -23,7 +23,16 @@ import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 
-from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, RowFilter, Table
+from deltaplan.model.table import (
+    Check,
+    Constraint,
+    ForeignKey,
+    Grant,
+    PrimaryKey,
+    RowFilter,
+    Table,
+    default_foreign_key_name,
+)
 from deltaplan.model.types import Array, DataType, Field, Identity, Map, Mask, Struct
 from deltaplan.model.view import View
 from deltaplan.typeparser import parse_type
@@ -144,8 +153,10 @@ class FakeWarehouse:
 
     # -- reads -------------------------------------------------------------
     def _information_schema(self, flat: str) -> tuple[Row, ...]:
-        schema = _literal_after(flat, "table_schema = ") or _literal_after(
-            flat, "schema_name = "
+        schema = (
+            _literal_after(flat, "table_schema = ")
+            or _literal_after(flat, "schema_name = ")
+            or _literal_after(flat, "constraint_schema = ")
         )
         if schema is None:
             raise FakeSqlError(f"no schema filter in: {flat}")
@@ -280,19 +291,42 @@ class FakeWarehouse:
         if "information_schema.key_column_usage" in flat:
             rows: list[Row] = []
             for table in tables:
+                keyed: list[tuple[str, tuple[str, ...]]] = []
                 key = table.primary_key()
-                if key is None:
-                    continue
-                for position, column in enumerate(key.columns, start=1):
-                    rows.append(
+                if key is not None:
+                    keyed.append((key.name or f"{table.short_name}_pk", key.columns))
+                for foreign in table.foreign_keys():
+                    keyed.append((_constraint_name(foreign, table), foreign.columns))
+                for name, columns in keyed:
+                    for position, column in enumerate(columns, start=1):
+                        rows.append(
+                            {
+                                "table_name": table.short_name,
+                                "constraint_name": name,
+                                "column_name": column,
+                                "ordinal_position": str(position),
+                            }
+                        )
+            return tuple(rows)
+        if "information_schema.referential_constraints" in flat:
+            found: list[Row] = []
+            for table in tables:
+                for foreign in table.foreign_keys():
+                    target = self.tables.get(foreign.references)
+                    target_key = target.primary_key() if target else None
+                    if target is None or target_key is None:
+                        continue
+                    ref_catalog, ref_schema, _ = foreign.references.split(".")
+                    found.append(
                         {
-                            "table_name": table.short_name,
-                            "constraint_name": key.name or f"{table.short_name}_pk",
-                            "column_name": column,
-                            "ordinal_position": str(position),
+                            "constraint_name": _constraint_name(foreign, table),
+                            "unique_constraint_catalog": ref_catalog,
+                            "unique_constraint_schema": ref_schema,
+                            "unique_constraint_name": target_key.name
+                            or f"{target.short_name}_pk",
                         }
                     )
-            return tuple(rows)
+            return tuple(found)
         raise FakeSqlError(f"unknown information_schema query: {flat}")
 
     def _describe_detail(self, flat: str) -> tuple[Row, ...]:
@@ -547,6 +581,16 @@ def _apply_alter(table: Table, clause: str) -> Table:
     if match := re.fullmatch(r"ADD CONSTRAINT (\S+) PRIMARY KEY \((.*)\)", clause):
         key = PrimaryKey(tuple(_idents(match.group(2))), _unquote(match.group(1)))
         return replace(table, constraints=(*table.constraints, key))
+    if match := re.fullmatch(
+        r"ADD CONSTRAINT (\S+) FOREIGN KEY \((.*?)\) REFERENCES (\S+) \((.*)\)", clause
+    ):
+        key = ForeignKey(
+            tuple(_idents(match.group(2))),
+            _unquote(match.group(3)),
+            tuple(_idents(match.group(4))),
+            _unquote(match.group(1)),
+        )
+        return replace(table, constraints=(*table.constraints, key))
     if match := re.fullmatch(r"ADD CONSTRAINT (\S+) CHECK \((.+)\)", clause):
         check = Check(_unquote(match.group(1)), match.group(2))
         return replace(table, constraints=(*table.constraints, check))
@@ -759,10 +803,19 @@ def _pairs(text: str) -> dict[str, str]:
 def _constraint_name(constraint: Constraint, table: Table) -> str:
     if isinstance(constraint, Check):
         return constraint.name
+    if isinstance(constraint, ForeignKey):
+        return constraint.name or default_foreign_key_name(table.name, constraint)
     return constraint.name or f"{table.short_name}_pk"
 
 
 def _constraint_row(table: Table, constraint: Constraint) -> Row:
+    if isinstance(constraint, ForeignKey):
+        return {
+            "table_name": table.short_name,
+            "constraint_name": _constraint_name(constraint, table),
+            "constraint_type": "FOREIGN KEY",
+            "check_clause": None,
+        }
     if isinstance(constraint, Check):
         return {
             "table_name": table.short_name,

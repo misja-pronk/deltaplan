@@ -16,7 +16,15 @@ from typing import Any
 
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
-from deltaplan.model.table import Check, Grant, PrimaryKey, RowFilter, Table
+from deltaplan.model.table import (
+    Check,
+    ForeignKey,
+    Grant,
+    Hooks,
+    PrimaryKey,
+    RowFilter,
+    Table,
+)
 from deltaplan.model.types import Field, Identity, Mask, as_data_type, render_type
 from deltaplan.model.view import View
 from deltaplan.typeparser import parse_type
@@ -122,6 +130,15 @@ def _value(value: object) -> Any:
         return {"primary_key": {"name": value.name, "columns": list(value.columns)}}
     if isinstance(value, Check):
         return {"check": {"name": value.name, "expression": value.expression}}
+    if isinstance(value, ForeignKey):
+        return {
+            "foreign_key": {
+                "name": value.name,
+                "columns": list(value.columns),
+                "references": value.references,
+                "referenced_columns": list(value.referenced_columns),
+            }
+        }
     if isinstance(value, Mask):
         return _mask_to_dict(value)
     if isinstance(value, RowFilter):
@@ -370,10 +387,18 @@ def _row_filter_from_dict(entry: dict[str, Any]) -> RowFilter:
     return RowFilter(str(entry["function"]), tuple(entry.get("columns", ())))
 
 
-def _constraint_from_dict(entry: dict[str, Any]) -> PrimaryKey | Check:
+def _constraint_from_dict(entry: dict[str, Any]) -> PrimaryKey | Check | ForeignKey:
     if "primary_key" in entry:
         body = entry["primary_key"]
         return PrimaryKey(tuple(body["columns"]), body.get("name"))
+    if "foreign_key" in entry:
+        body = entry["foreign_key"]
+        return ForeignKey(
+            tuple(body["columns"]),
+            str(body["references"]),
+            tuple(body["referenced_columns"]),
+            body.get("name"),
+        )
     body = entry["check"]
     return Check(str(body["name"]), str(body["expression"]))
 
@@ -396,6 +421,11 @@ def _table_from_dict(entry: dict[str, Any]) -> Table:
         row_filter=(
             _row_filter_from_dict(entry["row_filter"])
             if entry.get("row_filter")
+            else None
+        ),
+        hooks=(
+            Hooks(entry["hooks"].get("before"), entry["hooks"].get("after"))
+            if entry.get("hooks")
             else None
         ),
     )

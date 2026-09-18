@@ -33,9 +33,11 @@ from deltaplan.model.table import (
     MANAGED_PROPERTY,
     TYPE_WIDENING_PROPERTY,
     Check,
+    ForeignKey,
     PrimaryKey,
     RowFilter,
     Table,
+    default_foreign_key_name,
     default_primary_key_name,
 )
 from deltaplan.model.types import (
@@ -119,6 +121,7 @@ def build_plan(
     planner = _Planner(clone_suffix=state_fingerprint[:8] if clone else None)
     for diff in diffs:
         planner.plan_table(diff)
+    planner.finish()
     return Plan(
         tool_version=tool_version,
         target=target,
@@ -146,6 +149,9 @@ class _Planner:
         self._existing: set[str] = set()
         self._schemas_created: set[str] = set()
         self._column_defaults: set[str] = set()
+        #: Foreign keys wait until every table exists: a key can only be added
+        #: once the table it references — and its primary key — is there.
+        self._deferred_keys: list[tuple[int, str, ForeignKey]] = []
         self.steps: list[Step] = []
         self._column_mapping: set[str] = set()
         self._type_widening: set[str] = set()
@@ -218,6 +224,28 @@ class _Planner:
                 "files, so it lasts until a VACUUM removes them"
             ),
         )
+
+    def finish(self) -> None:
+        """Steps that had to wait for every table: foreign keys."""
+        for change, table, key in self._deferred_keys:
+            self._change, self._kind = change, "table"
+            name = key.name or default_foreign_key_name(table, key)
+            columns = ", ".join(quote_ident(column) for column in key.columns)
+            referenced = ", ".join(
+                quote_ident(column) for column in key.referenced_columns
+            )
+            self.emit(
+                table,
+                f"ADD CONSTRAINT {name} FOREIGN KEY",
+                "meta",
+                sql=(
+                    f"ALTER TABLE {quote_qualified(table)} ADD CONSTRAINT "
+                    f"{quote_ident(name)} FOREIGN KEY ({columns}) REFERENCES "
+                    f"{quote_qualified(key.references)} ({referenced})"
+                ),
+                note="planned after every table, so the one it references exists",
+            )
+        self._deferred_keys.clear()
 
     # -- prerequisites -----------------------------------------------------
     def need_schema(self, facts: TableFacts) -> None:
@@ -456,6 +484,9 @@ class _Planner:
         for check in live.checks():
             if check.name.casefold() not in declared_checks:
                 self._emit_check(table_diff.table, check)
+        for key in live.foreign_keys():
+            if not any(key.same_as(declared) for declared in desired.foreign_keys()):
+                self._deferred_keys.append((self._change, table_diff.table, key))
         live_key = live.primary_key()
         if desired.primary_key() is None and live_key is not None:
             self._add_constraint(
@@ -808,6 +839,8 @@ class _Planner:
         # do not rely on it. https://docs.databricks.com/aws/en/tables/constraints
         for check in table.checks():
             self._emit_check(table.name, check)
+        for key in table.foreign_keys():
+            self._deferred_keys.append((self._change, table.name, key))
         if table.tags:
             self.emit(
                 table.name,
@@ -1090,6 +1123,9 @@ class _Planner:
         if isinstance(constraint, Check):
             self._emit_check(change.table, constraint)
             return
+        if isinstance(constraint, ForeignKey):
+            self._deferred_keys.append((self._change, change.table, constraint))
+            return
         assert isinstance(constraint, PrimaryKey)
         name = constraint.name or f"{change.table.split('.')[-1]}_pk"
         columns = ", ".join(quote_ident(column) for column in constraint.columns)
@@ -1314,6 +1350,8 @@ def _constraint_name(constraint: object, table: str) -> str:
         return constraint.name
     if isinstance(constraint, PrimaryKey):
         return constraint.name or f"{table.split('.')[-1]}_pk"
+    if isinstance(constraint, ForeignKey):
+        return constraint.name or default_foreign_key_name(table, constraint)
     return "unknown"
 
 

@@ -203,7 +203,7 @@ constraints:
         (
             "table: c.s.t\ncolumns: [{name: a, type: int}]\n"
             "constraints: [{foreign_key: [a]}]\n",
-            "foreign keys are not modelled yet",
+            "a foreign key must be a mapping",
         ),
         (
             "table: c.s.t\ncolumns: [{name: a, type: int}]\n"

@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Foreign keys** (`foreign_key:` constraints), introspected, diffed, planned
+  and imported. They are planned after every table, so the table they reference
+  exists first, and matched by what they mean rather than only by name.
+- Plan files now read back a table's hooks; they were written but dropped on
+  the way in.
 - **Identity, generated and default columns** (`identity:`, `generated:`,
   `default:`). `CREATE TABLE` has all three. Defaults can be set, changed and
   dropped later, with the `allowColumnDefaults` feature enabled first as its own

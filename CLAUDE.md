@@ -59,8 +59,7 @@ departures from this document, each explained in the commit that made it:
 `ty` instead of pyright; a hand-written validator in the loader rather than
 Pydantic/msgspec, so errors carry file:line:column; `deltaplan.yml` invented for
 the project/target config; nested YAML types extended from struct to array and
-map; `sql.py` added for `quote_ident()`; foreign keys rejected rather than
-modelled; rewrites classified but not generated (milestone 3); the Markdown
+map; `sql.py` added for `quote_ident()`; rewrites classified but not generated (milestone 3); the Markdown
 renderer deferred to milestone 4.
 
 **Milestone 2 (apply) is done too**: `executor.py`, `history.py` (the design's

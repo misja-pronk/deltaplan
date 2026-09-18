@@ -355,14 +355,23 @@ constraints:
   - check: {name: positive_amount, expression: "amount > 0"}
 ```
 
-Primary keys in Unity Catalog are informational, and their columns must be declared
-`nullable: false` — `validate` says so if they aren't. A check expression is compared
+```yaml
+constraints:
+  - foreign_key:
+      columns: [customer_id]
+      references: ${catalog}.sales.customers
+      referenced_columns: [customer_id]
+      name: orders_customer_fk          # optional
+```
+
+Primary and foreign keys in Unity Catalog are informational, and a primary key's columns
+must be declared `nullable: false` — `validate` says so if they aren't. A foreign key must
+point at the referenced table's primary key. Foreign keys are planned last, after every
+table, so the table they reference always exists first. One is matched by what it means —
+columns, table, referenced columns — so an unnamed key in the spec is satisfied by the
+same key under any name; name it only if the name matters. A check expression is compared
 textually after stripping outer parentheses and collapsing whitespace, so write it the
 way the catalog echoes it back.
-
-!!! note "Foreign keys aren't modelled yet"
-    A `foreign_key:` entry is rejected with an explicit error rather than silently
-    ignored. They need cross-table ordering, which arrives with `apply`.
 
 ## What deltaplan leaves alone
 

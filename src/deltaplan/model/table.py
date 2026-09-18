@@ -74,7 +74,34 @@ class Check:
     expression: str
 
 
-Constraint: TypeAlias = PrimaryKey | Check
+@dataclass(frozen=True, slots=True)
+class ForeignKey:
+    """An informational foreign key onto another table's primary key.
+
+    Like a primary key in Unity Catalog, it is declared rather than enforced.
+    https://docs.databricks.com/aws/en/tables/constraints
+    """
+
+    columns: tuple[str, ...]
+    references: str
+    referenced_columns: tuple[str, ...]
+    name: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "references", self.references.lower())
+
+    def same_as(self, other: ForeignKey) -> bool:
+        """The same relationship, whatever it is called."""
+        return (
+            tuple(c.casefold() for c in self.columns)
+            == tuple(c.casefold() for c in other.columns)
+            and self.references == other.references
+            and tuple(c.casefold() for c in self.referenced_columns)
+            == tuple(c.casefold() for c in other.referenced_columns)
+        )
+
+
+Constraint: TypeAlias = PrimaryKey | Check | ForeignKey
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +260,14 @@ class Table(Securable):
 
     def checks(self) -> tuple[Check, ...]:
         return tuple(c for c in self.constraints if isinstance(c, Check))
+
+    def foreign_keys(self) -> tuple[ForeignKey, ...]:
+        return tuple(c for c in self.constraints if isinstance(c, ForeignKey))
+
+
+def default_foreign_key_name(table: str, key: ForeignKey) -> str:
+    """Databricks requires a name; this is ours: `orders_customer_id_fk`."""
+    return f"{table.split('.')[-1]}_{'_'.join(key.columns)}_fk"
 
 
 def default_primary_key_name(table: Table) -> str:

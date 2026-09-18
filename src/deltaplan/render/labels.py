@@ -8,7 +8,7 @@ apart.
 from __future__ import annotations
 
 from deltaplan.model.change import Change
-from deltaplan.model.table import Check, PrimaryKey, RowFilter, Table
+from deltaplan.model.table import Check, ForeignKey, PrimaryKey, RowFilter, Table
 from deltaplan.model.types import Decimal, Field, Mask, as_data_type, render_type
 from deltaplan.model.view import View, normalise_query
 
@@ -161,4 +161,11 @@ def _constraint_label(constraint: object) -> str:
     if isinstance(constraint, PrimaryKey):
         columns = ", ".join(constraint.columns)
         return f"{constraint.name or 'primary key'} PRIMARY KEY ({columns})"
+    if isinstance(constraint, ForeignKey):
+        columns = ", ".join(constraint.columns)
+        referenced = ", ".join(constraint.referenced_columns)
+        return (
+            f"{constraint.name or 'foreign key'} FOREIGN KEY ({columns}) → "
+            f"{display_name(constraint.references)} ({referenced})"
+        )
     return "unknown"

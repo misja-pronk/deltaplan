@@ -117,3 +117,17 @@ def test_hooks_in_a_spec(tmp_path: Path) -> None:
     )
     loaded = load_table(path, {"catalog": "main"})
     assert loaded.hooks == Hooks(before="DELETE FROM main.sales.orders WHERE id IS NULL")
+
+
+def test_hooks_survive_the_plan_file() -> None:
+    """Checked by hand: hooks take no part in equality, so `==` can't see them."""
+    from deltaplan.render.json import dumps, loads
+
+    hooks = Hooks(before="DELETE FROM x WHERE id IS NULL", after="OPTIMIZE x")
+    desired = Table(
+        name=NAME, columns=(*LIVE.columns, col("notes", "string")), hooks=hooks
+    )
+    _, plan = plan_against(desired, LIVE)
+    restored = loads(dumps(plan)).diffs[0].desired
+    assert isinstance(restored, Table)
+    assert restored.hooks == hooks

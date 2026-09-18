@@ -22,7 +22,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
-from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, RowFilter, Table
+from deltaplan.model.table import (
+    Check,
+    Constraint,
+    ForeignKey,
+    Grant,
+    PrimaryKey,
+    RowFilter,
+    Table,
+)
 from deltaplan.model.types import Column, DataType, Field, Identity, Mask, Primitive
 from deltaplan.model.view import Relation, View
 from deltaplan.sql import (
@@ -116,6 +124,7 @@ class Introspector:
 
     runner: SqlRunner
     _detail_cache: dict[str, Row] = field(default_factory=dict)
+    _keys_cache: dict[str, dict[str, tuple[str, list[str]]]] = field(default_factory=dict)
 
     # -- public ------------------------------------------------------------
     def schema(self, catalog: str, schema: str) -> LiveSchema:
@@ -446,19 +455,14 @@ class Introspector:
             "AND cc.constraint_name = tc.constraint_name "
             f"WHERE tc.table_schema = {quote_literal(schema)}"
         )
-        key_rows = self.runner.query(
-            "SELECT table_name, constraint_name, column_name "
-            f"FROM {_information_schema(catalog)}.key_column_usage "
-            f"WHERE table_schema = {quote_literal(schema)} "
-            "ORDER BY table_name, constraint_name, ordinal_position"
+        keys = self._key_usage(catalog, schema)
+        references = (
+            self._references(catalog, schema)
+            if any(
+                (r.get("constraint_type") or "").upper() == "FOREIGN KEY" for r in rows
+            )
+            else {}
         )
-        key_columns: dict[str, list[str]] = {}
-        for row in key_rows:
-            name = row.get("constraint_name")
-            column = row.get("column_name")
-            if name is None or column is None:
-                continue
-            key_columns.setdefault(name, []).append(column)
 
         constraints: dict[str, list[Constraint]] = {}
         for row in rows:
@@ -469,14 +473,79 @@ class Introspector:
                 continue
             if kind == "PRIMARY KEY":
                 constraints.setdefault(table_name, []).append(
-                    PrimaryKey(tuple(key_columns.get(name, ())), name)
+                    PrimaryKey(tuple(keys.get(name, ("", []))[1]), name)
                 )
             elif kind == "CHECK":
                 constraints.setdefault(table_name, []).append(
                     Check(name, normalise_expression(row.get("check_clause") or ""))
                 )
-            # Foreign keys are not modelled yet; they are left as unmanaged.
+            elif kind == "FOREIGN KEY" and name in references:
+                referenced_table, referenced_columns = references[name]
+                constraints.setdefault(table_name, []).append(
+                    ForeignKey(
+                        tuple(keys.get(name, ("", []))[1]),
+                        referenced_table,
+                        referenced_columns,
+                        name,
+                    )
+                )
         return constraints
+
+    def _key_usage(self, catalog: str, schema: str) -> dict[str, tuple[str, list[str]]]:
+        """constraint name -> (table, columns in order), for one schema. Cached,
+        because a foreign key sends us looking in the schema it references."""
+        cache_key = f"{catalog}.{schema}".lower()
+        if cache_key in self._keys_cache:
+            return self._keys_cache[cache_key]
+        rows = self.runner.query(
+            "SELECT table_name, constraint_name, column_name "
+            f"FROM {_information_schema(catalog)}.key_column_usage "
+            f"WHERE table_schema = {quote_literal(schema)} "
+            "ORDER BY table_name, constraint_name, ordinal_position"
+        )
+        found: dict[str, tuple[str, list[str]]] = {}
+        for row in rows:
+            name, table_name, column = (
+                row.get("constraint_name"),
+                row.get("table_name"),
+                row.get("column_name"),
+            )
+            if name is None or table_name is None or column is None:
+                continue
+            found.setdefault(name, (table_name, []))[1].append(column)
+        self._keys_cache[cache_key] = found
+        return found
+
+    def _references(
+        self, catalog: str, schema: str
+    ) -> dict[str, tuple[str, tuple[str, ...]]]:
+        """Foreign key name -> (referenced table, referenced columns).
+
+        TODO(verify): referential_constraints column names against a live
+        workspace, and that the referenced key's columns are found in its own
+        schema's key_column_usage.
+        https://docs.databricks.com/aws/en/sql/language-manual/information-schema/referential_constraints
+        """
+        rows = self.runner.query(
+            "SELECT constraint_name, unique_constraint_catalog, "
+            "unique_constraint_schema, unique_constraint_name "
+            f"FROM {_information_schema(catalog)}.referential_constraints "
+            f"WHERE constraint_schema = {quote_literal(schema)}"
+        )
+        found: dict[str, tuple[str, tuple[str, ...]]] = {}
+        for row in rows:
+            name = row.get("constraint_name")
+            ref_catalog = row.get("unique_constraint_catalog")
+            ref_schema = row.get("unique_constraint_schema")
+            ref_name = row.get("unique_constraint_name")
+            if not (name and ref_catalog and ref_schema and ref_name):
+                continue
+            usage = self._key_usage(ref_catalog, ref_schema).get(ref_name)
+            if usage is None:
+                continue
+            ref_table, ref_columns = usage
+            found[name] = (f"{ref_catalog}.{ref_schema}.{ref_table}", tuple(ref_columns))
+        return found
 
     def _describe_detail(self, name: str) -> Row:
         if name in self._detail_cache:

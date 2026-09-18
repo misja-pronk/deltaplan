@@ -25,6 +25,7 @@ from deltaplan.model.table import (
     PREREQUISITE_PROPERTIES,
     Check,
     Constraint,
+    ForeignKey,
     Grant,
     Hooks,
     PrimaryKey,
@@ -534,15 +535,45 @@ def _read_constraint(ctx: _Ctx, node: Node) -> Constraint:
                 _string(ctx, expr_node, "check expression"),
             )
         case "foreign_key":
-            raise SpecError(
-                "foreign keys are not modelled yet — deltaplan v1 handles "
-                "primary_key and check constraints",
-                key_loc,
-            )
+            return _read_foreign_key(ctx, value_node)
         case _:
             raise SpecError(
-                f"unknown constraint {kind!r} (expected primary_key or check)", key_loc
+                f"unknown constraint {kind!r} (expected primary_key, check or "
+                "foreign_key)",
+                key_loc,
             )
+
+
+def _read_foreign_key(ctx: _Ctx, node: Node) -> ForeignKey:
+    items = _mapping(ctx, node, "a foreign key")
+    _known_keys(
+        items,
+        allowed={"columns", "references", "referenced_columns", "name"},
+        what="a foreign key",
+    )
+    columns = _string_list(
+        ctx, _require(ctx, items, node, "columns", "a foreign key"), "columns"
+    )
+    references_node = _require(ctx, items, node, "references", "a foreign key")
+    references = _string(ctx, references_node, "references")
+    if len(references.split(".")) != 3:
+        raise SpecError(
+            f"references must be catalog.schema.table, not {references!r}",
+            ctx.loc(references_node),
+        )
+    referenced = _string_list(
+        ctx,
+        _require(ctx, items, node, "referenced_columns", "a foreign key"),
+        "referenced_columns",
+    )
+    if len(referenced) != len(columns):
+        raise SpecError(
+            f"a foreign key on {len(columns)} column(s) must reference "
+            f"{len(columns)}, not {len(referenced)}",
+            ctx.loc(node),
+        )
+    name = _string(ctx, items["name"][0], "name") if "name" in items else None
+    return ForeignKey(columns, references, referenced, name)
 
 
 def _read_primary_key(ctx: _Ctx, node: Node) -> PrimaryKey:
@@ -898,6 +929,11 @@ def validate_table(table: Table, where: str) -> tuple[Diagnostic, ...]:
     if len([c for c in table.constraints if isinstance(c, PrimaryKey)]) > 1:
         error("a table can have at most one primary key")
 
+    for key in table.foreign_keys():
+        for name in key.columns:
+            if table.column(name) is None:
+                error(f"foreign key column {name!r} is not in the spec")
+
     check_names = [check.name for check in table.checks()]
     for name in check_names:
         if check_names.count(name) > 1:
@@ -1113,4 +1149,11 @@ def _constraint_document(constraint: Constraint) -> dict[str, object] | None:
         return {"primary_key": body}
     if isinstance(constraint, Check):
         return {"check": {"name": constraint.name, "expression": constraint.expression}}
-    return None  # pragma: no cover - the union has no third member
+    body: dict[str, object] = {
+        "columns": list(constraint.columns),
+        "references": constraint.references,
+        "referenced_columns": list(constraint.referenced_columns),
+    }
+    if constraint.name:
+        body["name"] = constraint.name
+    return {"foreign_key": body}

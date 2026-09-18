@@ -21,6 +21,7 @@ from deltaplan.model.change import Change
 from deltaplan.model.table import (
     MANAGED_PROPERTY,
     Check,
+    ForeignKey,
     PrimaryKey,
     Securable,
     Table,
@@ -209,6 +210,9 @@ def unmanaged(desired: Table, actual: Table) -> tuple[str, ...]:
     for grant in actual.grants:
         if grant.principal not in declared:
             found.append(f"grants to {grant.principal}")
+    for key in actual.foreign_keys():
+        if not any(key.same_as(declared) for declared in desired.foreign_keys()):
+            found.append(f"foreign key {key.name or 'unnamed'}")
     desired_checks = {check.name for check in desired.checks()}
     for check in actual.checks():
         if check.name not in desired_checks:
@@ -548,6 +552,24 @@ def _diff_constraints(desired: Table, actual: Table) -> list[Change]:
             # A check's definition can't be altered in place, so it is replaced.
             changes.append(Change(desired.name, "drop_constraint", before=live))
             changes.append(Change(desired.name, "add_constraint", after=check))
+
+    # A foreign key is matched by what it means. A declared one that no live key
+    # means is added; one that means it under another name is renamed by being
+    # replaced, but only when the spec names it — an unnamed spec key is happy
+    # with any name. Live keys nobody declared are someone else's.
+    live_keys = actual.foreign_keys()
+    for key in desired.foreign_keys():
+        match = next((live for live in live_keys if live.same_as(key)), None)
+        if match is None:
+            same_name = next(
+                (live for live in live_keys if key.name and live.name == key.name), None
+            )
+            if same_name is not None:
+                changes.append(Change(desired.name, "drop_constraint", before=same_name))
+            changes.append(Change(desired.name, "add_constraint", after=key))
+        elif key.name and match.name != key.name:
+            changes.append(Change(desired.name, "drop_constraint", before=match))
+            changes.append(Change(desired.name, "add_constraint", after=key))
     return changes
 
 
@@ -675,5 +697,11 @@ def _has_constraint(live: Table, constraint: object) -> bool:
             check.name == constraint.name
             and normalise_expression(check.expression) == wanted
             for check in live.checks()
+        )
+    if isinstance(constraint, ForeignKey):
+        return any(
+            key.same_as(constraint)
+            and (not constraint.name or key.name == constraint.name)
+            for key in live.foreign_keys()
         )
     return False
