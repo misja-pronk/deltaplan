@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A differently-cased name could drop a live table.** A spec naming
+  `main.sales.Orders` against the live `orders`, in a strict schema, planned a
+  no-op create and a DROP of the real table. Names are now compared the way Unity
+  Catalog compares them: object names in lower case, column and field names
+  ignoring case.
+- **The apply lock could expire under a long run.** It is now renewed before
+  every step, and a run that finds it has lost the lock stops rather than carry
+  on beside a second one.
+- A precheck whose own query fails is recorded as a failed step, instead of
+  escaping as a traceback; warehouse errors during `apply` and `force-unlock` are
+  reported as messages.
+
 ### Added
 
 - **Milestone 5 (governance) is complete.**

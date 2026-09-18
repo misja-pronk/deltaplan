@@ -356,3 +356,73 @@ def test_the_fake_refuses_statements_it_does_not_know() -> None:
     fake = FakeWarehouse.of(LIVE)
     with pytest.raises(FakeSqlError, match="does not know"):
         fake.query("OPTIMIZE `main`.`sales`.`orders` ZORDER BY (order_id)")
+
+
+# ---------------------------------------------------------------------------
+# the lock over a long run, and failures that aren't the statement's
+# ---------------------------------------------------------------------------
+
+
+class CountingHistory(MemoryHistory):
+    """Remembers every renewal, so a test can see the lock kept alive."""
+
+    renewals: list[str]
+
+    def renew_lock(self, target: str, run_id: str, minutes: int) -> bool:
+        self.renewals.append(run_id)
+        return super().renew_lock(target, run_id, minutes)
+
+
+def test_the_lock_is_renewed_before_every_step() -> None:
+    fake, plan = planned()
+    history = CountingHistory()
+    history.renewals = []
+    assert executor(fake, history).apply(plan).ok
+    assert history.renewals == ["run1"] * len(plan.steps)
+
+
+def test_a_run_that_loses_its_lock_stops_before_the_next_step() -> None:
+    """The TTL exists so a dead run can't hold the lock forever. A live run that
+    outlasts it must notice, rather than carry on beside whoever took it."""
+    fake, plan = planned()
+    history = MemoryHistory()
+
+    def steal_after_first(step: Step, status: object, note: object) -> None:
+        del status, note
+        if step.id == 1:
+            history.locks["test"] = "someone-else"  # our lease ran out; theirs began
+
+    result = Executor(
+        runner=fake,
+        introspector=Introspector(fake),
+        history=history,
+        new_run_id=lambda: "run1",
+        observer=steal_after_first,
+    ).apply(plan)
+
+    assert not result.ok
+    assert result.ran == (1,)
+    assert result.failed == 2
+    assert result.error is not None and "lost the lock" in result.error
+    assert len(fake.ddl) == 1, "nothing ran after the lock was lost"
+    assert history.lock_holder("test") == "someone-else", "and theirs is left alone"
+    assert history.resumable_run(plan_identity(plan), "test") == "run1"
+
+
+def test_a_precheck_that_cannot_run_fails_the_step_cleanly() -> None:
+    desired = table(
+        *[c for c in LIVE.columns if c.name != "cust_id"],
+        col("cust_id", "string", nullable=False),
+        name=NAME,
+        comment=LIVE.comment,
+    )
+    fake, plan = planned(desired)
+    fake.failures["AS blocked"] = "PERMISSION_DENIED: cannot read table"
+    history = MemoryHistory()
+    result = executor(fake, history).apply(plan)
+    assert not result.ok
+    assert result.error == (
+        "the precheck could not run: FakeSqlError: PERMISSION_DENIED: cannot read table"
+    )
+    assert [o.status for o in history.steps["run1"]] == ["failed"]
+    assert fake.ddl == []

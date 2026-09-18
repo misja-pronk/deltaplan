@@ -41,6 +41,13 @@
   ) USING DELTA
   '''
 # ---
+# name: test_renewing_the_lock
+  '''
+  UPDATE `main`.`deltaplan`.`lock` SET expires_at = current_timestamp() + INTERVAL 60 MINUTES WHERE id = 'prod' AND holder = 'run1'
+  
+  SELECT holder FROM `main`.`deltaplan`.`lock` WHERE id = 'prod'
+  '''
+# ---
 # name: test_run_and_step_records
   '''
   INSERT INTO `main`.`deltaplan`.`runs` SELECT 'run1', 'spec:live', 'prod', current_user(), '0.1.0', 'running', current_timestamp(), CAST(NULL AS TIMESTAMP)

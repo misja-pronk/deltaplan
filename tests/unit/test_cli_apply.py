@@ -265,3 +265,30 @@ def test_force_unlock(
     held = runner.invoke(app, arguments)
     assert held.exit_code == 0
     assert "run-that-died" in held.output
+
+
+class StoppedWarehouse(FakeWarehouse):
+    """A warehouse that answers nothing, the way a stopped one fails."""
+
+    def query(self, statement: str) -> tuple[dict[str, str | None], ...]:
+        from deltaplan.introspect import IntrospectionError
+
+        raise IntrospectionError(f"FAILED: the warehouse is stopped\n  {statement}")
+
+
+def test_a_warehouse_error_is_a_message_not_a_traceback(
+    project: Path,
+    warehouse: FakeWarehouse,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan_file = tmp_path / "plan.json"
+    write_plan(project, plan_file)
+    del warehouse  # planned against the fixture; applied against a stopped one
+    monkeypatch.setattr(cli, "_warehouse", lambda *_a, **_k: StoppedWarehouse())
+    result = runner.invoke(
+        app, ["apply", str(plan_file), "--config", str(project / "deltaplan.yml")]
+    )
+    assert result.exit_code == 1
+    assert "the warehouse is stopped" in result.output
+    assert "Traceback" not in result.output

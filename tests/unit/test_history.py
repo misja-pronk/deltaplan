@@ -174,3 +174,16 @@ def test_memory_lock(memory: MemoryHistory) -> None:
     memory.acquire_lock("prod", "run3", 60)
     assert memory.force_unlock("prod") == "run3"
     assert memory.force_unlock("prod") is None
+
+
+def test_renewing_the_lock(snapshot: SnapshotAssertion) -> None:
+    store, runner = history((), ({"holder": "run1"},))
+    assert store.renew_lock("prod", "run1", 60) is True
+    # Only the holder's row is touched, so renewing can never take a lock.
+    assert "WHERE id = 'prod' AND holder = 'run1'" in runner.statements[0]
+    assert "\n\n".join(runner.statements) == snapshot
+
+
+def test_renewing_a_lock_someone_else_holds() -> None:
+    store, _ = history((), ({"holder": "someone-else"},))
+    assert store.renew_lock("prod", "run1", 60) is False

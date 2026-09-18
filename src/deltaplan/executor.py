@@ -125,6 +125,25 @@ class Executor:
                 self._observe(step, "skipped", "already applied")
                 continue
 
+            # A lock has a TTL so a dead run can't hold it forever — which means a
+            # long run has to keep it alive, or a second apply could start
+            # halfway through this one.
+            if not self.history.renew_lock(plan.target, run_id, self.lock_minutes):
+                lost = (
+                    f"lost the lock on {plan.target} before step {step.id}: it expired "
+                    "or was released. Stopped here; run `deltaplan apply` again to "
+                    "resume once nothing else is running."
+                )
+                self._observe(step, "failed", lost)
+                return ExecutionResult(
+                    run_id=run_id,
+                    status="failed",
+                    ran=tuple(ran),
+                    skipped=tuple(skipped),
+                    failed=step.id,
+                    error=lost,
+                    resumed=resumed,
+                )
             failure = self._run_step(step, run_id)
             self._observe(step, "failed" if failure else "succeeded", failure)
             if failure is not None:
@@ -150,7 +169,10 @@ class Executor:
     def _run_step(self, step: Step, run_id: str) -> str | None:
         """Run one step. Returns the error, or None when it worked."""
         version = self._restore_point(step)
-        blocked = self._blocked(step)
+        try:
+            blocked = self._blocked(step)
+        except Exception as error:  # noqa: BLE001 - the precheck's own query failed
+            blocked = f"the precheck could not run: {type(error).__name__}: {error}"
         if blocked is not None:
             self.history.record_step(
                 run_id,

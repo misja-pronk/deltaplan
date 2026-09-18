@@ -69,6 +69,9 @@ class HistoryStore(Protocol):
 
     def acquire_lock(self, target: str, run_id: str, minutes: int) -> bool: ...
 
+    def renew_lock(self, target: str, run_id: str, minutes: int) -> bool:
+        """Push the lock's expiry out again. False if this run no longer holds it."""
+
     def release_lock(self, target: str, run_id: str) -> None: ...
 
     def lock_holder(self, target: str) -> str | None: ...
@@ -208,6 +211,14 @@ class DeltaHistory:
         )
         return self.lock_holder(target) == run_id
 
+    def renew_lock(self, target: str, run_id: str, minutes: int) -> bool:
+        self.runner.query(
+            f"UPDATE {self._table('lock')} "
+            f"SET expires_at = current_timestamp() + INTERVAL {int(minutes)} MINUTES "
+            f"WHERE id = {quote_literal(target)} AND holder = {quote_literal(run_id)}"
+        )
+        return self.lock_holder(target) == run_id
+
     def release_lock(self, target: str, run_id: str) -> None:
         self.runner.query(
             f"UPDATE {self._table('lock')} SET holder = NULL, "
@@ -292,6 +303,10 @@ class MemoryHistory:
             return False
         self.locks[target] = run_id
         return True
+
+    def renew_lock(self, target: str, run_id: str, minutes: int) -> bool:
+        del minutes
+        return self.locks.get(target) == run_id
 
     def release_lock(self, target: str, run_id: str) -> None:
         if self.locks.get(target) == run_id:

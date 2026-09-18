@@ -106,7 +106,10 @@ no rollback:
   of starting over. The fingerprint is not re-checked on a resume — of course the tables
   changed, the first half of the plan changed them.
 - **One run at a time.** A lock row per target, taken with a conditional update and
-  confirmed by reading it back, with a one-hour TTL.
+  confirmed by reading it back. It has a one-hour TTL so a run that died can't hold it
+  forever, and a live run renews it before every step — so a rewrite that takes longer
+  than an hour keeps it. If a run ever finds it has lost the lock, it stops before the
+  next step rather than carry on beside whoever took it.
 
 `--allow-destructive` is required for any step in the `destructive` class; without it
 `apply` refuses before running anything at all. A plan containing a step deltaplan

@@ -407,7 +407,7 @@ def apply(
     )
     try:
         result = executor.apply(built, allow_destructive=allow_destructive)
-    except ExecutionError as error:
+    except (ExecutionError, IntrospectionError) as error:
         err.print(f"[red]{error}[/]")
         raise typer.Exit(1) from error
 
@@ -467,7 +467,11 @@ def force_unlock(
     project = _project(config)
     chosen = _target(project, target)
     runner = _warehouse(warehouse_id, chosen)
-    holder = _history(project, chosen, runner).force_unlock(chosen.name)
+    try:
+        holder = _history(project, chosen, runner).force_unlock(chosen.name)
+    except IntrospectionError as error:
+        err.print(f"[red]{error}[/]")
+        raise typer.Exit(1) from error
     if holder is None:
         out.print(f"[green]{chosen.name} was not locked.[/]")
         return
