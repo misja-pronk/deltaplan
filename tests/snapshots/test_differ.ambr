@@ -8,6 +8,7 @@
         columns=tuple(
           Field(
             comment=None,
+            mask=None,
             name='id',
             nullable=False,
             renamed_from=None,
@@ -27,6 +28,7 @@
         name='main.sales.orders',
         properties=tuple(
         ),
+        row_filter=None,
         tags=tuple(
         ),
       ),
@@ -42,6 +44,7 @@
     Change(
       after=Field(
         comment=None,
+        mask=None,
         name='sku',
         nullable=False,
         renamed_from=None,
@@ -106,6 +109,7 @@
     Change(
       after=Field(
         comment='Postal code',
+        mask=None,
         name='zip',
         nullable=True,
         renamed_from=None,
@@ -124,6 +128,7 @@
     Change(
       after=Field(
         comment=None,
+        mask=None,
         name='country',
         nullable=True,
         renamed_from=None,
@@ -143,6 +148,7 @@
       after=None,
       before=Field(
         comment=None,
+        mask=None,
         name='old_zip',
         nullable=True,
         renamed_from=None,
@@ -161,6 +167,7 @@
       after=None,
       before=Field(
         comment=None,
+        mask=None,
         name='gone',
         nullable=True,
         renamed_from=None,

@@ -8,8 +8,8 @@ apart.
 from __future__ import annotations
 
 from deltaplan.model.change import Change
-from deltaplan.model.table import Check, PrimaryKey, Table
-from deltaplan.model.types import Decimal, Field, as_data_type, render_type
+from deltaplan.model.table import Check, PrimaryKey, RowFilter, Table
+from deltaplan.model.types import Decimal, Field, Mask, as_data_type, render_type
 
 
 def human_bytes(size: int | None) -> str | None:
@@ -83,6 +83,16 @@ def describe(change: Change) -> tuple[str, str]:
             return "~", (f"property {change.path} = {change.after!r}")
         case "set_tag":
             return "~", (f"tag {change.path} = {change.after!r}")
+        case "set_mask":
+            mask = change.after
+            name = mask.function if isinstance(mask, Mask) else "?"
+            return "~", (f"{leaf}  mask → {name}")
+        case "set_row_filter":
+            row_filter = change.after
+            if isinstance(row_filter, RowFilter):
+                columns = ", ".join(row_filter.columns)
+                return "~", (f"row filter → {row_filter.function} ON ({columns})")
+            return "~", ("row filter")
         case "grant":
             privileges = change.after if isinstance(change.after, tuple) else ()
             return "+", (f"grant {', '.join(privileges)} to {change.path}")

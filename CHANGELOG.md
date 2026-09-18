@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Column masks and row filters**, handled as security controls: set or
+  replaced when the spec declares them, never removed because a spec is silent,
+  inline in `CREATE TABLE` so a new table is never unprotected, refused up front
+  if the function is missing, and never rewritten — the staging copy would hold
+  possibly unmasked data.
+- A step's precheck now carries its own `refusal`, so a refused step says
+  exactly why ("the masking function … does not exist", "ssn still has NULLs").
 - **Grants** (`grants:` on a table). A principal the spec names gets exactly
   the privileges listed — granted or revoked to match, each revoke with a
   warning and its undo; principals it doesn't name are left alone. Privileges

@@ -16,8 +16,8 @@ from typing import Any
 
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
-from deltaplan.model.table import Check, Grant, PrimaryKey, Table
-from deltaplan.model.types import Field, as_data_type, render_type
+from deltaplan.model.table import Check, Grant, PrimaryKey, RowFilter, Table
+from deltaplan.model.types import Field, Mask, as_data_type, render_type
 from deltaplan.typeparser import parse_type
 
 #: Bumped when the shape below changes in a way `apply` has to know about.
@@ -96,6 +96,7 @@ def _step_to_dict(step: Step) -> dict[str, Any]:
         "risk": step.risk,
         "sql": step.sql,
         "precheck": step.precheck,
+        "refusal": step.refusal,
         "postcheck": step.postcheck,
         "est_bytes": step.est_bytes,
         "undo_hint": step.undo_hint,
@@ -116,6 +117,10 @@ def _value(value: object) -> Any:
         return {"primary_key": {"name": value.name, "columns": list(value.columns)}}
     if isinstance(value, Check):
         return {"check": {"name": value.name, "expression": value.expression}}
+    if isinstance(value, Mask):
+        return _mask_to_dict(value)
+    if isinstance(value, RowFilter):
+        return _row_filter_to_dict(value)
     data_type = as_data_type(value)
     if data_type is not None:
         return render_type(data_type)
@@ -140,7 +145,17 @@ def _field_to_dict(field: Field) -> dict[str, Any]:
         rendered["using"] = field.using
     if field.tags:
         rendered["tags"] = dict(field.tags)
+    if field.mask is not None:
+        rendered["mask"] = _mask_to_dict(field.mask)
     return rendered
+
+
+def _mask_to_dict(mask: Mask) -> dict[str, Any]:
+    return {"function": mask.function, "using_columns": list(mask.using_columns)}
+
+
+def _row_filter_to_dict(row_filter: RowFilter) -> dict[str, Any]:
+    return {"function": row_filter.function, "columns": list(row_filter.columns)}
 
 
 def _table_to_dict(table: Table) -> dict[str, Any]:
@@ -153,6 +168,7 @@ def _table_to_dict(table: Table) -> dict[str, Any]:
         "columns": [_field_to_dict(column) for column in table.columns],
         "constraints": [_value(constraint) for constraint in table.constraints],
         "grants": {grant.principal: list(grant.privileges) for grant in table.grants},
+        "row_filter": _row_filter_to_dict(table.row_filter) if table.row_filter else None,
     }
 
 
@@ -226,6 +242,7 @@ def _step_from_dict(entry: dict[str, Any]) -> Step:
         path=str(entry.get("path", "")),
         sql=entry.get("sql"),
         precheck=entry.get("precheck"),
+        refusal=entry.get("refusal"),
         postcheck=entry.get("postcheck"),
         est_bytes=entry.get("est_bytes"),
         undo_hint=entry.get("undo_hint"),
@@ -256,6 +273,10 @@ def _value_from(kind: str, raw: Any) -> Any:
             return _field_from_dict(raw)
         case "change_type":
             return parse_type(str(raw))
+        case "set_mask":
+            return _mask_from_dict(raw)
+        case "set_row_filter":
+            return _row_filter_from_dict(raw)
         case "add_constraint" | "drop_constraint":
             return _constraint_from_dict(raw)
         case "set_cluster_by" | "reorder_columns" | "set_column_tag" | "grant" | "revoke":
@@ -273,7 +294,16 @@ def _field_from_dict(entry: dict[str, Any]) -> Field:
         renamed_from=entry.get("renamed_from"),
         using=entry.get("using"),
         tags=tuple(sorted(entry.get("tags", {}).items())),
+        mask=_mask_from_dict(entry["mask"]) if entry.get("mask") else None,
     )
+
+
+def _mask_from_dict(entry: dict[str, Any]) -> Mask:
+    return Mask(str(entry["function"]), tuple(entry.get("using_columns", ())))
+
+
+def _row_filter_from_dict(entry: dict[str, Any]) -> RowFilter:
+    return RowFilter(str(entry["function"]), tuple(entry.get("columns", ())))
 
 
 def _constraint_from_dict(entry: dict[str, Any]) -> PrimaryKey | Check:
@@ -298,5 +328,10 @@ def _table_from_dict(entry: dict[str, Any]) -> Table:
         grants=tuple(
             Grant(principal, tuple(privileges))
             for principal, privileges in entry.get("grants", {}).items()
+        ),
+        row_filter=(
+            _row_filter_from_dict(entry["row_filter"])
+            if entry.get("row_filter")
+            else None
         ),
     )

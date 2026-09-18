@@ -26,6 +26,7 @@ from deltaplan.model.table import (
     Constraint,
     Grant,
     PrimaryKey,
+    RowFilter,
     Table,
 )
 from deltaplan.model.types import (
@@ -34,6 +35,7 @@ from deltaplan.model.types import (
     DataType,
     Field,
     Map,
+    Mask,
     Primitive,
     Struct,
     render_type,
@@ -293,7 +295,16 @@ def _string_list(ctx: _Ctx, node: Node, what: str) -> tuple[str, ...]:
 # types
 # ---------------------------------------------------------------------------
 
-FIELD_KEYS = {"name", "type", "nullable", "comment", "renamed_from", "using", "tags"}
+FIELD_KEYS = {
+    "name",
+    "type",
+    "nullable",
+    "comment",
+    "renamed_from",
+    "using",
+    "tags",
+    "mask",
+}
 
 
 def _read_type(ctx: _Ctx, node: Node, what: str) -> DataType:
@@ -370,6 +381,9 @@ def _read_field(ctx: _Ctx, node: Node) -> Field:
     tags: tuple[tuple[str, str], ...] = ()
     if "tags" in items:
         tags = _string_map(ctx, items["tags"][0], f"tags of {name!r}")
+    mask = None
+    if "mask" in items:
+        mask = _read_mask(ctx, items["mask"][0])
     return Field(
         name,
         field_type,
@@ -378,7 +392,45 @@ def _read_field(ctx: _Ctx, node: Node) -> Field:
         renamed_from=renamed_from,
         using=using,
         tags=tags,
+        mask=mask,
     )
+
+
+def _read_function(ctx: _Ctx, node: Node, what: str) -> str:
+    function = _string(ctx, node, what)
+    if len(function.split(".")) != 3:
+        raise SpecError(
+            f"{what} must be a catalog.schema.function name, not {function!r}",
+            ctx.loc(node),
+        )
+    return function
+
+
+def _read_mask(ctx: _Ctx, node: Node) -> Mask:
+    """`mask: cat.sch.fn`, or `{function: …, using_columns: […]}`."""
+    if isinstance(node, ScalarNode):
+        return Mask(_read_function(ctx, node, "mask"))
+    items = _mapping(ctx, node, "a mask")
+    _known_keys(items, allowed={"function", "using_columns"}, what="a mask")
+    function = _read_function(
+        ctx, _require(ctx, items, node, "function", "a mask"), "mask function"
+    )
+    using: tuple[str, ...] = ()
+    if "using_columns" in items:
+        using = _string_list(ctx, items["using_columns"][0], "using_columns")
+    return Mask(function, using)
+
+
+def _read_row_filter(ctx: _Ctx, node: Node) -> RowFilter:
+    items = _mapping(ctx, node, "a row filter")
+    _known_keys(items, allowed={"function", "columns"}, what="a row filter")
+    function = _read_function(
+        ctx, _require(ctx, items, node, "function", "a row filter"), "row filter function"
+    )
+    columns = _string_list(
+        ctx, _require(ctx, items, node, "columns", "a row filter"), "columns"
+    )
+    return RowFilter(function, columns)
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +446,7 @@ TABLE_KEYS = {
     "columns",
     "constraints",
     "grants",
+    "row_filter",
 }
 
 
@@ -476,6 +529,9 @@ def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
     grants: tuple[Grant, ...] = ()
     if "grants" in items:
         grants = _read_grants(ctx, items["grants"][0])
+    row_filter = None
+    if "row_filter" in items:
+        row_filter = _read_row_filter(ctx, items["row_filter"][0])
 
     return Table(
         name=name,
@@ -486,6 +542,7 @@ def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
         tags=tags,
         constraints=constraints,
         grants=grants,
+        row_filter=row_filter,
     )
 
 
@@ -668,6 +725,10 @@ def validate_table(table: Table, where: str) -> tuple[Diagnostic, ...]:
     for name in table.cluster_by:
         if name not in seen:
             error(f"cluster_by column {name!r} is not in the spec")
+    if table.row_filter is not None:
+        for name in table.row_filter.columns:
+            if name not in seen:
+                error(f"row filter column {name!r} is not in the spec")
     if len(table.cluster_by) > MAX_CLUSTER_COLUMNS:
         warn(
             f"{len(table.cluster_by)} clustering columns; Databricks takes at most "
@@ -703,6 +764,12 @@ def _lint_field(
 ) -> None:
     if field.tags and "." in path:
         error(f"{path}: tags go on columns, not on fields inside them")
+    if field.mask is not None and "." in path:
+        error(f"{path}: masks go on columns, not on fields inside them")
+    if field.mask is not None:
+        for name in field.mask.using_columns:
+            if table.column(name) is None:
+                error(f"{path}: mask uses column {name!r}, which is not in the spec")
 
     if field.using is not None and "." in path:
         error(
@@ -776,6 +843,11 @@ def dump_spec(table: Table, *, catalog_variable: str | None = None) -> str:
     ]
     if constraints:
         document["constraints"] = constraints
+    if table.row_filter is not None:
+        document["row_filter"] = {
+            "function": table.row_filter.function,
+            "columns": list(table.row_filter.columns),
+        }
     if table.grants:
         document["grants"] = [
             {"principal": grant.principal, "privileges": list(grant.privileges)}
@@ -793,6 +865,15 @@ def _column_document(column: Field) -> dict[str, object]:
         rendered["comment"] = column.comment
     if column.tags:
         rendered["tags"] = dict(column.tags)
+    if column.mask is not None:
+        rendered["mask"] = (
+            {
+                "function": column.mask.function,
+                "using_columns": list(column.mask.using_columns),
+            }
+            if column.mask.using_columns
+            else column.mask.function
+        )
     return rendered
 
 

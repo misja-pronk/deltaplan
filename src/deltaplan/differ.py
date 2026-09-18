@@ -68,6 +68,15 @@ def diff(
     changes.extend(_diff_columns(desired, actual, compare_order=compare_order))
     changes.extend(_diff_constraints(desired, actual))
     changes.extend(_diff_grants(desired, actual))
+    if desired.row_filter is not None and desired.row_filter != actual.row_filter:
+        changes.append(
+            Change(
+                desired.name,
+                "set_row_filter",
+                before=actual.row_filter,
+                after=desired.row_filter,
+            )
+        )
     return tuple(changes)
 
 
@@ -104,6 +113,16 @@ def unmanaged(desired: Table, actual: Table) -> tuple[str, ...]:
                 found.append(f"tag {key} on column {live_column.name}")
     if desired.primary_key() is None and actual.primary_key() is not None:
         found.append("primary key")
+    # A security control the spec doesn't mention is never removed by deltaplan:
+    # silently weakening one is the worst mistake a plan can make.
+    if desired.row_filter is None and actual.row_filter is not None:
+        found.append("row filter")
+    for live_column in actual.columns:
+        spec_column = desired.column(live_column.name)
+        if live_column.mask is not None and (
+            spec_column is None or spec_column.mask is None
+        ):
+            found.append(f"mask on column {live_column.name}")
     declared = desired.grants_map()
     for grant in actual.grants:
         if grant.principal not in declared:
@@ -221,6 +240,16 @@ def _diff_columns(
             )
         changes.extend(_diff_field(desired.name, column.name, column, live))
         changes.extend(_diff_column_tags(desired.name, column, live))
+        if column.mask is not None and column.mask != live.mask:
+            changes.append(
+                Change(
+                    desired.name,
+                    "set_mask",
+                    column.name,
+                    before=live.mask,
+                    after=column.mask,
+                )
+            )
 
     for live in actual.columns:
         if live.name in consumed:
@@ -442,6 +471,11 @@ def is_applied(change: Change, live: Table | None) -> bool:
             return live.properties_map().get(change.path) == change.after
         case "set_tag":
             return live.tags_map().get(change.path) == change.after
+        case "set_mask":
+            column = live.column(change.path)
+            return column is not None and column.mask == change.after
+        case "set_row_filter":
+            return live.row_filter == change.after
         case "grant":
             wanted = change.after if isinstance(change.after, tuple) else ()
             return set(wanted) <= set(live.grants_map().get(change.path, ()))

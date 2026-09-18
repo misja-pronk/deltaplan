@@ -205,7 +205,7 @@ def test_a_blocked_precheck_stops_the_step() -> None:
     fake.blocked = True  # the column still has NULLs in it
     result = executor(fake).apply(plan)
     assert not result.ok
-    assert result.error is not None and "every existing row" in result.error
+    assert result.error == "refused before running: cust_id still has NULLs in it"
     assert fake.ddl == [], "a blocked step must not run its statement"
 
 

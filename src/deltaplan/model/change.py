@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
-from deltaplan.model.table import Constraint, Table
-from deltaplan.model.types import DataType, Field
+from deltaplan.model.table import Constraint, RowFilter, Table
+from deltaplan.model.types import DataType, Field, Mask
 
 ChangeKind: TypeAlias = Literal[
     "create_table",
@@ -21,6 +21,8 @@ ChangeKind: TypeAlias = Literal[
     "set_property",
     "set_tag",
     "set_column_tag",
+    "set_mask",
+    "set_row_filter",
     "add_column",
     "drop_column",
     "rename_column",
@@ -37,12 +39,21 @@ ChangeKind: TypeAlias = Literal[
 #: Kinds whose `path` names something other than a column — a property key, a
 #: tag key, a principal.
 TABLE_LEVEL_KINDS: frozenset[str] = frozenset(
-    {"set_property", "set_tag", "grant", "revoke"}
+    {"set_property", "set_tag", "grant", "revoke", "set_row_filter"}
 )
 
 #: Whatever a change is about. Every member is hashable, so changes are too.
 ChangeValue: TypeAlias = (
-    str | bool | None | tuple[str, ...] | DataType | Field | Constraint | Table
+    str
+    | bool
+    | None
+    | tuple[str, ...]
+    | DataType
+    | Field
+    | Constraint
+    | Table
+    | Mask
+    | RowFilter
 )
 
 

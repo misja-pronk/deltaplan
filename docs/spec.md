@@ -151,6 +151,43 @@ tags in the spec are set, and tags someone else put on the column are listed as
 unmanaged and left alone — including across a rewrite, which puts them back after
 rebuilding the table.
 
+## Column masks and row filters
+
+```yaml
+columns:
+  - name: ssn
+    type: string
+    mask: ${catalog}.security.mask_ssn
+  - name: email
+    type: string
+    mask:
+      function: ${catalog}.security.mask_email
+      using_columns: [region]
+
+row_filter:
+  function: ${catalog}.security.by_region
+  columns: [region]
+```
+
+The functions are ordinary SQL UDFs you create yourself, named in full
+(`catalog.schema.function`). deltaplan treats what they protect as security controls:
+
+- **It only adds or replaces them.** A mask or filter in the spec is set, or replaced if
+  it names a different function. One the spec doesn't mention is listed as unmanaged
+  and left in place — deltaplan will not remove a security control because a spec is
+  silent about it. Remove one by hand, deliberately.
+- **A new table never exists unprotected.** Masks and the filter are part of its
+  `CREATE TABLE`, not added afterwards.
+- **A missing function is caught first.** Setting a mask or filter on an existing table
+  checks the function exists before running, so a typo is refused rather than
+  half-applied.
+- **A protected table is not rewritten.** A rewrite stages a copy of the data, and that
+  copy holds whatever the applying principal can see — possibly unmasked — in a table
+  without the protection. deltaplan plans that as a step it won't run, and says why.
+
+See [row filters and column masks](https://docs.databricks.com/aws/en/tables/row-and-column-filters)
+for how to write the functions.
+
 ## Grants
 
 ```yaml

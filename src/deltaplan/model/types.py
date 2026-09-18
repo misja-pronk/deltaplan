@@ -149,10 +149,23 @@ class Field:
     #: Unity Catalog tags on a column. Top-level columns only; stored sorted, as
     #: the unordered map they are.
     tags: tuple[tuple[str, str], ...] = ()
+    #: A column mask. Top-level columns only.
+    mask: Mask | None = None
 
     def __post_init__(self) -> None:
         if self.tags:
             object.__setattr__(self, "tags", tuple(sorted(self.tags)))
+
+
+@dataclass(frozen=True, slots=True)
+class Mask:
+    """A column mask: a SQL function that decides what each reader sees.
+
+    https://docs.databricks.com/aws/en/tables/row-and-column-filters
+    """
+
+    function: str
+    using_columns: tuple[str, ...] = ()
 
 
 #: A column is a top-level field.

@@ -191,7 +191,7 @@ class Executor:
         rows = self.runner.query(step.precheck)
         if not rows or not _is_true(next(iter(rows[0].values()), None)):
             return None
-        reason = "; ".join(step.warnings) or "a precondition is not met"
+        reason = step.refusal or "; ".join(step.warnings) or "a precondition is not met"
         return f"refused before running: {reason}"
 
     def _confirm(self, step: Step) -> None:

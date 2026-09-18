@@ -32,6 +32,7 @@ from deltaplan.model.table import (
     TYPE_WIDENING_PROPERTY,
     Check,
     PrimaryKey,
+    RowFilter,
     Table,
     default_primary_key_name,
 )
@@ -42,6 +43,7 @@ from deltaplan.model.types import (
     Decimal,
     Field,
     Map,
+    Mask,
     Primitive,
     Struct,
     Varchar,
@@ -152,6 +154,7 @@ class _Planner:
         path: str = "",
         sql: str | None = None,
         precheck: str | None = None,
+        refusal: str | None = None,
         postcheck: str | None = None,
         est_bytes: int | None = None,
         undo_hint: str | None = None,
@@ -170,6 +173,7 @@ class _Planner:
                 path=path,
                 sql=sql,
                 precheck=precheck,
+                refusal=refusal,
                 postcheck=postcheck,
                 est_bytes=est_bytes,
                 undo_hint=undo_hint,
@@ -269,6 +273,24 @@ class _Planner:
         facts = table_diff.facts
         staging = staging_name(table_diff.table)
         projection = build_projection(desired, live)
+
+        if live.protected:
+            # The staging copy is written with whatever the applying principal can
+            # see — possibly unmasked — into a table with no mask or filter on it.
+            # That is an exposure deltaplan will not plan.
+            self.emit(
+                table_diff.table,
+                "REWRITE",
+                "rewrite",
+                sql=None,
+                est_bytes=facts.size_bytes,
+                note=(
+                    "this table has a column mask or row filter, and a rewrite would "
+                    "copy its data into a staging table without them. Rewrite it by "
+                    "hand, where you control who can read the copy"
+                ),
+            )
+            return
 
         if not projection.complete:
             columns = ", ".join(projection.problems)
@@ -394,6 +416,10 @@ class _Planner:
                 self._add_constraint(change)
             case "drop_constraint":
                 self._drop_constraint(change)
+            case "set_mask":
+                self._mask(change)
+            case "set_row_filter":
+                self._row_filter(change)
             case "grant":
                 self._grant(change)
             case "revoke":
@@ -406,6 +432,53 @@ class _Planner:
                 assert_never(change.kind)
 
     # -- table level -------------------------------------------------------
+    def _mask(self, change: Change) -> None:
+        mask = change.after
+        assert isinstance(mask, Mask)
+        table = quote_qualified(change.table)
+        column = quote_ident(change.path)
+        previous = change.before
+        self.emit(
+            change.table,
+            "SET MASK",
+            "meta",
+            path=change.path,
+            sql=f"ALTER TABLE {table} ALTER COLUMN {column} SET MASK {mask_sql(mask)}",
+            precheck=function_missing_sql(mask.function),
+            refusal=f"the masking function {mask.function} does not exist",
+            warnings=(
+                f"readers see what {mask.function} returns for {change.path}, "
+                "from now on",
+            ),
+            undo_hint=(
+                f"ALTER TABLE {table} ALTER COLUMN {column} SET MASK {mask_sql(previous)}"
+                if isinstance(previous, Mask)
+                else f"ALTER TABLE {table} ALTER COLUMN {column} DROP MASK"
+            ),
+        )
+
+    def _row_filter(self, change: Change) -> None:
+        row_filter = change.after
+        assert isinstance(row_filter, RowFilter)
+        table = quote_qualified(change.table)
+        previous = change.before
+        self.emit(
+            change.table,
+            "SET ROW FILTER",
+            "meta",
+            sql=f"ALTER TABLE {table} SET ROW FILTER {row_filter_sql(row_filter)}",
+            precheck=function_missing_sql(row_filter.function),
+            refusal=f"the row filter function {row_filter.function} does not exist",
+            warnings=(
+                f"readers see only the rows {row_filter.function} allows, from now on",
+            ),
+            undo_hint=(
+                f"ALTER TABLE {table} SET ROW FILTER {row_filter_sql(previous)}"
+                if isinstance(previous, RowFilter)
+                else f"ALTER TABLE {table} DROP ROW FILTER"
+            ),
+        )
+
     def _grant(self, change: Change) -> None:
         privileges = change.after if isinstance(change.after, tuple) else ()
         self._emit_grant(change.table, change.path, privileges)
@@ -687,6 +760,7 @@ class _Planner:
                 f"SELECT count(*) > 0 AS blocked FROM {table} "
                 f"WHERE {column_path_sql(change.path)} IS NULL"
             ),
+            refusal=f"{change.path} still has NULLs in it",
             warnings=warnings,
             est_bytes=facts.size_bytes,
         )
@@ -853,6 +927,9 @@ def create_table_sql(table: Table) -> str:
     if table.comment is not None:
         sql.append(f"COMMENT {quote_literal(table.comment)}")
     sql.append(f"TBLPROPERTIES (\n{rendered_properties}\n)")
+    if table.row_filter is not None:
+        # TODO(verify): clause placement against a live workspace.
+        sql.append(f"WITH ROW FILTER {row_filter_sql(table.row_filter)}")
     return "\n".join(sql)
 
 
@@ -862,7 +939,43 @@ def _column_definition(column: Field) -> str:
         definition += " NOT NULL"
     if column.comment is not None:
         definition += f" COMMENT {quote_literal(column.comment)}"
+    if column.mask is not None:
+        # Inline, so the table never exists without it.
+        definition += f" MASK {mask_sql(column.mask)}"
     return definition
+
+
+def mask_sql(mask: Mask) -> str:
+    """`fn [USING COLUMNS (a, b)]`.
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-column-mask
+    """
+    rendered = quote_qualified(mask.function)
+    if mask.using_columns:
+        rendered += (
+            f" USING COLUMNS ({', '.join(quote_ident(c) for c in mask.using_columns)})"
+        )
+    return rendered
+
+
+def row_filter_sql(row_filter: RowFilter) -> str:
+    """`fn ON (a, b)`.
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-row-filter
+    """
+    columns = ", ".join(quote_ident(c) for c in row_filter.columns)
+    return f"{quote_qualified(row_filter.function)} ON ({columns})"
+
+
+def function_missing_sql(function: str) -> str | None:
+    """A precheck that refuses a mask or filter whose function isn't there."""
+    parts = function.split(".")
+    if len(parts) != 3:
+        return None
+    catalog, schema, name = parts
+    return (
+        f"SELECT count(*) = 0 AS blocked FROM {quote_ident(catalog)}.information_schema"
+        f".routines WHERE routine_schema = {quote_literal(schema)} "
+        f"AND routine_name = {quote_literal(name)}"
+    )
 
 
 def _replace_leaf(path: str, leaf: str) -> str:

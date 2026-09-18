@@ -22,8 +22,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
-from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, Table
-from deltaplan.model.types import Column, DataType, Field, Primitive
+from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, RowFilter, Table
+from deltaplan.model.types import Column, DataType, Field, Mask, Primitive
 from deltaplan.sql import (
     normalise_expression,
     normalise_privilege,
@@ -94,14 +94,17 @@ class Introspector:
         comments, formats = self._table_rows(catalog, schema)
         columns = self._column_rows(catalog, schema)
         column_tags = self._column_tag_rows(catalog, schema)
+        masks = self._mask_rows(catalog, schema)
         for table_name, table_columns in columns.items():
             columns[table_name] = [
                 replace(
                     c,
                     tags=tuple(sorted(column_tags.get((table_name, c.name), {}).items())),
+                    mask=masks.get((table_name, c.name)),
                 )
                 for c in table_columns
             ]
+        row_filters = self._row_filter_rows(catalog, schema)
         tags = self._tag_rows(catalog, schema)
         constraints = self._constraint_rows(catalog, schema)
         grants = self._grant_rows(catalog, schema)
@@ -130,6 +133,7 @@ class Introspector:
                             Grant(principal, tuple(privileges))
                             for principal, privileges in grants.get(name, {}).items()
                         ),
+                        row_filter=row_filters.get(name),
                     ),
                     size_bytes=_as_int(detail.get("sizeInBytes")),
                     data_format=table_type,
@@ -243,6 +247,47 @@ class Introspector:
                 continue
             tags.setdefault((table_name, column), {})[tag] = row.get("tag_value") or ""
         return tags
+
+    def _mask_rows(self, catalog: str, schema: str) -> dict[tuple[str, str], Mask]:
+        # TODO(verify): column_masks column names and how using_column_names is
+        # returned, against a live workspace.
+        # https://docs.databricks.com/aws/en/sql/language-manual/information-schema/column_masks
+        rows = self.runner.query(
+            "SELECT table_name, column_name, mask_catalog, mask_schema, mask_name, "
+            "using_column_names "
+            f"FROM {_information_schema(catalog)}.column_masks "
+            f"WHERE table_schema = {quote_literal(schema)}"
+        )
+        masks: dict[tuple[str, str], Mask] = {}
+        for row in rows:
+            table_name, column = row.get("table_name"), row.get("column_name")
+            function = _function_name(row, "mask")
+            if table_name is None or column is None or function is None:
+                continue
+            masks[(table_name, column)] = Mask(
+                function, _name_list(row.get("using_column_names"))
+            )
+        return masks
+
+    def _row_filter_rows(self, catalog: str, schema: str) -> dict[str, RowFilter]:
+        # TODO(verify): row_filters column names against a live workspace.
+        # https://docs.databricks.com/aws/en/sql/language-manual/information-schema/row_filters
+        rows = self.runner.query(
+            "SELECT table_name, filter_catalog, filter_schema, filter_name, "
+            "target_columns "
+            f"FROM {_information_schema(catalog)}.row_filters "
+            f"WHERE table_schema = {quote_literal(schema)}"
+        )
+        filters: dict[str, RowFilter] = {}
+        for row in rows:
+            table_name = row.get("table_name")
+            function = _function_name(row, "filter")
+            if table_name is None or function is None:
+                continue
+            filters[table_name] = RowFilter(
+                function, _name_list(row.get("target_columns"))
+            )
+        return filters
 
     def _grant_rows(self, catalog: str, schema: str) -> dict[str, dict[str, list[str]]]:
         """Privileges granted on each table directly — not inherited from above.
@@ -458,6 +503,31 @@ def _json_list(value: str | None) -> tuple[str, ...]:
     except json.JSONDecodeError:
         return ()
     return tuple(str(item) for item in parsed) if isinstance(parsed, list) else ()
+
+
+def _function_name(row: Row, prefix: str) -> str | None:
+    parts = [
+        row.get(f"{prefix}_catalog"),
+        row.get(f"{prefix}_schema"),
+        row.get(f"{prefix}_name"),
+    ]
+    if any(part is None for part in parts):
+        return None
+    return ".".join(str(part) for part in parts)
+
+
+def _name_list(value: str | None) -> tuple[str, ...]:
+    """Column names, whether the catalog returns a JSON array or a plain list.
+
+    Decided by the shape of the text, not by whether parsing found anything: an
+    empty array is an empty list, not a column called `[]`.
+    """
+    if not value:
+        return ()
+    text = value.strip()
+    if text.startswith("["):
+        return _json_list(text)
+    return tuple(name.strip() for name in text.split(",") if name.strip())
 
 
 def _pairs(values: dict[str, str]) -> tuple[tuple[str, str], ...]:

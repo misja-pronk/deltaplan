@@ -50,6 +50,17 @@ Constraint: TypeAlias = PrimaryKey | Check
 
 
 @dataclass(frozen=True, slots=True)
+class RowFilter:
+    """A row filter: a SQL function over some columns that hides rows.
+
+    https://docs.databricks.com/aws/en/tables/row-and-column-filters
+    """
+
+    function: str
+    columns: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class Grant:
     """What one principal may do with a table.
 
@@ -81,6 +92,7 @@ class Table:
     tags: tuple[tuple[str, str], ...] = ()
     constraints: tuple[Constraint, ...] = ()
     grants: tuple[Grant, ...] = ()
+    row_filter: RowFilter | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "properties", tuple(sorted(self.properties)))
@@ -124,6 +136,11 @@ class Table:
     def managed(self) -> bool:
         """True when deltaplan created this table and may therefore drop it."""
         return self.properties_map().get(MANAGED_PROPERTY, "").lower() == "true"
+
+    @property
+    def protected(self) -> bool:
+        """Does anything here decide what a reader may see?"""
+        return self.row_filter is not None or any(c.mask for c in self.columns)
 
     def grants_map(self) -> dict[str, tuple[str, ...]]:
         return {grant.principal: grant.privileges for grant in self.grants}

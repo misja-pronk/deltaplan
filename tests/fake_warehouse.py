@@ -23,8 +23,8 @@ import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 
-from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, Table
-from deltaplan.model.types import Array, DataType, Field, Map, Struct
+from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, RowFilter, Table
+from deltaplan.model.types import Array, DataType, Field, Map, Mask, Struct
 from deltaplan.typeparser import parse_type
 
 Row = dict[str, str | None]
@@ -158,6 +158,42 @@ class FakeWarehouse:
                 for column in table.columns
                 for key, value in column.tags
             )
+        if "information_schema.column_masks" in flat:
+            rows: list[Row] = []
+            for table in tables:
+                for column in table.columns:
+                    if column.mask is None:
+                        continue
+                    catalog_, schema_, name = column.mask.function.split(".")
+                    rows.append(
+                        {
+                            "table_name": table.short_name,
+                            "column_name": column.name,
+                            "mask_catalog": catalog_,
+                            "mask_schema": schema_,
+                            "mask_name": name,
+                            "using_column_names": json.dumps(
+                                list(column.mask.using_columns)
+                            ),
+                        }
+                    )
+            return tuple(rows)
+        if "information_schema.row_filters" in flat:
+            filtered: list[Row] = []
+            for table in tables:
+                if table.row_filter is None:
+                    continue
+                catalog_, schema_, name = table.row_filter.function.split(".")
+                filtered.append(
+                    {
+                        "table_name": table.short_name,
+                        "filter_catalog": catalog_,
+                        "filter_schema": schema_,
+                        "filter_name": name,
+                        "target_columns": ", ".join(table.row_filter.columns),
+                    }
+                )
+            return tuple(filtered)
         if "information_schema.table_privileges" in flat:
             return tuple(
                 {
@@ -346,6 +382,17 @@ def _apply_alter(table: Table, clause: str) -> Table:
     if match := re.fullmatch(r"RENAME COLUMN (\S+) TO (\S+)", clause):
         path, new_name = _unquote(match.group(1)), _unquote(match.group(2))
         return _edit_container(table, path, _rename(_leaf(path), new_name))
+    if match := re.fullmatch(
+        r"ALTER COLUMN (\S+) SET MASK (\S+)(?: USING COLUMNS \((.*)\))?", clause
+    ):
+        path = _unquote(match.group(1))
+        mask = Mask(_unquote(match.group(2)), tuple(_idents(match.group(3) or "")))
+        return _edit_container(
+            table, path, _amend(_leaf(path), lambda f: replace(f, mask=mask))
+        )
+    if match := re.fullmatch(r"SET ROW FILTER (\S+) ON \((.*)\)", clause):
+        row_filter = RowFilter(_unquote(match.group(1)), tuple(_idents(match.group(2))))
+        return replace(table, row_filter=row_filter)
     if match := re.fullmatch(r"ALTER COLUMN (\S+) SET TAGS \((.*)\)", clause):
         path = _unquote(match.group(1))
         added = _pairs(match.group(2))
@@ -611,7 +658,8 @@ _CREATE = re.compile(
     r"\((?P<body>.*?)\n\)\nUSING DELTA"
     r"(?:\nCLUSTER BY \((?P<cluster>[^)]*)\))?"
     r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
-    r"(?:\nTBLPROPERTIES \((?P<properties>.*?)\n\))?",
+    r"(?:\nTBLPROPERTIES \((?P<properties>.*?)\n\))?"
+    r"(?:\nWITH ROW FILTER (?P<filter>\S+) ON \((?P<filter_columns>[^)]*)\))?",
     re.DOTALL,
 )
 
@@ -639,6 +687,14 @@ def _parse_create_table(statement: str) -> Table:
         if match.group("properties")
         else (),
         constraints=tuple(constraints),
+        row_filter=(
+            RowFilter(
+                _unquote(match.group("filter")),
+                tuple(_idents(match.group("filter_columns"))),
+            )
+            if match.group("filter")
+            else None
+        ),
     )
 
 
@@ -648,11 +704,15 @@ def _parse_column_definition(entry: str) -> Field:
     A column definition is a struct field with a space where the colon goes, so
     the parser that is already trusted elsewhere does the work.
     """
+    mask = None
+    if found := re.search(r" MASK (\S+)(?: USING COLUMNS \(([^)]*)\))?$", entry):
+        mask = Mask(_unquote(found.group(1)), tuple(_idents(found.group(2) or "")))
+        entry = entry[: found.start()]
     name, _, rest = entry.partition(" ")
     parsed = parse_type(f"struct<{name}:{rest}>")
     if not isinstance(parsed, Struct) or len(parsed.fields) != 1:
         raise FakeSqlError(f"cannot read column definition: {entry}")
-    return parsed.fields[0]
+    return replace(parsed.fields[0], mask=mask)
 
 
 def _parse_inline_constraint(entry: str) -> Constraint:
