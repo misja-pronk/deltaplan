@@ -237,6 +237,16 @@ FEATURES: tuple[Feature, ...] = (
         "ALTER SCHEMA main.sales SET TAGS ('domain' = 'sales');",
         "sqlglot passes `ALTER SCHEMA … SET TAGS` through as unparsed text",
     ),
+    # -- volumes ---------------------------------------------------------------
+    Feature(
+        "Volumes",
+        "Managed volumes: comment, tags, grants",
+        True,
+        False,
+        "CREATE VOLUME main.sales.landing COMMENT 'Raw files';",
+        "sqlglot passes `CREATE VOLUME` and `GRANT … ON VOLUME` through as "
+        "unparsed text; never dropped",
+    ),
     # -- views -----------------------------------------------------------------
     Feature(
         "Views",

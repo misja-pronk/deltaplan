@@ -213,3 +213,26 @@ def test_a_schema_spec_reads_back(
     assert again.empty, [
         (c.kind, c.path, c.after) for d in again.diffs for c in d.changes
     ]
+
+
+def test_a_volume_spec_reads_back(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """A managed volume's comment, tags and grants round-trip through
+    information_schema.volumes / volume_tags / volume_privileges.
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create-volume
+    """
+    from deltaplan.model.volume import Volume
+
+    principal = os.environ.get("DELTAPLAN_TEST_PRINCIPAL", "account users")
+    spec = Volume(
+        f"{schema}.landing",
+        comment="It's where files land",
+        tags=(("domain", "testing"),),
+        grants=(Grant(principal, ("READ VOLUME",)),),
+    )
+    apply(planned([spec], introspector), runner, introspector)
+    again = planned([spec], introspector)
+    assert again.empty, [
+        (c.kind, c.path, c.after) for d in again.diffs for c in d.changes
+    ]

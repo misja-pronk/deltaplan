@@ -28,6 +28,7 @@ from deltaplan.differ import (
     diff_function,
     diff_schema,
     diff_view,
+    diff_volume,
     ownership,
     spent_renames,
     unmanaged,
@@ -43,6 +44,7 @@ from deltaplan.model.plan import Plan, TableDiff, TableFacts, fingerprint
 from deltaplan.model.schema import Schema
 from deltaplan.model.table import Table
 from deltaplan.model.view import Relation, View
+from deltaplan.model.volume import Volume
 from deltaplan.planner import build_plan
 
 
@@ -83,7 +85,9 @@ def plan_tables(
         "functions call each other",
     )
     _refuse_kind_changes([s for s in specs if isinstance(s, Table | View)], schemas)
-    _refuse_shared_names(functions, described, schemas)
+    _refuse_shared_names(
+        [*functions, *[s for s in specs if isinstance(s, Volume)]], described, schemas
+    )
 
     diffs: list[TableDiff] = []
     # Schemas first: everything else lives in one.
@@ -97,6 +101,26 @@ def plan_tables(
                 unmanaged_schema(declared, live_schema) if live_schema else (),
                 desired=declared,
                 live=live_schema,
+            )
+        )
+    # Volumes: independent of the rest, so any order will do — here, early.
+    volumes = [spec for spec in specs if isinstance(spec, Volume)]
+    for volume in volumes:
+        found = _schema_of(schemas, volume.name)
+        live_volume = found.get_volume(volume.name)
+        diffs.append(
+            TableDiff(
+                volume.name,
+                diff_volume(volume, live_volume),
+                TableFacts(
+                    volume.name,
+                    exists=live_volume is not None,
+                    kind="volume",
+                    schema_exists=found.exists,
+                ),
+                unmanaged_schema(volume, live_volume) if live_volume else (),
+                desired=volume,
+                live=live_volume,
             )
         )
     # Then functions: masks, row filters and views call them.
@@ -283,25 +307,36 @@ def _reads(query: str, name: str) -> bool:
 
 
 def _refuse_shared_names(
-    functions: Sequence[Function],
+    others: Sequence[Function | Volume],
     described: set[str],
     schemas: dict[tuple[str, str], LiveSchema],
 ) -> None:
-    """A function with a table's or view's name.
+    """A function or volume with the name of something else.
 
-    Unity Catalog allows it — functions have a namespace of their own — but a
-    plan, its history and its renderings are keyed by name, so deltaplan would
-    confuse the two.
+    Unity Catalog allows it — functions and volumes have namespaces of their
+    own; a table and a volume can share a name (verified live) — but a plan, its
+    history and its renderings are keyed by name, so deltaplan would confuse
+    the two.
     """
-    for function in functions:
-        found = _schema_of(schemas, function.name)
-        if function.name in described or (
-            found.get(function.name) or found.get_view(function.name)
-        ):
+    kinds: dict[str, str] = {}
+    for spec in others:
+        kind = "function" if isinstance(spec, Function) else "volume"
+        found = _schema_of(schemas, spec.name)
+        clash = None
+        if spec.name in described or found.get(spec.name) or found.get_view(spec.name):
+            clash = "a table or view"
+        elif kind == "volume" and found.get_function(spec.name):
+            clash = "a function"
+        elif kind == "function" and found.get_volume(spec.name):
+            clash = "a volume"
+        elif kinds.get(spec.name, kind) != kind:
+            clash = f"a {kinds[spec.name]}"
+        if clash is not None:
             raise PlanningError(
-                f"{function.name} names both a function and a table or view. "
-                "deltaplan keys a plan by name, so it cannot manage both; rename one."
+                f"{spec.name} names both a {kind} and {clash}. deltaplan keys a "
+                "plan by name, so it cannot manage both; rename one."
             )
+        kinds[spec.name] = kind
 
 
 def _refuse_kind_changes(

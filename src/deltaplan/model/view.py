@@ -14,6 +14,7 @@ from typing import TypeAlias
 from deltaplan.model.function import Function
 from deltaplan.model.schema import Schema
 from deltaplan.model.table import Grant, Securable, Table, sort_governance
+from deltaplan.model.volume import Volume
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +36,7 @@ class View(Securable):
 
 
 #: Anything a spec can describe.
-Relation: TypeAlias = Table | View | Function | Schema
+Relation: TypeAlias = Table | View | Function | Schema | Volume
 
 
 def normalise_query(query: str) -> str:

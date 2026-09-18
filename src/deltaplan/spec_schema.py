@@ -24,7 +24,12 @@ from pathlib import Path
 from typing import Any
 
 from deltaplan import loader
-from deltaplan.sql import FUNCTION_PRIVILEGES, SCHEMA_PRIVILEGES, TABLE_PRIVILEGES
+from deltaplan.sql import (
+    FUNCTION_PRIVILEGES,
+    SCHEMA_PRIVILEGES,
+    TABLE_PRIVILEGES,
+    VOLUME_PRIVILEGES,
+)
 
 BASE_URL = "https://misja-pronk.github.io/deltaplan/schema"
 SPEC_SCHEMA_URL = f"{BASE_URL}/spec.json"
@@ -329,15 +334,26 @@ def spec_schema() -> Schema:
         required={"schema"},
         description="A schema: its comment, tags and grants. Never dropped.",
     )
+    volume = _object(
+        loader.VOLUME_KEYS,
+        {
+            "volume": _text("catalog.schema.volume — a managed volume"),
+            "comment": {"type": "string"},
+            "tags": STRING_MAP,
+            "grants": _grants(VOLUME_PRIVILEGES),
+        },
+        required={"volume"},
+        description="A managed volume: its comment, tags and grants. Never dropped.",
+    )
     return {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "$id": SPEC_SCHEMA_URL,
         "title": "deltaplan spec",
         "description": (
-            "A table, view, SQL function or schema. "
+            "A table, view, SQL function, schema or volume. "
             "https://misja-pronk.github.io/deltaplan/spec/"
         ),
-        "oneOf": [table, view, function, schema],
+        "oneOf": [table, view, function, schema, volume],
         "definitions": defs,
     }
 

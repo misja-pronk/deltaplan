@@ -50,10 +50,12 @@ from deltaplan.model.types import (
     render_type,
 )
 from deltaplan.model.view import Relation, View
+from deltaplan.model.volume import Volume
 from deltaplan.sql import (
     FUNCTION_PRIVILEGES,
     SCHEMA_PRIVILEGES,
     TABLE_PRIVILEGES,
+    VOLUME_PRIVILEGES,
     privilege_sql,
 )
 from deltaplan.typeparser import TypeParseError, parse_type
@@ -670,9 +672,12 @@ def load_spec(
         return _read_function_spec(ctx, node, items)
     if "schema" in items:
         return _read_schema_spec(ctx, items)
+    if "volume" in items:
+        return _read_volume_spec(ctx, items)
     if "table" not in items:
         raise SpecError(
-            "a spec needs a 'table', 'view', 'function' or 'schema' key", ctx.loc(node)
+            "a spec needs a 'table', 'view', 'function', 'schema' or 'volume' key",
+            ctx.loc(node),
         )
     return _read_table(ctx, node, items)
 
@@ -686,6 +691,8 @@ def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
             if isinstance(spec, View)
             else "schema"
             if isinstance(spec, Schema)
+            else "volume"
+            if isinstance(spec, Volume)
             else "function"
         )
         raise SpecError(f"this spec describes a {kind}, not a table", Loc(path, 1, 1))
@@ -694,6 +701,20 @@ def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
 
 FUNCTION_KEYS = {"function", "parameters", "returns", "body", "comment", "grants"}
 SCHEMA_KEYS = {"schema", "comment", "tags", "grants"}
+VOLUME_KEYS = {"volume", "comment", "tags", "grants"}
+
+
+def _read_volume_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Volume:
+    _known_keys(items, allowed=VOLUME_KEYS, what="a volume spec")
+    name = _string(ctx, items["volume"][0], "volume name")
+    comment = _string(ctx, items["comment"][0], "comment") if "comment" in items else None
+    tags: tuple[tuple[str, str], ...] = ()
+    if "tags" in items:
+        tags = _string_map(ctx, items["tags"][0], "tags")
+    grants: tuple[Grant, ...] = ()
+    if "grants" in items:
+        grants = _read_grants(ctx, items["grants"][0], allowed=VOLUME_PRIVILEGES)
+    return Volume(name, comment, tags, grants)
 
 
 def _read_schema_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Schema:
@@ -1089,7 +1110,21 @@ def validate_spec(spec: Relation, where: str) -> tuple[Diagnostic, ...]:
         return validate_function(spec, where)
     if isinstance(spec, Schema):
         return validate_schema(spec, where)
+    if isinstance(spec, Volume):
+        return validate_volume(spec, where)
     return validate_table(spec, where)
+
+
+def validate_volume(volume: Volume, where: str) -> tuple[Diagnostic, ...]:
+    if len(volume.parts) != 3:
+        return (
+            Diagnostic(
+                "error",
+                f"volume name {volume.name!r} must be catalog.schema.volume",
+                where,
+            ),
+        )
+    return ()
 
 
 def validate_schema(schema: Schema, where: str) -> tuple[Diagnostic, ...]:
@@ -1348,6 +1383,8 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
         return _dump_function(table, name)
     if isinstance(table, Schema):
         return _dump_schema(table, name)
+    if isinstance(table, Volume):
+        return _dump_securable("volume", table, name)
 
     document: dict[str, object] = {"table": name}
     if table.comment is not None:
@@ -1387,15 +1424,20 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
 
 
 def _dump_schema(schema: Schema, name: str) -> str:
-    document: dict[str, object] = {"schema": name}
-    if schema.comment is not None:
-        document["comment"] = schema.comment
-    if schema.tags:
-        document["tags"] = dict(schema.tags)
-    if schema.grants:
+    return _dump_securable("schema", schema, name)
+
+
+def _dump_securable(key: str, securable: Schema | Volume, name: str) -> str:
+    """A schema or volume spec: a comment, tags and grants."""
+    document: dict[str, object] = {key: name}
+    if securable.comment is not None:
+        document["comment"] = securable.comment
+    if securable.tags:
+        document["tags"] = dict(securable.tags)
+    if securable.grants:
         document["grants"] = [
             {"principal": grant.principal, "privileges": list(grant.privileges)}
-            for grant in schema.grants
+            for grant in securable.grants
         ]
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False, width=100)
 

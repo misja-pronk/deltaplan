@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://misja-pronk.github.io/deltaplan/schema/spec.json",
   "title": "deltaplan spec",
-  "description": "A table, view, SQL function or schema. https://misja-pronk.github.io/deltaplan/spec/",
+  "description": "A table, view, SQL function, schema or volume. https://misja-pronk.github.io/deltaplan/spec/",
   "oneOf": [
     {
       "type": "object",
@@ -466,6 +466,68 @@
         "schema"
       ],
       "description": "A schema: its comment, tags and grants. Never dropped."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "comment": {
+          "type": "string"
+        },
+        "grants": {
+          "type": "array",
+          "description": "Privileges per principal. Principals not named are left alone.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "principal": {
+                "type": "string",
+                "description": "A user, group or service principal."
+              },
+              "privileges": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "ALL PRIVILEGES",
+                        "APPLY TAG",
+                        "MANAGE",
+                        "READ VOLUME",
+                        "WRITE VOLUME"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[Aa][Ll][Ll][ _]+[Pp][Rr][Ii][Vv][Ii][Ll][Ee][Gg][Ee][Ss]|[Aa][Pp][Pp][Ll][Yy][ _]+[Tt][Aa][Gg]|[Mm][Aa][Nn][Aa][Gg][Ee]|[Rr][Ee][Aa][Dd][ _]+[Vv][Oo][Ll][Uu][Mm][Ee]|[Ww][Rr][Ii][Tt][Ee][ _]+[Vv][Oo][Ll][Uu][Mm][Ee])$"
+                    }
+                  ]
+                },
+                "minItems": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "principal",
+              "privileges"
+            ]
+          }
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "volume": {
+          "type": "string",
+          "description": "catalog.schema.volume \u2014 a managed volume"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "volume"
+      ],
+      "description": "A managed volume: its comment, tags and grants. Never dropped."
     }
   ],
   "definitions": {

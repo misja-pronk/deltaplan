@@ -174,8 +174,13 @@ SCHEMA_PRIVILEGES: frozenset[str] = frozenset(
 )
 #: Every privilege deltaplan will put in a statement. The loader checks each
 #: grant against its object's own list; this is the last line, at SQL time.
+#: What can be granted on a volume — verified live (2026-09-18); SELECT and
+#: BROWSE are refused there.
+VOLUME_PRIVILEGES: frozenset[str] = frozenset(
+    {"ALL PRIVILEGES", "APPLY TAG", "MANAGE", "READ VOLUME", "WRITE VOLUME"}
+)
 KNOWN_PRIVILEGES: frozenset[str] = (
-    TABLE_PRIVILEGES | FUNCTION_PRIVILEGES | SCHEMA_PRIVILEGES
+    TABLE_PRIVILEGES | FUNCTION_PRIVILEGES | SCHEMA_PRIVILEGES | VOLUME_PRIVILEGES
 )
 
 

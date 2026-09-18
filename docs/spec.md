@@ -452,6 +452,30 @@ grants:
 - `import` writes the schema's spec as `_schema.yml` when it has a comment, tags or
   grants. In SQL, `CREATE SCHEMA … COMMENT` and `GRANT … ON SCHEMA` work; tags need YAML.
 
+## Volumes
+
+A volume spec declares a managed volume — a place for files — with its comment, tags
+and grants:
+
+```yaml
+volume: ${catalog}.sales.landing
+comment: Raw files from the source systems
+tags: {domain: sales}
+grants:
+  - {principal: etl, privileges: [READ VOLUME, WRITE VOLUME]}
+  - {principal: analysts, privileges: [READ VOLUME]}
+```
+
+- **Managed volumes only.** An external volume (one with a `LOCATION`) is listed as
+  skipped and left alone.
+- Created with its comment, then tagged and granted; after that, like a schema, a spec
+  only adds — a comment it doesn't give isn't cleared, and tags and grants it doesn't
+  name are reported.
+- **A volume is never dropped**: dropping a managed volume deletes its files.
+- Volume privileges: `READ VOLUME`, `WRITE VOLUME`, `APPLY TAG`, `MANAGE` and
+  `ALL PRIVILEGES`.
+- YAML only: sqlglot doesn't parse `CREATE VOLUME`. `import` writes volume specs as YAML.
+
 ## Functions
 
 A function spec has a `function:` key, its parameters, what it returns, and a body — the

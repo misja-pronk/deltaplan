@@ -38,6 +38,7 @@ from deltaplan.loader import (
 )
 from deltaplan.model.plan import Plan, Step
 from deltaplan.model.view import Relation
+from deltaplan.model.volume import Volume
 from deltaplan.planning import PlanningError, plan_tables
 from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_json
@@ -270,13 +271,14 @@ def import_schema(
     relations: list[Relation] = [entry.table for entry in live.tables]
     relations.extend(live.views)
     relations.extend(live.functions)
+    relations.extend(live.volumes)
     written: set[str] = set()
     for relation in relations:
-        # Functions don't share a namespace with tables and views, so a function
-        # may have a table's name; its file then says what it is.
+        # Functions and volumes don't share a namespace with tables and views,
+        # so one may have a table's name; its file then says what it is.
         stem = relation.short_name
         if stem in written:
-            stem = f"{stem}.function"
+            stem = f"{stem}.{'volume' if isinstance(relation, Volume) else 'function'}"
         written.add(stem)
         reason = sql_cannot_say(relation) if spec_format is SpecFormat.sql else None
         if spec_format is SpecFormat.sql and reason is None:

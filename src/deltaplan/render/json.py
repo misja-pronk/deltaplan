@@ -29,6 +29,7 @@ from deltaplan.model.table import (
 )
 from deltaplan.model.types import Field, Identity, Mask, as_data_type, render_type
 from deltaplan.model.view import Relation, View
+from deltaplan.model.volume import Volume
 from deltaplan.typeparser import parse_type
 
 #: Bumped when the shape below changes in a way `apply` has to know about.
@@ -128,7 +129,7 @@ def _value(value: object) -> Any:
         return value
     if isinstance(value, Field):
         return _field_to_dict(value)
-    if isinstance(value, Table | View | Function | Schema):
+    if isinstance(value, Table | View | Function | Schema | Volume):
         return _relation_to_dict(value)
     if isinstance(value, PrimaryKey):
         return {"primary_key": {"name": value.name, "columns": list(value.columns)}}
@@ -201,9 +202,9 @@ def _row_filter_to_dict(row_filter: RowFilter) -> dict[str, Any]:
 
 
 def _relation_to_dict(relation: Relation) -> dict[str, Any]:
-    if isinstance(relation, Schema):
+    if isinstance(relation, Schema | Volume):
         return {
-            "schema": relation.name,
+            "schema" if isinstance(relation, Schema) else "volume": relation.name,
             "comment": relation.comment,
             "tags": dict(relation.tags),
             "grants": {g.principal: list(g.privileges) for g in relation.grants},
@@ -232,9 +233,10 @@ def _relation_to_dict(relation: Relation) -> dict[str, Any]:
 
 
 def _relation_from_dict(entry: dict[str, Any]) -> Relation:
-    if "schema" in entry:
-        return Schema(
-            name=str(entry["schema"]),
+    if "schema" in entry or "volume" in entry:
+        kind = Schema if "schema" in entry else Volume
+        return kind(
+            name=str(entry["schema" if kind is Schema else "volume"]),
             comment=entry.get("comment"),
             tags=tuple(sorted(entry.get("tags", {}).items())),
             grants=tuple(
@@ -357,7 +359,7 @@ def _diff_from_dict(entry: dict[str, Any]) -> TableDiff:
     )
 
 
-def _kind(value: object) -> Literal["table", "view", "function", "schema"]:
+def _kind(value: object) -> Literal["table", "view", "function", "schema", "volume"]:
     match value:
         case "view":
             return "view"
@@ -365,6 +367,8 @@ def _kind(value: object) -> Literal["table", "view", "function", "schema"]:
             return "function"
         case "schema":
             return "schema"
+        case "volume":
+            return "volume"
         case _:
             return "table"
 
@@ -412,6 +416,8 @@ def _value_from(kind: str, raw: Any) -> Any:
             | "replace_view"
             | "create_function"
             | "replace_function"
+            | "create_schema"
+            | "create_volume"
         ):
             return _relation_from_dict(raw)
         case "add_column" | "drop_column":

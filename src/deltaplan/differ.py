@@ -17,7 +17,7 @@ Two rules shape everything here:
 
 from __future__ import annotations
 
-from deltaplan.model.change import Change
+from deltaplan.model.change import CREATE_KINDS, Change
 from deltaplan.model.function import Function
 from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
@@ -35,6 +35,7 @@ from deltaplan.model.table import (
 )
 from deltaplan.model.types import Array, DataType, Field, Map, Struct, type_kind, walk
 from deltaplan.model.view import Relation, View, normalise_query
+from deltaplan.model.volume import Volume
 from deltaplan.sql import normalise_expression
 
 
@@ -207,7 +208,28 @@ def diff_schema(desired: Schema, actual: Schema | None) -> tuple[Change, ...]:
     return tuple(changes)
 
 
-def unmanaged_schema(desired: Schema, actual: Schema) -> tuple[str, ...]:
+def diff_volume(desired: Volume, actual: Volume | None) -> tuple[Change, ...]:
+    """Diff a volume: its comment, then tags and grants. Additive like a
+    schema: what the spec leaves out is reported, not removed."""
+    if actual is None:
+        return (Change(desired.name, "create_volume", after=desired),)
+    changes: list[Change] = []
+    if desired.comment is not None and desired.comment != actual.comment:
+        changes.append(
+            Change(
+                desired.name,
+                "set_volume_comment",
+                before=actual.comment,
+                after=desired.comment,
+            )
+        )
+    changes.extend(_diff_governance(desired, actual))
+    return tuple(changes)
+
+
+def unmanaged_schema(
+    desired: Schema | Volume, actual: Schema | Volume
+) -> tuple[str, ...]:
     """What a live schema carries that its spec doesn't mention."""
     return tuple(_unmanaged_governance(desired, actual))
 
@@ -669,7 +691,7 @@ def is_applied(change: Change, live: Relation | None) -> bool:
     Being wrong in the "not applied yet" direction is the safe one: the step runs
     again, and every statement deltaplan generates is safe to repeat.
     """
-    if change.kind in {"create_table", "create_view", "create_function", "create_schema"}:
+    if change.kind in CREATE_KINDS:
         return live is not None
     if change.kind == "drop_table":
         return live is None
@@ -681,6 +703,8 @@ def is_applied(change: Change, live: Relation | None) -> bool:
             return live.managed
         case "set_schema_comment":
             return isinstance(live, Schema) and live.comment == change.after
+        case "set_volume_comment":
+            return isinstance(live, Volume) and live.comment == change.after
         case "rename_table":
             # `live` is whatever answers to the new name: the rename happened.
             return True

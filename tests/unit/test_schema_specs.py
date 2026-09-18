@@ -167,8 +167,10 @@ def test_the_executor_applies_it_and_knows_when_it_is_done() -> None:
 
 
 def test_a_schema_plan_survives_the_plan_file() -> None:
-    plan = planned([SALES], FakeWarehouse.of(Schema("main.sales", comment="old")))
-    assert loads(dumps(plan)) == plan
+    changed = planned([SALES], FakeWarehouse.of(Schema("main.sales", comment="old")))
+    created = planned([SALES], FakeWarehouse.of())
+    for plan in (changed, created):
+        assert loads(dumps(plan)) == plan
 
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ from deltaplan.model.schema import Schema
 from deltaplan.model.table import Constraint, RowFilter, Table
 from deltaplan.model.types import DataType, Field, Identity, Mask
 from deltaplan.model.view import View
+from deltaplan.model.volume import Volume
 
 ChangeKind: TypeAlias = Literal[
     "create_table",
@@ -22,6 +23,8 @@ ChangeKind: TypeAlias = Literal[
     "rename_table",
     "create_schema",
     "set_schema_comment",
+    "create_volume",
+    "set_volume_comment",
     "create_view",
     "replace_view",
     "create_function",
@@ -51,7 +54,7 @@ ChangeKind: TypeAlias = Literal[
 
 #: Kinds that bring a table, view or function into being.
 CREATE_KINDS: frozenset[str] = frozenset(
-    {"create_table", "create_view", "create_function", "create_schema"}
+    {"create_table", "create_view", "create_function", "create_schema", "create_volume"}
 )
 
 #: Kinds whose `path` names something other than a column — a property key, a
@@ -73,6 +76,7 @@ ChangeValue: TypeAlias = (
     | View
     | Function
     | Schema
+    | Volume
     | Mask
     | RowFilter
     | Identity

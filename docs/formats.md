@@ -76,6 +76,7 @@ sqlglot learns more of Databricks SQL, this list grows.
 |  | Partitioning | — | — | not modelled: reported on live tables, never managed |
 | Schemas | Schemas: comment and grants | ✓ | ✓ | never dropped |
 |  | Schema tags | ✓ | — | sqlglot passes `ALTER SCHEMA … SET TAGS` through as unparsed text |
+| Volumes | Managed volumes: comment, tags, grants | ✓ | — | sqlglot passes `CREATE VOLUME` and `GRANT … ON VOLUME` through as unparsed text; never dropped |
 | Views | Views: query, comment, properties | ✓ | ✓ | the query is kept exactly as written |
 |  | View tags and grants | ✓ | ✓ |  |
 | Functions | SQL functions: parameters, return type, body, comment | ✓ | ✓ | the body is kept exactly as written |

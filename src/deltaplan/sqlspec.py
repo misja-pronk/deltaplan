@@ -54,6 +54,7 @@ from deltaplan.model.table import (
 )
 from deltaplan.model.types import DataType, Field, Identity, render_type
 from deltaplan.model.view import Relation, View
+from deltaplan.model.volume import Volume
 from deltaplan.sql import (
     FUNCTION_PRIVILEGES,
     SCHEMA_PRIVILEGES,
@@ -92,6 +93,9 @@ def sql_cannot_say(relation: Relation) -> str | None:
     if isinstance(relation, Schema):
         # sqlglot reads ALTER SCHEMA … SET TAGS as an opaque command.
         return "schema tags" if relation.tags else None
+    if isinstance(relation, Volume):
+        # … and CREATE VOLUME and GRANT … ON VOLUME.
+        return "volumes"
     if not isinstance(relation, Table):
         return None
     found: list[str] = []
@@ -128,6 +132,8 @@ def dump_sql_spec(relation: Relation, *, catalog_variable: str | None = None) ->
         statements, kind = [_create_view(relation, name)], "VIEW"
     elif isinstance(relation, Function):
         statements, kind = [_create_function(relation, name)], "FUNCTION"
+    elif isinstance(relation, Volume):  # pragma: no cover - refused above
+        raise ValueError("a SQL spec can't say volumes")
     else:
         text = f"CREATE SCHEMA {name(relation.name)}"
         if relation.comment is not None:

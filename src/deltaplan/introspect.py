@@ -38,6 +38,7 @@ from deltaplan.model.table import (
 )
 from deltaplan.model.types import Column, DataType, Field, Identity, Mask, Primitive
 from deltaplan.model.view import Relation, View
+from deltaplan.model.volume import Volume
 from deltaplan.sql import (
     normalise_expression,
     normalise_privilege,
@@ -112,6 +113,14 @@ class LiveSchema:
     #: The schema itself — its comment, tags and direct grants. None when the
     #: schema doesn't exist.
     definition: Schema | None = None
+    #: Managed volumes. External ones are in `skipped`.
+    volumes: tuple[Volume, ...] = ()
+
+    def get_volume(self, name: str) -> Volume | None:
+        for volume in self.volumes:
+            if volume.name == name:
+                return volume
+        return None
 
     def get(self, name: str) -> LiveTable | None:
         for live in self.tables:
@@ -141,7 +150,7 @@ class LiveSchema:
         live = self.get(name)
         if live is not None:
             return live.table
-        return self.get_view(name) or self.get_function(name)
+        return self.get_view(name) or self.get_function(name) or self.get_volume(name)
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -288,6 +297,8 @@ class Introspector:
                     definition_read=read,
                 )
             )
+        # Read before `skipped` is frozen: external volumes are added to it.
+        volumes = self._volumes(catalog, schema, skipped)
         return LiveSchema(
             catalog,
             schema,
@@ -296,6 +307,7 @@ class Introspector:
             tuple(views),
             functions=self._functions(catalog, schema, grants),
             definition=definition,
+            volumes=volumes,
         )
 
     def table(self, name: str) -> LiveTable | None:
@@ -523,6 +535,68 @@ class Introspector:
                 )
             )
         return tuple(found)
+
+    def _volumes(
+        self, catalog: str, schema: str, skipped: list[tuple[str, str]]
+    ) -> tuple[Volume, ...]:
+        """Managed volumes with their comment, tags and direct grants; external
+        ones go to `skipped`. Column names verified live (2026-09-18).
+        https://docs.databricks.com/aws/en/sql/language-manual/information-schema/volumes
+        """
+        literal = quote_literal(schema)
+        rows = self.runner.query(
+            "SELECT volume_name, volume_type, comment "
+            f"FROM {_information_schema(catalog)}.volumes "
+            f"WHERE volume_schema = {literal}"
+        )
+        managed = {}
+        for row in rows:
+            name = row.get("volume_name")
+            if name is None:
+                continue
+            if (row.get("volume_type") or "").upper() != "MANAGED":
+                skipped.append((f"{catalog}.{schema}.{name}", "external volume"))
+                continue
+            managed[name] = row.get("comment")
+        if not managed:
+            return ()
+        tags: dict[str, dict[str, str]] = {}
+        for row in self.runner.query(
+            "SELECT volume_name, tag_name, tag_value "
+            f"FROM {_information_schema(catalog)}.volume_tags "
+            f"WHERE schema_name = {literal}"
+        ):
+            if row.get("volume_name") and row.get("tag_name"):
+                tags.setdefault(str(row["volume_name"]), {})[str(row["tag_name"])] = str(
+                    row.get("tag_value") or ""
+                )
+        held: dict[str, dict[str, list[str]]] = {}
+        for row in self.runner.query(
+            "SELECT volume_name, grantee, privilege_type, inherited_from "
+            f"FROM {_information_schema(catalog)}.volume_privileges "
+            f"WHERE volume_schema = {literal}"
+        ):
+            volume, grantee, privilege = (
+                row.get("volume_name"),
+                row.get("grantee"),
+                row.get("privilege_type"),
+            )
+            if volume is None or grantee is None or privilege is None:
+                continue
+            if (row.get("inherited_from") or "NONE").upper() != "NONE":
+                continue
+            held.setdefault(volume, {}).setdefault(grantee, []).append(
+                normalise_privilege(privilege)
+            )
+        return tuple(
+            Volume(
+                f"{catalog}.{schema}.{name}",
+                comment,
+                tuple(sorted(tags.get(name, {}).items())),
+                tuple(Grant(p, tuple(v)) for p, v in held.get(name, {}).items()),
+            )
+            for name, comment in sorted(managed.items())
+        )
 
     def _schema_row(self, catalog: str, schema: str) -> Row | None:
         """The schema's row, or None when it doesn't exist.

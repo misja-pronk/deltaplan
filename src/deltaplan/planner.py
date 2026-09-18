@@ -60,6 +60,7 @@ from deltaplan.model.types import (
     type_kind,
 )
 from deltaplan.model.view import View
+from deltaplan.model.volume import Volume
 from deltaplan.sql import privilege_sql, quote_ident, quote_literal, quote_qualified
 
 STREAMING_WARNING = "breaks streaming readers — they must be restarted from scratch"
@@ -382,9 +383,12 @@ class _Planner:
     @property
     def _object(self) -> str:
         """`TABLE`, `VIEW` or `FUNCTION`, for the statements that say which."""
-        return {"view": "VIEW", "function": "FUNCTION", "schema": "SCHEMA"}.get(
-            self._kind, "TABLE"
-        )
+        return {
+            "view": "VIEW",
+            "function": "FUNCTION",
+            "schema": "SCHEMA",
+            "volume": "VOLUME",
+        }.get(self._kind, "TABLE")
 
     def _rewrite(self, table_diff: TableDiff) -> None:
         desired, live = table_diff.desired, table_diff.live
@@ -632,6 +636,10 @@ class _Planner:
                 self._create_schema(change)
             case "set_schema_comment":
                 self._schema_comment(change)
+            case "create_volume":
+                self._create_volume(change, facts)
+            case "set_volume_comment":
+                self._securable_comment(change, "VOLUME")
             case "drop_table":
                 self._drop_table(change, facts)
             case _:
@@ -825,19 +833,55 @@ class _Planner:
         self._change = change_index
 
     def _schema_comment(self, change: Change) -> None:
+        self._securable_comment(change, "SCHEMA")
+
+    def _securable_comment(self, change: Change, kind: str) -> None:
+        """`COMMENT ON SCHEMA|VOLUME … IS …`, with the old comment as undo."""
         comment = change.after if isinstance(change.after, str) else ""
         previous = change.before
         self.emit(
             change.table,
-            "COMMENT ON SCHEMA",
+            f"COMMENT ON {kind}",
             "meta",
-            sql=f"COMMENT ON SCHEMA {quote_qualified(change.table)} IS "
+            sql=f"COMMENT ON {kind} {quote_qualified(change.table)} IS "
             f"{quote_literal(comment)}",
             undo_hint=(
-                f"COMMENT ON SCHEMA {quote_qualified(change.table)} IS "
+                f"COMMENT ON {kind} {quote_qualified(change.table)} IS "
                 f"{quote_literal(previous) if isinstance(previous, str) else 'NULL'}"
             ),
         )
+
+    def _create_volume(self, change: Change, facts: TableFacts) -> None:
+        """A managed volume, with its comment; then its tags and grants.
+        https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create-volume
+        """
+        volume = change.after
+        assert isinstance(volume, Volume)
+        self.need_schema(facts)
+        sql = f"CREATE VOLUME IF NOT EXISTS {quote_qualified(volume.name)}"
+        if volume.comment is not None:
+            sql += f" COMMENT {quote_literal(volume.comment)}"
+        self.emit(
+            volume.name,
+            f"CREATE VOLUME {volume.short_name}",
+            "meta",
+            sql=sql,
+            note=(
+                "a managed volume; deltaplan never drops one — that would delete "
+                "its files"
+            ),
+        )
+        change_index, self._change = self._change, -1
+        if volume.tags:
+            self.emit(
+                volume.name,
+                "SET TAGS",
+                "meta",
+                sql=set_tags_sql(volume.name, volume.tags, "VOLUME"),
+            )
+        for grant in volume.grants:
+            self._emit_grant(volume.name, grant.principal, grant.privileges)
+        self._change = change_index
 
     def _rename_table(self, change: Change) -> None:
         old = change.before

@@ -48,6 +48,7 @@ from deltaplan.model.types import (
     contains_timestamp_ntz,
 )
 from deltaplan.model.view import View
+from deltaplan.model.volume import Volume
 from deltaplan.typeparser import parse_type
 
 Row = dict[str, str | None]
@@ -119,6 +120,11 @@ INFORMATION_SCHEMA_COLUMNS: dict[str, frozenset[str]] = {
         "schemata": "catalog_name schema_name schema_owner comment created "
         "created_by last_altered last_altered_by url custom_max_retention_hours",
         "schema_tags": "catalog_name schema_name tag_name tag_value",
+        "volumes": "volume_catalog volume_schema volume_name volume_type volume_owner "
+        "comment storage_location created created_by last_altered last_altered_by",
+        "volume_tags": "catalog_name schema_name volume_name tag_name tag_value",
+        "volume_privileges": "grantor grantee volume_catalog volume_schema volume_name "
+        "privilege_type is_grantable inherited_from",
         "schema_privileges": "grantor grantee catalog_name schema_name privilege_type "
         "is_grantable inherited_from",
     }.items()
@@ -138,6 +144,9 @@ class FakeWarehouse:
     functions: dict[str, Function] = field(default_factory=dict)
     #: A schema's comment, tags and grants, by `catalog.schema`.
     schema_defs: dict[str, Schema] = field(default_factory=dict)
+    volumes: dict[str, Volume] = field(default_factory=dict)
+    #: Volumes with a LOCATION: listed, never managed.
+    external_volumes: set[str] = field(default_factory=set)
     #: Schemas that exist even with nothing in them. A schema holding a table or
     #: view exists regardless.
     schemas: set[str] = field(default_factory=set)
@@ -160,7 +169,7 @@ class FakeWarehouse:
     @classmethod
     def of(
         cls,
-        *relations: Table | View | Function | Schema,
+        *relations: Table | View | Function | Schema | Volume,
         sizes: dict[str, int] | None = None,
     ) -> FakeWarehouse:
         fake = cls(sizes=sizes or {})
@@ -174,6 +183,9 @@ class FakeWarehouse:
             if isinstance(relation, Schema):
                 fake.schemas.add(relation.name)
                 fake.schema_defs[relation.name] = relation
+                continue
+            if isinstance(relation, Volume):
+                fake.volumes[relation.name] = relation
                 continue
             fake.tables[relation.name] = relation
             fake.versions.setdefault(relation.name, 1)
@@ -251,6 +263,35 @@ class FakeWarehouse:
                 self.schema_defs[name] = Schema(name, _unliteral(match.group(2)))
             self.schemas.add(name)
             return ()
+        if upper.startswith("CREATE VOLUME"):
+            match = re.fullmatch(
+                r"CREATE VOLUME IF NOT EXISTS (\S+)(?: COMMENT ('(?:[^'\\]|\\.)*'))?",
+                flat,
+            )
+            if match is None:
+                raise FakeSqlError(f"cannot read: {flat}")
+            name = _unquote(match.group(1)).lower()
+            self._schema_def(name.rsplit(".", 1)[0])
+            if name not in self.volumes:
+                comment = _unliteral(match.group(2)) if match.group(2) else None
+                self.volumes[name] = Volume(name, comment)
+            return ()
+        if upper.startswith("COMMENT ON VOLUME"):
+            match = re.fullmatch(r"COMMENT ON VOLUME (\S+) IS (.+)", flat)
+            if match is None:
+                raise FakeSqlError(f"cannot read: {flat}")
+            volume = self._volume(_unquote(match.group(1)))
+            comment = None if match.group(2) == "NULL" else _unliteral(match.group(2))
+            self.volumes[volume.name] = replace(volume, comment=comment)
+            return ()
+        if upper.startswith("ALTER VOLUME"):
+            match = re.fullmatch(r"ALTER VOLUME (\S+) SET TAGS \((.*)\)", flat)
+            if match is None:
+                raise FakeSqlError(f"cannot read: {flat}")
+            volume = self._volume(_unquote(match.group(1)))
+            tags = dict(volume.tags) | _pairs(match.group(2))
+            self.volumes[volume.name] = replace(volume, tags=tuple(sorted(tags.items())))
+            return ()
         if upper.startswith("COMMENT ON SCHEMA"):
             match = re.fullmatch(r"COMMENT ON SCHEMA (\S+) IS (.+)", flat)
             if match is None:
@@ -287,6 +328,7 @@ class FakeWarehouse:
             or _literal_after(flat, "constraint_schema = ")
             or _literal_after(flat, "routine_schema = ")
             or _literal_after(flat, "specific_schema = ")
+            or _literal_after(flat, "volume_schema = ")
         )
         if schema is None:
             raise FakeSqlError(f"no schema filter in: {flat}")
@@ -311,11 +353,52 @@ class FakeWarehouse:
             name = f"{catalog}.{schema}".lower()
             present = name in self.schemas or any(
                 other.startswith(f"{name}.")
-                for other in [*self.tables, *self.views, *self.functions]
+                for other in [*self.tables, *self.views, *self.functions, *self.volumes]
             )
             if not present:
                 return ()
             return ({"schema_name": schema, "comment": self._schema_def(name).comment},)
+        in_schema = [
+            v
+            for n, v in sorted(self.volumes.items())
+            if n.startswith(f"{catalog}.{schema}.")
+        ]
+        if "information_schema.volumes" in flat:
+            external = [
+                {
+                    "volume_name": n.rsplit(".", 1)[1],
+                    "volume_type": "EXTERNAL",
+                    "comment": None,
+                }
+                for n in sorted(self.external_volumes)
+                if n.startswith(f"{catalog}.{schema}.")
+            ]
+            return tuple(
+                {
+                    "volume_name": v.short_name,
+                    "volume_type": "MANAGED",
+                    "comment": v.comment,
+                }
+                for v in in_schema
+            ) + tuple(external)
+        if "information_schema.volume_tags" in flat:
+            return tuple(
+                {"volume_name": v.short_name, "tag_name": k, "tag_value": value}
+                for v in in_schema
+                for k, value in v.tags
+            )
+        if "information_schema.volume_privileges" in flat:
+            return tuple(
+                {
+                    "volume_name": v.short_name,
+                    "grantee": grant.principal,
+                    "privilege_type": privilege.replace(" ", "_"),
+                    "inherited_from": "NONE",
+                }
+                for v in in_schema
+                for grant in v.grants
+                for privilege in grant.privileges
+            )
         if "information_schema.schema_tags" in flat:
             return tuple(
                 {"schema_name": schema, "tag_name": k, "tag_value": v}
@@ -668,7 +751,7 @@ class FakeWarehouse:
 
     def _grant(self, flat: str) -> tuple[Row, ...]:
         match = re.fullmatch(
-            r"(GRANT|REVOKE) (.+) ON (TABLE|VIEW|FUNCTION|SCHEMA) (\S+) "
+            r"(GRANT|REVOKE) (.+) ON (TABLE|VIEW|FUNCTION|SCHEMA|VOLUME) (\S+) "
             r"(?:TO|FROM) (\S+)",
             flat,
         )
@@ -676,9 +759,11 @@ class FakeWarehouse:
             raise FakeSqlError(f"cannot read: {flat}")
         verb, privileges, kind, name, principal = match.groups()
         target = _unquote(name).lower()
-        table: Table | View | Function | Schema
+        table: Table | View | Function | Schema | Volume
         if kind == "SCHEMA":
             table = self._schema_def(target)
+        elif kind == "VOLUME":
+            table = self._volume(target)
         elif target in self.functions:
             table = self.functions[target]
         elif target in self.views:
@@ -699,6 +784,8 @@ class FakeWarehouse:
         )
         if isinstance(updated, Schema):
             self.schema_defs[updated.name] = updated
+        elif isinstance(updated, Volume):
+            self.volumes[updated.name] = updated
         elif isinstance(updated, Function):
             self.functions[updated.name] = updated
         elif isinstance(updated, View):
@@ -707,10 +794,16 @@ class FakeWarehouse:
             self._store(updated)
         return ()
 
+    def _volume(self, name: str) -> Volume:
+        name = name.lower()
+        if name not in self.volumes:
+            raise FakeSqlError(f"no such volume: {name}")
+        return self.volumes[name]
+
     def _schema_def(self, name: str) -> Schema:
         if name not in self.schemas and not any(
             other.startswith(f"{name}.")
-            for other in [*self.tables, *self.views, *self.functions]
+            for other in [*self.tables, *self.views, *self.functions, *self.volumes]
         ):
             raise FakeSqlError(f"no such schema: {name}")
         return self.schema_defs.get(name, Schema(name))
