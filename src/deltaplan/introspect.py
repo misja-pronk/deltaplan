@@ -464,39 +464,38 @@ class Introspector:
         )
 
     def _mask_rows(self, catalog: str, schema: str) -> dict[tuple[str, str], Mask]:
-        # TODO(verify): column_masks column names and how using_column_names is
-        # returned, against a live workspace.
+        # Verified live: mask_name is the function's full name, unquoted, and
+        # using_columns a comma-separated list ("region" / "region, id").
         # https://docs.databricks.com/aws/en/sql/language-manual/information-schema/column_masks
         rows = self.runner.query(
-            "SELECT table_name, column_name, mask_catalog, mask_schema, mask_name, "
-            "using_column_names "
+            "SELECT table_name, column_name, mask_name, using_columns "
             f"FROM {_information_schema(catalog)}.column_masks "
             f"WHERE table_schema = {quote_literal(schema)}"
         )
         masks: dict[tuple[str, str], Mask] = {}
         for row in rows:
             table_name, column = row.get("table_name"), row.get("column_name")
-            function = _function_name(row, "mask")
+            function = row.get("mask_name")
             if table_name is None or column is None or function is None:
                 continue
             masks[(table_name, column)] = Mask(
-                function, _name_list(row.get("using_column_names"))
+                function, _name_list(row.get("using_columns"))
             )
         return masks
 
     def _row_filter_rows(self, catalog: str, schema: str) -> dict[str, RowFilter]:
-        # TODO(verify): row_filters column names against a live workspace.
+        # Verified live: filter_name is the function's full name, unquoted, and
+        # target_columns a comma-separated list.
         # https://docs.databricks.com/aws/en/sql/language-manual/information-schema/row_filters
         rows = self.runner.query(
-            "SELECT table_name, filter_catalog, filter_schema, filter_name, "
-            "target_columns "
+            "SELECT table_name, filter_name, target_columns "
             f"FROM {_information_schema(catalog)}.row_filters "
             f"WHERE table_schema = {quote_literal(schema)}"
         )
         filters: dict[str, RowFilter] = {}
         for row in rows:
             table_name = row.get("table_name")
-            function = _function_name(row, "filter")
+            function = row.get("filter_name")
             if table_name is None or function is None:
                 continue
             filters[table_name] = RowFilter(
@@ -787,17 +786,6 @@ def _unmodelled(detail: Row, column_features: list[str]) -> tuple[str, ...]:
         found.append(f"partitioned by ({', '.join(partitions)})")
     found.extend(column_features)
     return tuple(found)
-
-
-def _function_name(row: Row, prefix: str) -> str | None:
-    parts = [
-        row.get(f"{prefix}_catalog"),
-        row.get(f"{prefix}_schema"),
-        row.get(f"{prefix}_name"),
-    ]
-    if any(part is None for part in parts):
-        return None
-    return ".".join(str(part) for part in parts)
 
 
 def _name_list(value: str | None) -> tuple[str, ...]:

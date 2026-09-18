@@ -43,6 +43,72 @@ Row = dict[str, str | None]
 Fields = tuple[Field, ...]
 
 
+#: The columns of each information_schema view deltaplan reads, as a live
+#: workspace lists them (read 2026-09-18 from `information_schema.columns`).
+#: The fake refuses a query naming anything else — an invented column is how
+#: the first live run failed, and the fake had happily answered it.
+INFORMATION_SCHEMA_COLUMNS: dict[str, frozenset[str]] = {
+    view: frozenset(columns.split())
+    for view, columns in {
+        "tables": "table_catalog table_schema table_name table_type "
+        "is_insertable_into commit_action table_owner comment created created_by "
+        "last_altered last_altered_by data_source_format storage_sub_directory "
+        "storage_path",
+        "columns": "table_catalog table_schema table_name column_name "
+        "ordinal_position column_default is_nullable full_data_type data_type "
+        "character_maximum_length character_octet_length numeric_precision "
+        "numeric_precision_radix numeric_scale datetime_precision interval_type "
+        "interval_precision maximum_cardinality is_identity identity_generation "
+        "identity_start identity_increment identity_maximum identity_minimum "
+        "identity_cycle is_generated generation_expression "
+        "is_system_time_period_start is_system_time_period_end "
+        "system_time_period_timestamp_generation is_updatable partition_index "
+        "comment collation_catalog collation_schema collation_name",
+        "views": "table_catalog table_schema table_name view_definition "
+        "check_option is_updatable is_insertable_into sql_path is_materialized",
+        "column_masks": "table_catalog table_schema table_name column_name "
+        "mask_name using_columns",
+        "row_filters": "table_catalog table_schema table_name filter_name target_columns",
+        "table_tags": "catalog_name schema_name table_name tag_name tag_value",
+        "column_tags": "catalog_name schema_name table_name column_name tag_name "
+        "tag_value",
+        "table_privileges": "grantor grantee table_catalog table_schema table_name "
+        "privilege_type is_grantable inherited_from",
+        "table_constraints": "constraint_catalog constraint_schema constraint_name "
+        "table_catalog table_schema table_name constraint_type is_deferrable "
+        "initially_deferred enforced",
+        "check_constraints": "constraint_catalog constraint_schema constraint_name "
+        "check_clause sql_path comment",
+        "key_column_usage": "constraint_catalog constraint_schema constraint_name "
+        "table_catalog table_schema table_name column_name ordinal_position "
+        "position_in_unique_constraint",
+        "referential_constraints": "constraint_catalog constraint_schema "
+        "constraint_name unique_constraint_catalog unique_constraint_schema "
+        "unique_constraint_name match_option update_rule delete_rule",
+        "routines": "specific_catalog specific_schema specific_name routine_catalog "
+        "routine_schema routine_name routine_owner routine_type data_type "
+        "full_data_type character_maximum_length character_octet_length "
+        "numeric_precision numeric_precision_radix numeric_scale datetime_precision "
+        "interval_type interval_precision maximum_cardinality routine_body "
+        "routine_definition external_name external_language parameter_style "
+        "is_deterministic sql_data_access is_null_call security_type sql_path "
+        "comment created created_by last_altered last_altered_by collation_catalog "
+        "collation_schema collation_name",
+        "parameters": "specific_catalog specific_schema specific_name "
+        "ordinal_position parameter_mode is_result as_locator parameter_name "
+        "data_type full_data_type character_maximum_length character_octet_length "
+        "numeric_precision numeric_precision_radix numeric_scale datetime_precision "
+        "interval_type interval_precision maximum_cardinality parameter_default "
+        "comment collation_catalog collation_schema collation_name",
+        "routine_privileges": "grantor grantee specific_catalog specific_schema "
+        "specific_name routine_catalog routine_schema routine_name privilege_type "
+        "is_grantable inherited_from",
+        "schemata": "catalog_name schema_name schema_owner comment created "
+        "created_by last_altered last_altered_by url custom_max_retention_hours",
+    }.items()
+}
+
+
 class FakeSqlError(Exception):
     """The fake doesn't know this statement — or the statement is wrong."""
 
@@ -164,6 +230,7 @@ class FakeWarehouse:
 
     # -- reads -------------------------------------------------------------
     def _information_schema(self, flat: str) -> tuple[Row, ...]:
+        _check_columns(flat)
         schema = (
             _literal_after(flat, "table_schema = ")
             or _literal_after(flat, "schema_name = ")
@@ -286,17 +353,12 @@ class FakeWarehouse:
                 for column in table.columns:
                     if column.mask is None:
                         continue
-                    catalog_, schema_, name = column.mask.function.split(".")
                     rows.append(
                         {
                             "table_name": table.short_name,
                             "column_name": column.name,
-                            "mask_catalog": catalog_,
-                            "mask_schema": schema_,
-                            "mask_name": name,
-                            "using_column_names": json.dumps(
-                                list(column.mask.using_columns)
-                            ),
+                            "mask_name": column.mask.function,
+                            "using_columns": ", ".join(column.mask.using_columns) or None,
                         }
                     )
             return tuple(rows)
@@ -305,13 +367,10 @@ class FakeWarehouse:
             for table in tables:
                 if table.row_filter is None:
                     continue
-                catalog_, schema_, name = table.row_filter.function.split(".")
                 filtered.append(
                     {
                         "table_name": table.short_name,
-                        "filter_catalog": catalog_,
-                        "filter_schema": schema_,
-                        "filter_name": name,
+                        "filter_name": table.row_filter.function,
                         "target_columns": ", ".join(table.row_filter.columns),
                     }
                 )
@@ -617,6 +676,48 @@ class FakeWarehouse:
 
 
 _V = TypeVar("_V")
+
+
+_IDENTIFIER = re.compile(r"\b(?:\w+\.)?([a-z_][a-z0-9_]*)\b")
+_SQL_WORDS = frozenset(
+    [
+        "select",
+        "from",
+        "where",
+        "and",
+        "or",
+        "order",
+        "by",
+        "on",
+        "left",
+        "join",
+        "as",
+        "asc",
+        "desc",
+        "in",
+        "is",
+        "not",
+        "null",
+        "true",
+        "false",
+    ]
+)
+
+
+def _check_columns(flat: str) -> None:
+    """Every column an information_schema query names must exist in a view it
+    reads. Literals are skipped; so are SQL keywords and the views' own names."""
+    views = re.findall(r"information_schema\.(\w+)", flat)
+    unknown_views = [v for v in views if v not in INFORMATION_SCHEMA_COLUMNS]
+    if unknown_views:
+        raise FakeSqlError(f"no such information_schema view: {unknown_views}")
+    allowed = frozenset().union(*(INFORMATION_SCHEMA_COLUMNS[v] for v in views))
+    code = re.sub(r"'(?:[^']|'')*'|`[^`]*`", " ", flat)
+    code = re.sub(r"\S*information_schema\.\w+( \w+)?", " ", code)
+    for match in _IDENTIFIER.finditer(code.lower()):
+        word = match.group(1)
+        if word not in _SQL_WORDS and word not in allowed:
+            raise FakeSqlError(f"information_schema has no column {word!r}: {flat}")
 
 
 def _move_key(store: dict[str, _V], old: str, new: str) -> None:
