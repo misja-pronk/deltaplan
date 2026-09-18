@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0a1] - 2026-09-18
+
+The first public release: an alpha. Everything in the design is built and tested
+offline, against a fake warehouse that interprets deltaplan's own SQL. The live
+suite has only just started running against a real workspace — its first run
+found a wrong assumption about `information_schema`, fixed here — so expect more
+of those before 0.1.0.
+
 ### Added
 
 - **Table renames**: `renamed_from:` on a table plans `ALTER TABLE … RENAME TO`
@@ -57,6 +65,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A runbook for the live test suite in the testing guide.
 - The terminal plan ends with the same warnings the pull-request comment
   raises: that it destroys something, or has steps `apply` will refuse.
+- **Milestone 5 (governance) is complete.**
+- **Views.** A spec with `view:` and a `query:` describes a view. The query is
+  what is compared — whitespace aside — and a change replaces the view, with
+  its tags and grants put back as they were, and the old definition as undo.
+  Views are planned after tables and after the views they read; a cycle is an
+  error. Views can be claimed, dropped in a strict schema, and `import`ed.
+- A table is never turned into a view or the reverse; planning stops instead.
+- Materialized views and streaming tables are recognised and skipped — they
+  report their storage as Delta, and would otherwise have been treated as
+  tables.
+- **Column masks and row filters**, handled as security controls: set or
+  replaced when the spec declares them, never removed because a spec is silent,
+  inline in `CREATE TABLE` so a new table is never unprotected, refused up front
+  if the function is missing, and never rewritten — the staging copy would hold
+  possibly unmasked data.
+- A step's precheck now carries its own `refusal`, so a refused step says
+  exactly why ("the masking function … does not exist", "ssn still has NULLs").
+- **Grants** (`grants:` on a table). A principal the spec names gets exactly
+  the privileges listed — granted or revoked to match, each revoke with a
+  warning and its undo; principals it doesn't name are left alone. Privileges
+  are checked against a known list, because as keywords they can't be quoted.
+  A rewrite puts back grants to principals the spec doesn't name.
+- **Column tags** (`tags:` on a column), additive like table tags. A rewrite
+  puts back the table and column tags the spec doesn't declare, so rebuilding a
+  table never diffs away what deltaplan doesn't manage.
 
 ### Fixed
 
@@ -102,37 +135,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   escaping as a traceback; warehouse errors during `apply` and `force-unlock` are
   reported as messages.
 
-### Added
+### Before the first release
 
-- **Milestone 5 (governance) is complete.**
-- **Views.** A spec with `view:` and a `query:` describes a view. The query is
-  what is compared — whitespace aside — and a change replaces the view, with
-  its tags and grants put back as they were, and the old definition as undo.
-  Views are planned after tables and after the views they read; a cycle is an
-  error. Views can be claimed, dropped in a strict schema, and `import`ed.
-- A table is never turned into a view or the reverse; planning stops instead.
-- Materialized views and streaming tables are recognised and skipped — they
-  report their storage as Delta, and would otherwise have been treated as
-  tables.
-- **Column masks and row filters**, handled as security controls: set or
-  replaced when the spec declares them, never removed because a spec is silent,
-  inline in `CREATE TABLE` so a new table is never unprotected, refused up front
-  if the function is missing, and never rewritten — the staging copy would hold
-  possibly unmasked data.
-- A step's precheck now carries its own `refusal`, so a refused step says
-  exactly why ("the masking function … does not exist", "ssn still has NULLs").
-- **Grants** (`grants:` on a table). A principal the spec names gets exactly
-  the privileges listed — granted or revoked to match, each revoke with a
-  warning and its undo; principals it doesn't name are left alone. Privileges
-  are checked against a known list, because as keywords they can't be quoted.
-  A rewrite puts back grants to principals the spec doesn't name.
-- **Column tags** (`tags:` on a column), additive like table tags. A rewrite
-  puts back the table and column tags the spec doesn't declare, so rebuilding a
-  table never diffs away what deltaplan doesn't manage.
+deltaplan was built in milestones before anything was published. Their
+numbers were internal and never released; what each added is kept here.
 
-## [0.5.0 — milestone 4]
+#### Milestone 4
 
-### Added
+##### Added
 
 - **Milestone 4 (CI) is complete.**
 - `--format md`: the plan as a pull-request comment — summary, GitHub alerts for
@@ -151,9 +161,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CI lints the workflows with actionlint; releases move the major-version tag
   the Action is used by.
 
-## [0.4.0 — ownership and strict schemas]
+#### Ownership and strict schemas
 
-### Added
+##### Added
 
 - **Ownership is claimed.** A spec for a table deltaplan didn't create plans a
   visible `CLAIM ownership` step that marks it managed — which is how an
@@ -171,13 +181,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `planning.py`: the specs-to-plan pipeline, out of the CLI, so `plan`, `drift`
   and the GitHub Action share it.
 
-### Changed
+##### Changed
 
 - The plan summary counts destroyed tables; it was hard-coded to zero.
 
-## [0.3.0 — milestone 3]
+#### Milestone 3
 
-### Added
+##### Added
 
 - **Milestone 3 (rewrites) is complete**: a table that can't be patched is
   rebuilt, and `apply` runs it.
@@ -195,19 +205,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The plan file now carries both sides of each diff, so it records what was
   compared and a rewrite knows what it is rebuilding into.
 
-### Changed
+##### Changed
 
 - `apply` no longer refuses plans containing rewrites. It still refuses any plan
   with a step deltaplan couldn't generate, naming the step and what it needs.
 
-### Fixed
+##### Fixed
 
 - Table-level changes (properties, tags) were rendered one level too deep, as
   though they were nested inside a column.
 
-## [0.2.0 — milestone 2]
+#### Milestone 2
 
-### Added
+##### Added
 
 - **Milestone 2 (apply) is complete**: `deltaplan apply plan.json` and
   `deltaplan force-unlock`.
@@ -224,15 +234,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   SQL against in-memory models, so `plan → apply → re-plan is empty` is asserted
   offline for every kind of change. See [docs/testing.md](docs/testing.md).
 
-### Fixed
+##### Fixed
 
 - The table features deltaplan enables itself as prerequisites
   (`delta.columnMapping.mode`, `delta.enableTypeWidening`) are no longer reported
   back as unmanaged properties after an apply.
 
-## [0.1.0 — milestone 1]
+#### Milestone 1
 
-### Added
+##### Added
 
 - **Milestone 1 (read-only) is complete**: `validate`, `import` and `plan`.
 - Type tree and parser for Databricks type strings, including nested

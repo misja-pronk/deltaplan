@@ -101,9 +101,13 @@ jobs:
           version="${{ needs.check.outputs.version }}"
           args=(--title "v$version" --target "$GITHUB_SHA")
           if [ -s notes.md ]; then args+=(--notes-file notes.md); else args+=(--generate-notes); fi
+          # 0.1.0a1, 0.2.0rc1 … are PEP 440 pre-releases: say so on GitHub too.
+          if [[ "$version" =~ (a|b|rc)[0-9]+$ ]]; then args+=(--prerelease); fi
           gh release create "v$version" dist/* "${args[@]}"
       - name: Move the major-version tag the GitHub Action is used by
-        # `uses: misja-pronk/deltaplan@v0` follows the latest 0.x release.
+        # `uses: misja-pronk/deltaplan@v0` follows the latest 0.x release —
+        # a final one: nobody pinned to @v0 should get an alpha by surprise.
+        if: ${{ !contains(needs.check.outputs.version, 'a') && !contains(needs.check.outputs.version, 'b') && !contains(needs.check.outputs.version, 'rc') }}
         run: |
           version="${{ needs.check.outputs.version }}"
           major="v${version%%.*}"

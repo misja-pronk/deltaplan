@@ -1,11 +1,36 @@
 # Installation
 
-deltaplan is a Python 3.11+ CLI. It is not on PyPI yet — until the first release,
-install it from a checkout.
+deltaplan is a Python 3.11+ CLI, published on [PyPI](https://pypi.org/project/deltaplan/).
 
-!!! warning "Pre-alpha"
-    The `uvx` / `uv tool` / `pipx` instructions below are what installation will look
-    like once milestone 1 ships. Today, use the source install.
+!!! warning "Alpha"
+    Every release so far is a pre-release (`0.1.0a1`, …), which installers skip unless
+    asked — hence the flags below. Try it on a dev catalog before a production one.
+
+=== "uv tool"
+
+    ```sh
+    uv tool install --prerelease allow deltaplan
+    deltaplan version
+    ```
+
+=== "uvx"
+
+    ```sh
+    uvx --prerelease allow deltaplan plan -t dev
+    ```
+
+=== "pipx"
+
+    ```sh
+    pipx install --pip-args=--pre deltaplan
+    deltaplan version
+    ```
+
+=== "pip"
+
+    ```sh
+    pip install --pre deltaplan
+    ```
 
 ## From source
 
@@ -15,28 +40,6 @@ cd deltaplan
 uv sync
 uv run deltaplan version
 ```
-
-## Once released
-
-=== "uvx"
-
-    ```sh
-    uvx deltaplan plan -t prod
-    ```
-
-=== "uv tool"
-
-    ```sh
-    uv tool install deltaplan
-    deltaplan plan -t prod
-    ```
-
-=== "pipx"
-
-    ```sh
-    pipx install deltaplan
-    deltaplan plan -t prod
-    ```
 
 ## Connecting to a workspace
 
