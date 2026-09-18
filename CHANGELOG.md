@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`cluster_by: auto`** — automatic liquid clustering. Only whether it is on is
+  compared: the keys are Databricks' choice. Naming keys turns it off.
+- **The `timestampNtz` feature is enabled first** when a `timestamp_ntz` column is
+  added (nested too) or a column is widened to one; `ALTER TABLE` fails without
+  it, found live.
+
+### Fixed
+
+- **Every `CREATE TABLE` failed on a real warehouse**: its postcheck was a
+  `DESCRIBE`, whose first value is a column name, not true/false. It's gone; the
+  fake now refuses `DESCRIBE TABLE` so such a check can't pass offline again.
+- **Masks and row filters couldn't be read**: introspection asked
+  `information_schema` for columns that don't exist.
+- Table features are read from `DESCRIBE DETAIL`'s `tableFeatures`, where
+  Databricks lists them. The `allowColumnDefaults` step was planned again on every
+  table that already had it.
+- Plan files keep whether the schema exists, and the table's features.
+
 ## [0.1.0a1] - 2026-09-18
 
 The first public release: an alpha. Everything in the design is built and tested

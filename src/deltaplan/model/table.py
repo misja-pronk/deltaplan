@@ -38,6 +38,9 @@ MAINTAINED_PROPERTIES = frozenset(
     }
 )
 
+#: How a `set_cluster_by` change says "automatic liquid clustering".
+CLUSTER_AUTO = "auto"
+
 #: `delta.feature.<name>` records that a table feature is supported. Delta sets it
 #: when the feature is enabled another way; it isn't anyone's intent to report.
 FEATURE_FLAG_PREFIX = "delta.feature."
@@ -218,6 +221,10 @@ class Table(Securable):
     columns: tuple[Column, ...]
     comment: str | None = None
     cluster_by: tuple[str, ...] = ()
+    #: Automatic liquid clustering: Databricks picks the keys and may change
+    #: them, so `cluster_by` is then what it chose — never compared.
+    #: https://docs.databricks.com/aws/en/delta/clustering#automatic-liquid-clustering
+    cluster_auto: bool = False
     properties: tuple[tuple[str, str], ...] = ()
     tags: tuple[tuple[str, str], ...] = ()
     constraints: tuple[Constraint, ...] = ()

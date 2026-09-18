@@ -81,6 +81,9 @@ class LiveTable:
     size_bytes: int | None = None
     data_format: str = "DELTA"
     unmodelled: tuple[str, ...] = ()
+    #: Delta table features, from DESCRIBE DETAIL's `tableFeatures` — verified
+    #: live to be where they are listed; its `properties` leave them out.
+    features: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +198,9 @@ class Introspector:
                         columns=tuple(columns.get(name, ())),
                         comment=comments.get(name),
                         cluster_by=_json_list(detail.get("clusteringColumns")),
+                        # A top-level DESCRIBE DETAIL field — verified live.
+                        cluster_auto=(detail.get("clusterByAuto") or "").lower()
+                        == "true",
                         properties=_pairs(_json_map(detail.get("properties"))),
                         tags=tuple(sorted(tags.get(name, {}).items())),
                         constraints=tuple(constraints.get(name, ())),
@@ -207,6 +213,7 @@ class Introspector:
                     size_bytes=_as_int(detail.get("sizeInBytes")),
                     data_format=table_type,
                     unmodelled=_unmodelled(detail, column_features.get(name, [])),
+                    features=_json_list(detail.get("tableFeatures")),
                 )
             )
         return LiveSchema(

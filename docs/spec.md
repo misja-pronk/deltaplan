@@ -163,6 +163,23 @@ Children are addressed with Databricks' own path syntax — `a.b` inside a struc
     3. ADD COLUMN address.zip     [meta]
 ```
 
+## Clustering
+
+```yaml
+cluster_by: [order_date, region]   # liquid clustering on these keys
+cluster_by: auto                   # automatic: Databricks picks the keys
+```
+
+Leave `cluster_by` out for no clustering: a clustered table is then set to
+`CLUSTER BY NONE`. Changing keys applies to data written from then on; run `OPTIMIZE`
+to recluster what's there.
+
+With `auto`, the keys the table shows are Databricks' choice and can change, so
+deltaplan checks only that automatic clustering is on — it never diffs the keys, and
+`import` writes `auto` rather than the keys it happened to find. Naming keys turns
+automatic clustering off. It needs predictive optimization on the table; see
+[automatic liquid clustering](https://docs.databricks.com/aws/en/delta/clustering#automatic-liquid-clustering).
+
 ## Renames
 
 Columns are matched by name, so a rename would otherwise look like a drop plus an add —

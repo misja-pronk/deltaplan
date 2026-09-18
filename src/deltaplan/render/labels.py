@@ -103,7 +103,13 @@ def describe(change: Change) -> tuple[str, str]:
             return "~", ("comment")
         case "set_cluster_by":
             columns = change.after if isinstance(change.after, tuple) else ()
-            label = f"cluster_by [{', '.join(columns)}]" if columns else "cluster_by none"
+            label = (
+                "cluster_by auto"
+                if change.after == "auto"
+                else f"cluster_by [{', '.join(columns)}]"
+                if columns
+                else "cluster_by none"
+            )
             return "~", (label)
         case "set_property":
             return "~", (f"property {change.path} = {change.after!r}")

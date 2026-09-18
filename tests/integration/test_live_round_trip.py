@@ -47,6 +47,7 @@ def live_table(introspector: Introspector, name: str) -> tuple[Table, TableFacts
         exists=True,
         properties=live.table.properties,
         size_bytes=live.size_bytes,
+        features=live.features,
     )
 
 
@@ -175,3 +176,32 @@ def test_the_widenings_we_claim_are_supported(
 
     live_after, _ = live_table(introspector, desired.name)
     assert diff(desired, live_after) == ()
+
+
+def test_automatic_clustering_round_trips(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """Create with AUTO, read it back as AUTO; switch to keys and back. Settles
+    the TODO(verify) on `_clustering_clause` for a workspace with predictive
+    optimization. https://docs.databricks.com/aws/en/delta/clustering
+    """
+    from dataclasses import replace
+
+    from deltaplan.executor import Executor
+    from deltaplan.history import MemoryHistory
+    from deltaplan.planning import plan_tables
+
+    def apply(spec: Table) -> None:
+        plan = plan_tables([spec], introspector, target="it", tool_version="0")
+        result = Executor(runner, introspector, MemoryHistory()).apply(plan)
+        assert result.ok, result.error
+        again = plan_tables([spec], introspector, target="it", tool_version="0")
+        assert again.empty, [c.kind for d in again.diffs for c in d.changes]
+
+    auto = replace(
+        table(col("id", "bigint"), col("placed", "date"), name=f"{schema}.orders"),
+        cluster_auto=True,
+    )
+    apply(auto)
+    apply(replace(auto, cluster_auto=False, cluster_by=("placed",)))
+    apply(auto)

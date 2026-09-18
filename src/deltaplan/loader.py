@@ -727,8 +727,19 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
     if "comment" in items:
         comment = _string(ctx, items["comment"][0], "table comment")
     cluster_by: tuple[str, ...] = ()
+    cluster_auto = False
     if "cluster_by" in items:
-        cluster_by = _string_list(ctx, items["cluster_by"][0], "cluster_by")
+        cluster_node = items["cluster_by"][0]
+        if isinstance(cluster_node, ScalarNode):
+            if _string(ctx, cluster_node, "cluster_by").lower() != "auto":
+                raise SpecError(
+                    "cluster_by is a list of columns, or `auto` for automatic "
+                    "liquid clustering",
+                    ctx.loc(cluster_node),
+                )
+            cluster_auto = True
+        else:
+            cluster_by = _string_list(ctx, cluster_node, "cluster_by")
     properties: tuple[tuple[str, str], ...] = ()
     if "properties" in items:
         properties = _string_map(ctx, items["properties"][0], "properties")
@@ -772,6 +783,7 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
         columns=columns,
         comment=comment,
         cluster_by=cluster_by,
+        cluster_auto=cluster_auto,
         properties=properties,
         tags=tags,
         constraints=constraints,
@@ -1235,7 +1247,10 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
     document: dict[str, object] = {"table": name}
     if table.comment is not None:
         document["comment"] = table.comment
-    if table.cluster_by:
+    if table.cluster_auto:
+        # The live keys are Databricks' choice; the spec only asks for AUTO.
+        document["cluster_by"] = "auto"
+    elif table.cluster_by:
         document["cluster_by"] = list(table.cluster_by)
     if table.tags:
         document["tags"] = dict(table.tags)

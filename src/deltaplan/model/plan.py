@@ -81,9 +81,18 @@ class TableFacts:
     #: Whether the schema it lives in exists. A table in a fresh schema needs the
     #: schema created first.
     schema_exists: bool = True
+    #: The Delta table features the live table has (`timestampNtz`, …).
+    features: tuple[str, ...] = ()
 
     def property(self, key: str) -> str | None:
         return dict(self.properties).get(key)
+
+    def has_feature(self, name: str) -> bool:
+        """Whether a Delta table feature is on: listed by the table, or set
+        as `delta.feature.<name>` in the properties the plan knows about."""
+        return name in self.features or (
+            (self.property(f"delta.feature.{name}") or "").lower() == "supported"
+        )
 
     def property_is_true(self, key: str) -> bool:
         return (self.property(key) or "").lower() == "true"

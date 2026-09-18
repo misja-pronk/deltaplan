@@ -297,3 +297,19 @@ def walk(data_type: DataType, path: str = "") -> list[tuple[str, Field]]:
         case _:
             pass
     return found
+
+
+def contains_timestamp_ntz(data_type: DataType) -> bool:
+    """Whether a type is, or nests, TIMESTAMP_NTZ — which a table must have the
+    timestampNtz feature to hold."""
+    match data_type:
+        case Primitive(name=name):
+            return name == "timestamp_ntz"
+        case Array(element=element):
+            return contains_timestamp_ntz(element)
+        case Map(key=key, value=value):
+            return contains_timestamp_ntz(key) or contains_timestamp_ntz(value)
+        case Struct(fields=fields):
+            return any(contains_timestamp_ntz(f.type) for f in fields)
+        case _:
+            return False

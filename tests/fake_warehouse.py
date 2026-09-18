@@ -26,6 +26,7 @@ from typing import TypeVar
 
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.table import (
+    FEATURE_FLAG_PREFIX,
     Check,
     Constraint,
     ForeignKey,
@@ -35,12 +36,23 @@ from deltaplan.model.table import (
     Table,
     default_foreign_key_name,
 )
-from deltaplan.model.types import Array, DataType, Field, Identity, Map, Mask, Struct
+from deltaplan.model.types import (
+    Array,
+    DataType,
+    Field,
+    Identity,
+    Map,
+    Mask,
+    Struct,
+    contains_timestamp_ntz,
+)
 from deltaplan.model.view import View
 from deltaplan.typeparser import parse_type
 
 Row = dict[str, str | None]
 Fields = tuple[Field, ...]
+
+NTZ_FEATURE = "delta.feature.timestampNtz"
 
 
 #: The columns of each information_schema view deltaplan reads, as a live
@@ -187,8 +199,6 @@ class FakeWarehouse:
             return self._describe_detail(flat)
         if upper.startswith("DESCRIBE HISTORY"):
             return self._describe_history(flat)
-        if upper.startswith("DESCRIBE TABLE"):
-            return ()
         if upper.startswith(("CREATE VIEW", "CREATE OR REPLACE VIEW")):
             return self._create_view(original)
         if upper.startswith(("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION")):
@@ -447,9 +457,25 @@ class FakeWarehouse:
                 "format": "delta",
                 "name": table.name,
                 "clusteringColumns": json.dumps(list(table.cluster_by)),
+                "clusterByAuto": "true" if table.cluster_auto else "false",
                 "partitionColumns": json.dumps(list(self.partitions.get(table.name, ()))),
                 "sizeInBytes": str(self.sizes.get(table.name, 0)),
-                "properties": json.dumps(dict(table.properties)),
+                # As a warehouse answers: table features in their own list, not
+                # among the properties.
+                "properties": json.dumps(
+                    {
+                        k: v
+                        for k, v in table.properties
+                        if not k.startswith(FEATURE_FLAG_PREFIX)
+                    }
+                ),
+                "tableFeatures": json.dumps(
+                    [
+                        k.removeprefix(FEATURE_FLAG_PREFIX)
+                        for k, _ in table.properties
+                        if k.startswith(FEATURE_FLAG_PREFIX)
+                    ]
+                ),
             },
         )
 
@@ -475,6 +501,12 @@ class FakeWarehouse:
             table = _parse_create_table(stripped)
         if table.name in self.tables and not replacing:
             return ()  # IF NOT EXISTS
+        if any(contains_timestamp_ntz(c.type) for c in table.columns):
+            # CREATE turns the feature on by itself; ALTER doesn't (see below).
+            table = replace(
+                table,
+                properties=(*table.properties, (NTZ_FEATURE, "supported")),
+            )
         self.tables[table.name] = table
         self.versions[table.name] = self.versions.get(table.name, -1) + 1
         return ()
@@ -504,6 +536,7 @@ class FakeWarehouse:
             if match.group("comment")
             else None,
             cluster_by=tuple(_idents(match.group("cluster") or "")),
+            cluster_auto=bool(match.group("auto")),
             properties=properties,
         )
 
@@ -528,7 +561,19 @@ class FakeWarehouse:
         table = self._table(_unquote(match.group(1)))
         if rename := re.fullmatch(r"RENAME TO (\S+)", match.group(2)):
             return self._rename_table(table, _unquote(rename.group(1)))
-        self._store(_apply_alter(table, match.group(2)))
+        clause = match.group(2)
+        if (
+            re.match(r"(ADD COLUMNS|ALTER COLUMN \S+ TYPE) ", clause)
+            and "TIMESTAMP_NTZ" in clause.upper()
+            and NTZ_FEATURE not in table.properties_map()
+        ):
+            # As a warehouse does — verified live.
+            raise FakeSqlError(
+                "[DELTA_FEATURES_REQUIRE_MANUAL_ENABLEMENT] Your table schema "
+                "requires manually enablement of the following table feature(s): "
+                "timestampNtz"
+            )
+        self._store(_apply_alter(table, clause))
         return ()
 
     def _rename_table(self, table: Table, new_name: str) -> tuple[Row, ...]:
@@ -734,9 +779,15 @@ def _apply_alter(table: Table, clause: str) -> Table:
             table, tags=tuple((dict(table.tags) | _pairs(match.group(1))).items())
         )
     if match := re.fullmatch(r"CLUSTER BY \((.*)\)", clause):
-        return replace(table, cluster_by=tuple(_idents(match.group(1))))
+        # Naming keys turns AUTO off — verified live.
+        return replace(
+            table, cluster_by=tuple(_idents(match.group(1))), cluster_auto=False
+        )
     if clause == "CLUSTER BY NONE":
-        return replace(table, cluster_by=())
+        return replace(table, cluster_by=(), cluster_auto=False)
+    if clause == "CLUSTER BY AUTO":
+        # The keys stay what they were until Databricks picks its own.
+        return replace(table, cluster_auto=True)
     if match := re.fullmatch(r"ADD COLUMNS \((.+)\)", clause):
         return _add_column(table, match.group(1))
     if match := re.fullmatch(r"DROP COLUMN (\S+)", clause):
@@ -1075,7 +1126,7 @@ _FUNCTION = re.compile(
 
 _CTAS = re.compile(
     r"CREATE OR REPLACE TABLE (?P<name>\S+)"
-    r"(?:\nCLUSTER BY \((?P<cluster>[^)]*)\))?"
+    r"(?:\nCLUSTER BY (?:\((?P<cluster>[^)]*)\)|(?P<auto>AUTO)))?"
     r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
     r"(?:\nTBLPROPERTIES \((?P<properties>.*?)\n\))?"
     r"\s+AS\s+SELECT\s+(?P<select>.*?)\s+FROM (?P<source>\S+)",
@@ -1085,7 +1136,7 @@ _CTAS = re.compile(
 _CREATE = re.compile(
     r"CREATE (?:TABLE IF NOT EXISTS|OR REPLACE TABLE) (?P<name>\S+) "
     r"\((?P<body>.*?)\n\)\nUSING DELTA"
-    r"(?:\nCLUSTER BY \((?P<cluster>[^)]*)\))?"
+    r"(?:\nCLUSTER BY (?:\((?P<cluster>[^)]*)\)|(?P<auto>AUTO)))?"
     r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
     r"(?:\nTBLPROPERTIES \((?P<properties>.*?)\n\))?"
     r"(?:\nWITH ROW FILTER (?P<filter>\S+) ON \((?P<filter_columns>[^)]*)\))?",
@@ -1112,6 +1163,7 @@ def _parse_create_table(statement: str) -> Table:
         columns=tuple(columns),
         comment=_unliteral(match.group("comment")) if match.group("comment") else None,
         cluster_by=tuple(_idents(match.group("cluster") or "")),
+        cluster_auto=bool(match.group("auto")),
         properties=tuple(_pairs(match.group("properties") or "''=''").items())
         if match.group("properties")
         else (),

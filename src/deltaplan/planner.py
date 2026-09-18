@@ -29,6 +29,7 @@ from deltaplan.model.change import Change
 from deltaplan.model.function import Function
 from deltaplan.model.plan import Plan, Risk, Step, TableDiff, TableFacts
 from deltaplan.model.table import (
+    CLUSTER_AUTO,
     COLUMN_MAPPING_PROPERTY,
     DEFAULTS_FEATURE,
     MANAGED_PROPERTY,
@@ -53,6 +54,7 @@ from deltaplan.model.types import (
     Struct,
     Varchar,
     as_data_type,
+    contains_timestamp_ntz,
     render_type,
     type_kind,
 )
@@ -156,6 +158,7 @@ class _Planner:
         self.steps: list[Step] = []
         self._column_mapping: set[str] = set()
         self._type_widening: set[str] = set()
+        self._timestamp_ntz: set[str] = set()
         self._change = -1
 
     # -- emitting ----------------------------------------------------------
@@ -304,6 +307,29 @@ class _Planner:
             sql=(
                 f"ALTER TABLE {quote_qualified(facts.name)} "
                 "SET TBLPROPERTIES ('delta.enableTypeWidening' = 'true')"
+            ),
+            note=PROTOCOL_NOTE,
+        )
+
+    def need_timestamp_ntz(self, facts: TableFacts, path: str, new: DataType) -> None:
+        """Adding a TIMESTAMP_NTZ column, or widening to one, needs the
+        timestampNtz feature first. CREATE TABLE turns it on by itself; ALTER
+        TABLE doesn't — verified live (DELTA_FEATURES_REQUIRE_MANUAL_ENABLEMENT).
+        https://docs.databricks.com/aws/en/sql/language-manual/data-types/timestamp-ntz-type
+        """
+        if not facts.exists or not contains_timestamp_ntz(new):
+            return
+        if facts.name in self._timestamp_ntz or facts.has_feature("timestampNtz"):
+            return
+        self._timestamp_ntz.add(facts.name)
+        self.emit(
+            facts.name,
+            "enable timestampNtz",
+            "feature",
+            path=path,
+            sql=(
+                f"ALTER TABLE {quote_qualified(facts.name)} SET TBLPROPERTIES "
+                "('delta.feature.timestampNtz' = 'supported')"
             ),
             note=PROTOCOL_NOTE,
         )
@@ -612,7 +638,7 @@ class _Planner:
         if facts.name in self._column_defaults:
             return
         self._column_defaults.add(facts.name)
-        if (facts.property(DEFAULTS_FEATURE) or "").lower() == "supported":
+        if facts.has_feature("allowColumnDefaults"):
             return
         self.emit(
             facts.name,
@@ -909,7 +935,6 @@ class _Planner:
             f"CREATE TABLE {table.short_name}",
             "meta",
             sql=create_table_sql(table),
-            postcheck=(f"DESCRIBE TABLE {quote_qualified(table.name)}"),
             undo_hint=f"DROP TABLE {quote_qualified(table.name)}",
         )
         # Tags and CHECK constraints are not part of CREATE TABLE.
@@ -945,7 +970,11 @@ class _Planner:
     def _cluster_by(self, change: Change) -> None:
         columns = change.after if isinstance(change.after, tuple) else ()
         clause = (
-            f"({', '.join(quote_ident(name) for name in columns)})" if columns else "NONE"
+            "AUTO"
+            if change.after == CLUSTER_AUTO
+            else f"({', '.join(quote_ident(name) for name in columns)})"
+            if columns
+            else "NONE"
         )
         self.emit(
             change.table,
@@ -1009,6 +1038,7 @@ class _Planner:
                 )
             )
             return
+        self.need_timestamp_ntz(facts, change.path, column.type)
         # A column is always added nullable: on a table with rows, every existing
         # row would violate NOT NULL. The constraint is a separate step.
         definition = (
@@ -1103,6 +1133,8 @@ class _Planner:
             return
         self.need_type_widening(facts, change.path)
         widened = as_data_type(after)
+        if widened is not None:
+            self.need_timestamp_ntz(facts, change.path, widened)
         rendered = render_type(widened, upper=True) if widened is not None else ""
         self.emit(
             change.table,
@@ -1371,9 +1403,8 @@ def create_table_sql(table: Table) -> str:
         ")",
         "USING DELTA",
     ]
-    if table.cluster_by:
-        clustering = ", ".join(quote_ident(name) for name in table.cluster_by)
-        sql.append(f"CLUSTER BY ({clustering})")
+    if clustering := _clustering_clause(table):
+        sql.append(clustering)
     if table.comment is not None:
         sql.append(f"COMMENT {quote_literal(table.comment)}")
     sql.append(f"TBLPROPERTIES (\n{rendered_properties}\n)")
@@ -1675,9 +1706,8 @@ def replace_table_sql(
             "CREATE TABLE IF NOT EXISTS", "CREATE OR REPLACE TABLE", 1
         )
     clauses = [f"CREATE OR REPLACE TABLE {quote_qualified(table.name)}"]
-    if table.cluster_by:
-        clustering = ", ".join(quote_ident(name) for name in table.cluster_by)
-        clauses.append(f"CLUSTER BY ({clustering})")
+    if clustering := _clustering_clause(table):
+        clauses.append(clustering)
     if table.comment is not None:
         clauses.append(f"COMMENT {quote_literal(table.comment)}")
     properties = dict(table.properties)
@@ -1726,8 +1756,23 @@ def ctas_result(desired: Table) -> Table:
         columns=tuple(Field(c.name, _bare(c.type)) for c in desired.columns),
         comment=desired.comment,
         cluster_by=desired.cluster_by,
+        cluster_auto=desired.cluster_auto,
         properties=(*desired.properties, (MANAGED_PROPERTY, "true")),
     )
+
+
+def _clustering_clause(table: Table) -> str | None:
+    """`CLUSTER BY AUTO`, `CLUSTER BY (keys)`, or nothing.
+
+    TODO(verify): AUTO needs predictive optimization; on a workspace without it
+    the statement's behaviour is unverified (it was on where this was tested).
+    https://docs.databricks.com/aws/en/delta/clustering#automatic-liquid-clustering
+    """
+    if table.cluster_auto:
+        return "CLUSTER BY AUTO"
+    if table.cluster_by:
+        return f"CLUSTER BY ({', '.join(quote_ident(name) for name in table.cluster_by)})"
+    return None
 
 
 def _bare(data_type: DataType) -> DataType:

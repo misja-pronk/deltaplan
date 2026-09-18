@@ -20,6 +20,7 @@ from __future__ import annotations
 from deltaplan.model.change import Change
 from deltaplan.model.function import Function
 from deltaplan.model.table import (
+    CLUSTER_AUTO,
     MANAGED_PROPERTY,
     Check,
     ForeignKey,
@@ -124,6 +125,24 @@ def _function_shape(function: Function) -> tuple[object, ...]:
         normalise_query(function.body),
         function.comment,
     )
+
+
+def _diff_clustering(desired: Table, actual: Table) -> list[Change]:
+    """Keys, or automatic. Under AUTO the live keys are Databricks' choice, so a
+    spec asking for AUTO compares only that it is on; one naming keys turns it
+    off — `CLUSTER BY (…)` does, verified live."""
+    before = CLUSTER_AUTO if actual.cluster_auto else actual.cluster_by
+    if desired.cluster_auto:
+        if actual.cluster_auto:
+            return []
+        return [Change(desired.name, "set_cluster_by", before=before, after=CLUSTER_AUTO)]
+    if actual.cluster_auto or desired.cluster_by != actual.cluster_by:
+        return [
+            Change(
+                desired.name, "set_cluster_by", before=before, after=desired.cluster_by
+            )
+        ]
+    return []
 
 
 def _diff_governance(desired: Securable, actual: Securable) -> list[Change]:
@@ -269,15 +288,7 @@ def _diff_table_metadata(desired: Table, actual: Table) -> list[Change]:
                 after=desired.comment,
             )
         )
-    if desired.cluster_by != actual.cluster_by:
-        changes.append(
-            Change(
-                desired.name,
-                "set_cluster_by",
-                before=actual.cluster_by,
-                after=desired.cluster_by,
-            )
-        )
+    changes.extend(_diff_clustering(desired, actual))
 
     live_properties = actual.properties_map()
     for key, value in desired.properties:
@@ -673,7 +684,9 @@ def _is_applied_to_table(change: Change, live: Table) -> bool:
         case "set_table_comment":
             return live.comment == change.after
         case "set_cluster_by":
-            return live.cluster_by == change.after
+            if change.after == CLUSTER_AUTO:
+                return live.cluster_auto
+            return not live.cluster_auto and live.cluster_by == change.after
         case "set_mask":
             column = live.column(change.path)
             return column is not None and column.mask == change.after

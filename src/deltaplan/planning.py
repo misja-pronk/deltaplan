@@ -376,6 +376,7 @@ def _facts(
         ),
         unmodelled=live.unmodelled if live else (),
         schema_exists=schema_exists,
+        features=live.features if live else (),
     )
 
 

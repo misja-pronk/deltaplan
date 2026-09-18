@@ -94,6 +94,20 @@ def test_the_lock_is_taken_and_given_back() -> None:
     assert history.lock_holder("test") is None
 
 
+def test_a_new_table_is_created_through_the_executor() -> None:
+    """Every postcheck the executor runs must answer true or false. CREATE
+    TABLE's once was a DESCRIBE, whose first value is a column name — so on a
+    real warehouse every create "didn't take". Found by the live suite."""
+    fake, plan = planned(DESIRED, None)
+    assert plan.steps[0].title.startswith("CREATE TABLE")
+    result = executor(fake).apply(plan)
+    assert result.ok, result.error
+    assert all(
+        step.postcheck is None or step.postcheck.upper().endswith(" AS OK")
+        for step in plan.steps
+    )
+
+
 # ---------------------------------------------------------------------------
 # refusals
 # ---------------------------------------------------------------------------

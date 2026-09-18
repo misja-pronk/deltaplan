@@ -125,6 +125,7 @@ def plan_against(
                     exists=live_now is not None,
                     properties=live_now.properties if live_now else (),
                     size_bytes=found.size_bytes if found else None,
+                    features=found.features if found else (),
                 ),
                 unmanaged(desired, live_now) if live_now else (),
                 desired=desired,

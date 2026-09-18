@@ -3,6 +3,7 @@
   tuple(
     Change(
       after=Table(
+        cluster_auto=False,
         cluster_by=tuple(
         ),
         columns=tuple(

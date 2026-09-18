@@ -87,6 +87,8 @@ def _facts_to_dict(facts: TableFacts) -> dict[str, Any]:
         "kind": facts.kind,
         "unmodelled": list(facts.unmodelled),
         "properties": dict(facts.properties),
+        "schema_exists": facts.schema_exists,
+        "features": list(facts.features),
     }
 
 
@@ -257,6 +259,7 @@ def _table_to_dict(table: Table) -> dict[str, Any]:
         "table": table.name,
         "comment": table.comment,
         "cluster_by": list(table.cluster_by),
+        "cluster_auto": table.cluster_auto,
         "properties": dict(table.properties),
         "tags": dict(table.tags),
         "columns": [_field_to_dict(column) for column in table.columns],
@@ -326,6 +329,8 @@ def _diff_from_dict(entry: dict[str, Any]) -> TableDiff:
             delta_version=facts.get("delta_version"),
             kind=_kind(facts.get("kind")),
             unmodelled=tuple(facts.get("unmodelled", ())),
+            schema_exists=bool(facts.get("schema_exists", True)),
+            features=tuple(facts.get("features", ())),
         ),
         unmanaged=tuple(entry.get("unmanaged", ())),
         desired=_relation_from_dict(entry["desired"]) if entry.get("desired") else None,
@@ -401,6 +406,8 @@ def _value_from(kind: str, raw: Any) -> Any:
             return Identity(**raw)
         case "add_constraint" | "drop_constraint":
             return _constraint_from_dict(raw)
+        case "set_cluster_by" if isinstance(raw, str):
+            return raw  # "auto"
         case "set_cluster_by" | "reorder_columns" | "set_column_tag" | "grant" | "revoke":
             return tuple(str(item) for item in raw)
         case _:
@@ -453,6 +460,7 @@ def _table_from_dict(entry: dict[str, Any]) -> Table:
         columns=tuple(_field_from_dict(column) for column in entry["columns"]),
         comment=entry.get("comment"),
         cluster_by=tuple(entry.get("cluster_by", ())),
+        cluster_auto=bool(entry.get("cluster_auto", False)),
         properties=tuple(sorted(entry.get("properties", {}).items())),
         tags=tuple(sorted(entry.get("tags", {}).items())),
         constraints=tuple(
