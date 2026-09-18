@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Schemas are created when a spec needs them**, once each, just before the
+  first table or view in them — so a fresh target plans from nothing. Catalogs
+  are never created, and schemas are never dropped. The history schema is
+  created the same way.
+
 - **A target can name its workspace**: `profile:` on a target picks a
   `~/.databrickscfg` profile, and `--profile` overrides it on every command that
   connects — dev and prod are usually different workspaces.

@@ -73,7 +73,13 @@ def plan_tables(
             TableDiff(
                 table.name,
                 changes,
-                _facts(introspector, table.name, live, changed=bool(changes)),
+                _facts(
+                    introspector,
+                    table.name,
+                    live,
+                    changed=bool(changes),
+                    schema_exists=_schema_of(schemas, table.name).exists,
+                ),
                 (
                     (*unmanaged(table, live_table), *_not_modelled(live))
                     if live_table
@@ -91,7 +97,11 @@ def plan_tables(
             TableDiff(
                 view.name,
                 changes,
-                _view_facts(view.name, live_view),
+                _view_facts(
+                    view.name,
+                    live_view,
+                    schema_exists=_schema_of(schemas, view.name).exists,
+                ),
                 unmanaged_view(view, live_view) if live_view else (),
                 desired=view,
                 live=live_view,
@@ -228,12 +238,15 @@ def _schema_of(schemas: dict[tuple[str, str], LiveSchema], name: str) -> LiveSch
     return schemas[(catalog, schema)]
 
 
-def _view_facts(name: str, live: View | None) -> TableFacts:
+def _view_facts(
+    name: str, live: View | None, *, schema_exists: bool = True
+) -> TableFacts:
     return TableFacts(
         name,
         exists=live is not None,
         properties=live.properties if live else (),
         kind="view",
+        schema_exists=schema_exists,
     )
 
 
@@ -243,6 +256,7 @@ def _facts(
     live: LiveTable | None,
     *,
     changed: bool,
+    schema_exists: bool = True,
 ) -> TableFacts:
     return TableFacts(
         name,
@@ -254,6 +268,7 @@ def _facts(
             introspector.latest_version(name) if live is not None and changed else None
         ),
         unmodelled=live.unmodelled if live else (),
+        schema_exists=schema_exists,
     )
 
 

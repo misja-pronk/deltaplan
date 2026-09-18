@@ -121,7 +121,7 @@ TO VERSION AS OF n` is one command.
 ### History
 
 `apply` keeps three Delta tables in the schema named by `history_schema` in
-`deltaplan.yml`, and creates them on first use (the schema itself must exist):
+`deltaplan.yml`, and creates the schema and the tables on first use:
 
 | Table | One row per |
 |---|---|

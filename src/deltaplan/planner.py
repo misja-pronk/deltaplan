@@ -142,6 +142,7 @@ class _Planner:
         self._clone_suffix = clone_suffix
         self._cloned: set[str] = set()
         self._existing: set[str] = set()
+        self._schemas_created: set[str] = set()
         self.steps: list[Step] = []
         self._column_mapping: set[str] = set()
         self._type_widening: set[str] = set()
@@ -216,6 +217,25 @@ class _Planner:
         )
 
     # -- prerequisites -----------------------------------------------------
+    def need_schema(self, facts: TableFacts) -> None:
+        """A table or view in a schema that isn't there yet needs it first.
+
+        Schemas, never catalogs: a catalog comes with storage and ownership
+        decisions that belong to whoever runs the metastore. And a schema is never
+        dropped — not even in strict mode.
+        """
+        schema = facts.name.rsplit(".", 1)[0]
+        if facts.schema_exists or schema in self._schemas_created:
+            return
+        self._schemas_created.add(schema)
+        self.emit(
+            facts.name,
+            f"CREATE SCHEMA {schema.split('.')[-1]}",
+            "meta",
+            sql=f"CREATE SCHEMA IF NOT EXISTS {quote_qualified(schema)}",
+            note="the schema doesn't exist yet; deltaplan creates schemas, not catalogs",
+        )
+
     def need_column_mapping(self, facts: TableFacts, path: str) -> None:
         """Renames and drops need name-based column mapping on the table."""
         if facts.name in self._column_mapping:
@@ -482,7 +502,7 @@ class _Planner:
             case "revoke":
                 self._revoke(change)
             case "create_view":
-                self._create_view(change)
+                self._create_view(change, facts)
             case "replace_view":
                 self._replace_view(change)
             case "claim_table":
@@ -586,9 +606,10 @@ class _Planner:
             ),
         )
 
-    def _create_view(self, change: Change) -> None:
+    def _create_view(self, change: Change, facts: TableFacts) -> None:
         view = change.after
         assert isinstance(view, View)
+        self.need_schema(facts)
         self.emit(
             view.name,
             f"CREATE VIEW {view.short_name}",
@@ -662,6 +683,7 @@ class _Planner:
     def _create_table(self, change: Change, facts: TableFacts) -> None:
         table = change.after
         assert isinstance(table, Table)
+        self.need_schema(facts)
         self.emit(
             table.name,
             f"CREATE TABLE {table.short_name}",

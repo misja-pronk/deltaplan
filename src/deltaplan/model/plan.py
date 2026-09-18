@@ -78,6 +78,9 @@ class TableFacts:
     kind: Literal["table", "view"] = "table"
     #: What the live table has that the model doesn't cover. See LiveTable.
     unmodelled: tuple[str, ...] = ()
+    #: Whether the schema it lives in exists. A table in a fresh schema needs the
+    #: schema created first.
+    schema_exists: bool = True
 
     def property(self, key: str) -> str | None:
         return dict(self.properties).get(key)

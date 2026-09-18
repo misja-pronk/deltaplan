@@ -52,6 +52,10 @@ schemas:                               # per-schema overrides of the target's mo
   ${catalog}.sales: strict
 ```
 
+A schema that doesn't exist yet is created — once, just before the first table or view
+that needs it — so a fresh target plans from nothing. deltaplan creates schemas but never
+catalogs, and never drops a schema.
+
 `history_schema` and the `schemas:` keys may use the target's variables, like a spec
 can, so one project file serves every catalog. What the modes mean is in the
 [safety model](safety.md#additive-and-strict-schemas).

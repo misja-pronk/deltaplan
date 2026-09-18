@@ -31,10 +31,11 @@ def history(*answers: tuple[Row, ...]) -> tuple[DeltaHistory, ScriptRunner]:
     return DeltaHistory(runner, "main.deltaplan"), runner
 
 
-def test_ensure_creates_three_tables(snapshot: SnapshotAssertion) -> None:
+def test_ensure_creates_the_schema_and_three_tables(snapshot: SnapshotAssertion) -> None:
     store, runner = history()
     store.ensure()
     assert [s.split("(")[0].strip() for s in runner.statements] == [
+        "CREATE SCHEMA IF NOT EXISTS `main`.`deltaplan`",
         "CREATE TABLE IF NOT EXISTS `main`.`deltaplan`.`runs`",
         "CREATE TABLE IF NOT EXISTS `main`.`deltaplan`.`steps`",
         "CREATE TABLE IF NOT EXISTS `main`.`deltaplan`.`lock`",
@@ -132,7 +133,8 @@ def test_schema_names_are_quoted() -> None:
     store, runner = DeltaHistory(ScriptRunner(), "odd catalog.odd schema"), None
     store.ensure()
     assert isinstance(store.runner, ScriptRunner)
-    assert "`odd catalog`.`odd schema`.`runs`" in store.runner.statements[0]
+    assert "`odd catalog`.`odd schema`" in store.runner.statements[0]
+    assert "`odd catalog`.`odd schema`.`runs`" in store.runner.statements[1]
     del runner
 
 

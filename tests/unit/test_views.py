@@ -234,7 +234,12 @@ def test_tables_are_planned_before_views() -> None:
         col("id", "bigint"), col("amount", "decimal(18,2)"), name="main.sales.orders"
     )
     plan = converge([BIG, new_orders], fake)  # spec order: view first
-    assert plan.steps[0].title == "CREATE TABLE orders"
+    titles = [s.title for s in plan.steps]
+    assert titles[:3] == [
+        "CREATE SCHEMA sales",
+        "CREATE TABLE orders",
+        "CREATE VIEW big_orders",
+    ]
 
 
 def test_a_table_is_not_turned_into_a_view() -> None:

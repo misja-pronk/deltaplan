@@ -8,8 +8,10 @@
   SELECT holder FROM `main`.`deltaplan`.`lock` WHERE id = 'prod'
   '''
 # ---
-# name: test_ensure_creates_three_tables
+# name: test_ensure_creates_the_schema_and_three_tables
   '''
+  CREATE SCHEMA IF NOT EXISTS `main`.`deltaplan`
+  
   CREATE TABLE IF NOT EXISTS `main`.`deltaplan`.`runs` (
     `run_id` STRING,
     `plan_hash` STRING,

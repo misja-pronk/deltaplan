@@ -42,6 +42,9 @@ class FakeWarehouse:
 
     tables: dict[str, Table] = field(default_factory=dict)
     views: dict[str, View] = field(default_factory=dict)
+    #: Schemas that exist even with nothing in them. A schema holding a table or
+    #: view exists regardless.
+    schemas: set[str] = field(default_factory=set)
     sizes: dict[str, int] = field(default_factory=dict)
     versions: dict[str, int] = field(default_factory=dict)
     #: Table -> partition columns: partitioning isn't in deltaplan's model, so it
@@ -123,7 +126,11 @@ class FakeWarehouse:
             # The fake models schemas, not rows: moving data is a no-op here, and
             # whether it is *valid* is a question only a warehouse can answer.
             return ()
-        if upper.startswith("CREATE SCHEMA") or upper.startswith("DROP SCHEMA"):
+        if upper.startswith("CREATE SCHEMA"):
+            name = flat.split()[-1]
+            self.schemas.add(_unquote(name).lower())
+            return ()
+        if upper.startswith("DROP SCHEMA"):
             return ()
         if upper.startswith("COMMENT ON TABLE"):
             return self._comment_on_table(flat)
@@ -152,6 +159,12 @@ class FakeWarehouse:
             if name.startswith(f"{catalog}.{schema}.")
         ]
         governed: list[Table | View] = [*tables, *views]
+        if "information_schema.schemata" in flat:
+            name = f"{catalog}.{schema}".lower()
+            present = name in self.schemas or any(
+                other.startswith(f"{name}.") for other in [*self.tables, *self.views]
+            )
+            return ({"schema_name": schema},) if present else ()
         if "information_schema.tables" in flat:
             return tuple(
                 {

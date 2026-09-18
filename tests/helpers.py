@@ -58,6 +58,7 @@ _FRAGMENTS = {
     "detail": "DESCRIBE DETAIL",
     "history": "DESCRIBE HISTORY",
     "grants": "information_schema.table_privileges",
+    "schemata": "information_schema.schemata",
 }
 
 
@@ -81,6 +82,8 @@ def fake_runner(**rows: tuple[Row, ...]) -> FakeRunner:
     unknown = set(rows) - set(_FRAGMENTS)
     if unknown:
         raise ValueError(f"no query fragment for {sorted(unknown)}")
+    # Unless a test says otherwise, the schema being read exists.
+    rows.setdefault("schemata", ({"schema_name": "present"},))
     return FakeRunner(
         {fragment: rows.get(key, ()) for key, fragment in _FRAGMENTS.items()}
     )

@@ -124,6 +124,7 @@ class DeltaHistory:
 
     # -- setup -------------------------------------------------------------
     def ensure(self) -> None:
+        self.runner.query(f"CREATE SCHEMA IF NOT EXISTS {quote_qualified(self.schema)}")
         for name, columns in (
             ("runs", RUNS_COLUMNS),
             ("steps", STEPS_COLUMNS),

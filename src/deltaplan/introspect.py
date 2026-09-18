@@ -83,6 +83,8 @@ class LiveSchema:
     tables: tuple[LiveTable, ...] = ()
     skipped: tuple[tuple[str, str], ...] = ()
     views: tuple[View, ...] = ()
+    #: False when the schema itself isn't there yet — a fresh target.
+    exists: bool = True
 
     def get(self, name: str) -> LiveTable | None:
         for live in self.tables:
@@ -118,6 +120,8 @@ class Introspector:
     # -- public ------------------------------------------------------------
     def schema(self, catalog: str, schema: str) -> LiveSchema:
         """Every Delta table in one schema, as the model."""
+        if not self._schema_exists(catalog, schema):
+            return LiveSchema(catalog, schema, exists=False)
         comments, formats = self._table_rows(catalog, schema)
         columns, column_features = self._column_rows(catalog, schema)
         column_tags = self._column_tag_rows(catalog, schema)
@@ -324,6 +328,17 @@ class Introspector:
                 continue
             tags.setdefault((table_name, column), {})[tag] = row.get("tag_value") or ""
         return tags
+
+    def _schema_exists(self, catalog: str, schema: str) -> bool:
+        """TODO(verify): that a missing *catalog* fails this query, rather than
+        returning nothing — deltaplan creates schemas, never catalogs.
+        https://docs.databricks.com/aws/en/sql/language-manual/information-schema/schemata
+        """
+        rows = self.runner.query(
+            f"SELECT schema_name FROM {_information_schema(catalog)}.schemata "
+            f"WHERE schema_name = {quote_literal(schema.lower())}"
+        )
+        return bool(rows)
 
     def _view_rows(self, catalog: str, schema: str) -> dict[str, str]:
         """Each view's definition. TODO(verify): that `view_definition` is the
