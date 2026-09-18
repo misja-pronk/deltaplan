@@ -136,8 +136,9 @@ data loss. `renamed_from` says what actually happened:
 ```
 
 deltaplan plans a `RENAME COLUMN` (enabling column mapping first, if the table doesn't
-have it). Once the old name is gone and the new one exists, the hint is inert;
-`validate` will tell you it can be removed.
+have it). Once the old name is gone and the new one exists, the hint is inert, and
+`plan` notes that it can be removed. (It's `plan` rather than `validate` that says so,
+because telling needs the live table.)
 
 !!! warning "Column mapping is not free"
     Enabling `columnMapping` on a table breaks existing streaming readers. The plan

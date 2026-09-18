@@ -61,6 +61,7 @@ def _diff_to_dict(diff: TableDiff) -> dict[str, Any]:
         "table": diff.table,
         "facts": _facts_to_dict(diff.facts),
         "unmanaged": list(diff.unmanaged),
+        "notes": list(diff.notes),
         # Both sides are kept: a rewrite needs the shape it builds towards, and a
         # plan file that records what was compared is one you can audit later.
         "desired": _relation_to_dict(diff.desired) if diff.desired else None,
@@ -269,6 +270,7 @@ def _diff_from_dict(entry: dict[str, Any]) -> TableDiff:
         unmanaged=tuple(entry.get("unmanaged", ())),
         desired=_relation_from_dict(entry["desired"]) if entry.get("desired") else None,
         live=_relation_from_dict(entry["live"]) if entry.get("live") else None,
+        notes=tuple(entry.get("notes", ())),
     )
 
 

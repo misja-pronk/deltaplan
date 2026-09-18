@@ -106,6 +106,8 @@ class TableDiff:
     unmanaged: tuple[str, ...] = ()
     desired: Relation | None = None
     live: Relation | None = None
+    #: Things worth knowing that aren't changes — a spent rename hint, say.
+    notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

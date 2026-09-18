@@ -28,7 +28,7 @@ from deltaplan.model.table import (
     is_bookkeeping,
     type_at,
 )
-from deltaplan.model.types import Array, DataType, Field, Map, Struct, type_kind
+from deltaplan.model.types import Array, DataType, Field, Map, Struct, type_kind, walk
 from deltaplan.model.view import Relation, View, normalise_query
 from deltaplan.sql import normalise_expression
 
@@ -152,6 +152,28 @@ def _unmanaged_governance(desired: Securable, actual: Securable) -> list[str]:
         if grant.principal not in declared_grants:
             found.append(f"grants to {grant.principal}")
     return found
+
+
+def spent_renames(desired: Table, actual: Table) -> tuple[str, ...]:
+    """`renamed_from` hints that have done their job and can be deleted.
+
+    A hint is spent once the old name is gone and the new one is live. It does
+    no harm — the differ ignores it — but a spec is easier to read without it.
+    The design puts this in `validate`; it needs the live table, so it lives here.
+    """
+    found: list[str] = []
+    for column in desired.columns:
+        candidates = [(column.name, column), *walk(column.type, column.name)]
+        for path, field in candidates:
+            old = field.renamed_from
+            if old is None:
+                continue
+            old_path = _sibling_path(path, old)
+            if type_at(actual, path) is not None and type_at(actual, old_path) is None:
+                found.append(
+                    f"renamed_from {old!r} on {path} has done its job — it can be removed"
+                )
+    return tuple(found)
 
 
 def unmanaged(desired: Table, actual: Table) -> tuple[str, ...]:

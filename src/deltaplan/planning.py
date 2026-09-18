@@ -22,7 +22,14 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 
-from deltaplan.differ import diff, diff_view, ownership, unmanaged, unmanaged_view
+from deltaplan.differ import (
+    diff,
+    diff_view,
+    ownership,
+    spent_renames,
+    unmanaged,
+    unmanaged_view,
+)
 from deltaplan.introspect import Introspector, LiveSchema, LiveTable
 from deltaplan.loader import Mode
 from deltaplan.model.change import Change
@@ -87,6 +94,7 @@ def plan_tables(
                 ),
                 desired=table,
                 live=live_table,
+                notes=spent_renames(table, live_table) if live_table else (),
             )
         )
 

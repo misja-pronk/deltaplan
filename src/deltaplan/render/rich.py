@@ -42,14 +42,19 @@ def render_plan(plan: Plan, console: Console) -> None:
     printed = False
     offset = 0
     for diff in plan.diffs:
-        if diff.changes or diff.unmanaged:
+        if diff.changes or diff.unmanaged or diff.notes:
             if printed:
                 console.print()
             _render_table(plan, diff, console, offset)
             printed = True
         offset += len(diff.changes)
 
-    if not printed:
+    # Whether anything would change decides this — not whether there was anything
+    # to say. A table with only a note still has no changes.
+    changing = any(diff.changes for diff in plan.diffs)
+    if not changing:
+        if printed:
+            console.print()
         console.print(Text("No changes. Live tables match your specs.", style="green"))
     if plan.orphaned_tables:
         console.print()
@@ -75,7 +80,7 @@ def render_plan(plan: Plan, console: Console) -> None:
         )
         for name in plan.unmanaged_tables:
             console.print(Text(f"  · {name}", style="dim"))
-    if not printed:
+    if not changing:
         return
     console.print()
     console.print(Text(str(plan.summary), style="bold"))
@@ -145,6 +150,8 @@ def _render_table(plan: Plan, diff: TableDiff, console: Console, offset: int) ->
 
     for item in diff.unmanaged:
         console.print(Text(f"  · {item} — unmanaged, left untouched", style="dim"))
+    for note in diff.notes:
+        console.print(Text(f"  · {note}", style="dim"))
 
 
 VERB_STYLE = {

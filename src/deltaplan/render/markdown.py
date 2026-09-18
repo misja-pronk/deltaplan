@@ -168,6 +168,8 @@ def _table_block(plan: Plan, diff: TableDiff, *, include_sql: bool) -> list[str]
     if diff.unmanaged:
         listed = ", ".join(f"`{_cell(item)}`" for item in diff.unmanaged)
         lines += [f"<sub>Left untouched (unmanaged): {listed}</sub>", ""]
+    for note in diff.notes:
+        lines += [f"<sub>{_html(note)}</sub>", ""]
 
     lines += ["</details>", ""]
     return lines
@@ -225,6 +227,15 @@ def _sql_block(steps: tuple[Step, ...]) -> list[str]:
 
 def _left_alone(plan: Plan) -> list[str]:
     lines: list[str] = []
+    # Notes on tables with changes are in their own block; these are the rest.
+    quiet = [
+        (diff.table, note)
+        for diff in plan.diffs
+        if not diff.changes
+        for note in diff.notes
+    ]
+    for name, note in quiet:
+        lines += [f"<sub>`{display_name(name)}`: {_html(note)}</sub>", ""]
     if plan.orphaned_tables:
         names = ", ".join(f"`{display_name(n)}`" for n in plan.orphaned_tables)
         lines += [

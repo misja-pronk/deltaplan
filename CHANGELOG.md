@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `plan` and `drift` note a `renamed_from` hint that has done its job and can
+  be deleted. (The design puts this in `validate`, which can't see the live
+  table.) A table with only notes still reads "No changes".
 - **Backfills.** `using:` on a column being added fills the existing rows
   (`UPDATE … WHERE col IS NULL`) before `SET NOT NULL` — so a NOT NULL column
   can be added to a table with data. Without it, the plan warns and says what to
