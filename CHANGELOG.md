@@ -14,7 +14,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   it doesn't give isn't cleared, and tags and grants it doesn't name are
   reported. Never dropped. `import` writes `_schema.yml`; SQL specs can say a
   schema's comment and grants, not its tags. Schema privileges verified live.
-
 - **Managed volumes** (`volume:`): comment, tags and grants, created and kept in
   line, never dropped (that would delete their files). External volumes are
   listed and left alone. YAML only. Volume privileges verified live.
