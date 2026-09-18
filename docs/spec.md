@@ -183,6 +183,25 @@ because telling needs the live table.)
     Enabling `columnMapping` on a table breaks existing streaming readers. The plan
     labels that step `[feature]` and warns before you apply it.
 
+A table can be renamed the same way. Without the hint, a new name looks like a new
+table and the old one like an orphan — in a strict schema, an empty table created and
+the full one dropped.
+
+```yaml
+table: ${catalog}.sales.orders
+renamed_from: order_facts          # or ${catalog}.sales.order_facts
+```
+
+- **The rename is the table's first step**, before its hooks and any rewrite, so
+  everything after it uses the new name. It warns that whatever reads the old name —
+  views, jobs, dashboards — stops finding it.
+- **Within the schema only.** Unity Catalog doesn't move a table between schemas with
+  a rename, so `validate` rejects a `renamed_from` in another one.
+- **The old name is never an orphan** while a spec names it in `renamed_from`, so a
+  strict schema renames rather than drops. If both names exist, nothing is renamed and
+  the plan says so.
+- Once the rename has run, the hint is inert and `plan` notes that it can be removed.
+
 ## Column tags
 
 ```yaml

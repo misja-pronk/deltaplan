@@ -32,6 +32,7 @@
         name='main.sales.orders',
         properties=tuple(
         ),
+        renamed_from=None,
         row_filter=None,
         tags=tuple(
         ),

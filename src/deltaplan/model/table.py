@@ -226,9 +226,13 @@ class Table(Securable):
     #: Not state: nothing in the catalog records them, so they take no part in
     #: comparing a spec with a live table.
     hooks: Hooks | None = field(default=None, compare=False)
+    #: The table's previous full name, while a rename is still to be applied.
+    renamed_from: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         sort_governance(self)
+        if self.renamed_from is not None:
+            object.__setattr__(self, "renamed_from", self.renamed_from.lower())
 
     # -- lookups -----------------------------------------------------------
     def column(self, name: str) -> Column | None:

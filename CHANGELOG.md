@@ -8,6 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Table renames**: `renamed_from:` on a table plans `ALTER TABLE … RENAME TO`
+  as its first step, and the table's other changes follow under the new name.
+  The old name is never treated as an orphan, so a strict schema renames rather
+  than drops. `apply` checks for staleness under the name the table was read by.
 - **Asset Bundles.** `bundle: databricks.yml` in `deltaplan.yml` takes the
   targets from the bundle: names, the default, each target's workspace, and
   its variables (defaults, overrides, `BUNDLE_VAR_*`, `${var.…}` and

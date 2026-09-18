@@ -85,7 +85,7 @@ class Executor:
         resumed = self.history.resumable_run(plan_hash, plan.target)
         run_id = resumed or self.new_run_id()
 
-        self._live = self.introspector.tables([diff.table for diff in plan.diffs])
+        self._live = self.introspector.tables(_read_from(plan))
         if resumed is None:
             self._refuse_stale(plan)
 
@@ -262,7 +262,7 @@ class Executor:
             )
 
     def _refuse_stale(self, plan: Plan) -> None:
-        current = fingerprint(self._live[diff.table] for diff in plan.diffs)
+        current = fingerprint(self._live.get(name) for name in _read_from(plan))
         if current != plan.state_fingerprint:
             raise ExecutionError(
                 "the live tables have changed since this plan was made "
@@ -285,3 +285,11 @@ def _is_true(value: object) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() == "true"
+
+
+def _read_from(plan: Plan) -> list[str]:
+    """The name each table's live state was read from: its own, or — for a table
+    being renamed — the one it has until the rename runs."""
+    return [
+        diff.live.name if diff.live is not None else diff.table for diff in plan.diffs
+    ]

@@ -55,6 +55,9 @@ def describe(change: Change) -> tuple[str, str]:
             table = change.after
             columns = len(table.columns) if isinstance(table, Table) else 0
             return "+", _count(columns, "column")
+        case "rename_table":
+            # Renames stay within a schema, so the old table name says it all.
+            return "→", f"renamed from {str(change.before).rsplit('.', 1)[-1]}"
         case "drop_table":
             table = change.before
             columns = len(table.columns) if isinstance(table, Table) else 0

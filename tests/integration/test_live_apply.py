@@ -210,3 +210,32 @@ def test_a_rewrite_converts_the_data_it_moves(
     # The staging table is cleaned up.
     staging = introspector.table(f"{name}__deltaplan_rewrite")
     assert staging is None
+
+
+def test_a_table_is_renamed_with_its_data(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """Settles the TODO(verify) in the planner's rename: RENAME TO takes a fully
+    qualified name in the same schema, and the rows go with the table.
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-alter-table
+    """
+    from dataclasses import replace
+
+    from deltaplan.planning import plan_tables
+
+    old = table(col("id", "bigint"), name=f"{schema}.order_facts")
+    runner.query(create_table_sql(old))
+    runner.query(f"INSERT INTO {quote_qualified(old.name)} VALUES (1), (2)")
+
+    new = replace(
+        table(col("id", "bigint"), name=f"{schema}.orders"), renamed_from=old.name
+    )
+    plan = plan_tables([new], introspector, target="integration", tool_version="0.1.0")
+    assert plan.steps[0].title == "RENAME TABLE"
+    assert executor(runner, schema).apply(plan).ok
+
+    rows = runner.query(f"SELECT count(*) AS n FROM {quote_qualified(new.name)}")
+    assert rows[0]["n"] == "2"
+    assert introspector.table(old.name) is None
+    again = plan_tables([new], introspector, target="integration", tool_version="0.1.0")
+    assert again.empty

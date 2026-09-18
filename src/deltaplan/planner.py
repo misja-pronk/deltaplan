@@ -317,6 +317,13 @@ class _Planner:
             table_diff.desired.hooks if isinstance(table_diff.desired, Table) else None
         )
         start = self._change + 1
+        changes = table_diff.changes
+        if changes and changes[0].kind == "rename_table":
+            # The rename goes first, so every step after it — hooks included —
+            # finds the table under the name the spec gives it.
+            self._change += 1
+            self.plan_change(changes[0], table_diff.facts)
+            changes = changes[1:]
         # Hooks run only when the table has something to do in this plan — they are
         # for the change, not for every apply.
         if hooks and hooks.before and table_diff.changes:
@@ -328,7 +335,7 @@ class _Planner:
             self._rewrite(table_diff)
             self._change = start + len(table_diff.changes) - 1
         else:
-            for change in table_diff.changes:
+            for change in changes:
                 self._change += 1
                 self.plan_change(change, table_diff.facts)
         if hooks and hooks.after and table_diff.changes:
@@ -590,6 +597,8 @@ class _Planner:
                 self._replace_view(change)
             case "claim_table":
                 self._claim(change)
+            case "rename_table":
+                self._rename_table(change)
             case "drop_table":
                 self._drop_table(change, facts)
             case _:
@@ -751,6 +760,29 @@ class _Planner:
             note=(
                 f"a spec now describes this {self._object.lower()}, so deltaplan "
                 "manages it — in a strict schema, removing its spec later will drop it"
+            ),
+        )
+
+    def _rename_table(self, change: Change) -> None:
+        old = change.before
+        assert isinstance(old, str)
+        # TODO(verify): that RENAME TO takes a fully qualified name in the same
+        # schema. https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-alter-table
+        self.emit(
+            change.table,
+            "RENAME TABLE",
+            "meta",
+            sql=(
+                f"ALTER TABLE {quote_qualified(old)} "
+                f"RENAME TO {quote_qualified(change.table)}"
+            ),
+            undo_hint=(
+                f"ALTER TABLE {quote_qualified(change.table)} "
+                f"RENAME TO {quote_qualified(old)}"
+            ),
+            warnings=(
+                f"anything that reads {old} by name — a view, a job, a dashboard — "
+                "stops finding it",
             ),
         )
 

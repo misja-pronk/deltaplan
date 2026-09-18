@@ -543,6 +543,7 @@ TABLE_KEYS = {
     "grants",
     "row_filter",
     "hooks",
+    "renamed_from",
 }
 
 
@@ -759,6 +760,13 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
             else None,
         )
 
+    renamed_from = None
+    if "renamed_from" in items:
+        renamed_from = _string(ctx, items["renamed_from"][0], "renamed_from")
+        if "." not in renamed_from:
+            # Just the old table name: it was in the same schema.
+            renamed_from = f"{name.rsplit('.', 1)[0]}.{renamed_from}"
+
     return Table(
         name=name,
         columns=columns,
@@ -770,6 +778,7 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
         grants=grants,
         row_filter=row_filter,
         hooks=hooks,
+        renamed_from=renamed_from,
     )
 
 
@@ -1070,6 +1079,22 @@ def validate_table(table: Table, where: str) -> tuple[Diagnostic, ...]:
     for key, _ in table.properties:
         if key in MAINTAINED_PROPERTIES:
             error(f"property {key!r} is maintained by Delta itself; don't declare it")
+    if table.renamed_from is not None:
+        old = table.renamed_from.split(".")
+        if table.renamed_from == table.name:
+            error("renamed_from names the table itself")
+        elif len(old) != 3:
+            error(
+                f"renamed_from {table.renamed_from!r} must be the old table's name, "
+                "alone or as catalog.schema.table"
+            )
+        elif old[:2] != table.name.split(".")[:2]:
+            # TODO(verify): Unity Catalog renames a table only within its schema.
+            # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-alter-table
+            error(
+                "renamed_from must be in the same schema: a rename can't move a "
+                "table to another schema or catalog"
+            )
 
     # Delta column names ignore case, so `id` and `ID` are the same column.
     seen: set[str] = set()

@@ -18,6 +18,7 @@ ChangeKind: TypeAlias = Literal[
     "create_table",
     "drop_table",
     "claim_table",
+    "rename_table",
     "create_view",
     "replace_view",
     "create_function",
@@ -53,7 +54,7 @@ CREATE_KINDS: frozenset[str] = frozenset(
 #: Kinds whose `path` names something other than a column — a property key, a
 #: tag key, a principal.
 TABLE_LEVEL_KINDS: frozenset[str] = frozenset(
-    {"set_property", "set_tag", "grant", "revoke", "set_row_filter"}
+    {"set_property", "set_tag", "grant", "revoke", "set_row_filter", "rename_table"}
 )
 
 #: Whatever a change is about. Every member is hashable, so changes are too.

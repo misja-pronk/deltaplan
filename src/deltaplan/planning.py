@@ -103,31 +103,48 @@ def plan_tables(
             )
         )
     for table in tables:
-        live = _schema_of(schemas, table.name).get(table.name)
-        live_table = live.table if live else None
+        found = _schema_of(schemas, table.name)
+        live = found.get(table.name)
+        renaming, notes = _rename(table, live, found)
+        if table.renamed_from is not None:
+            # Whatever else happens, a table a spec says it used to be is not an
+            # orphan: strict mode must never drop it on the strength of a hint.
+            described.add(table.renamed_from)
+        source = renaming or live
+        # A table being renamed is compared under its new name, which is the name
+        # every step after the rename uses.
+        live_table = replace(source.table, name=table.name) if source else None
         changes = (
+            *(
+                (Change(table.name, "rename_table", before=renaming.table.name),)
+                if renaming
+                else ()
+            ),
             *ownership(table, live_table),
             *diff(table, live_table, compare_order=check_order),
+        )
+        facts = _facts(
+            introspector,
+            source.table.name if source else table.name,
+            source,
+            changed=bool(changes),
+            schema_exists=found.exists,
         )
         diffs.append(
             TableDiff(
                 table.name,
                 changes,
-                _facts(
-                    introspector,
-                    table.name,
-                    live,
-                    changed=bool(changes),
-                    schema_exists=_schema_of(schemas, table.name).exists,
-                ),
+                replace(facts, name=table.name),
                 (
-                    (*unmanaged(table, live_table), *_not_modelled(live))
+                    (*unmanaged(table, live_table), *_not_modelled(source))
                     if live_table
                     else ()
                 ),
                 desired=table,
-                live=live_table,
-                notes=spent_renames(table, live_table) if live_table else (),
+                # As read, under the name it was read by: `apply` reads it again
+                # there to check nothing moved since the plan.
+                live=source.table if source else None,
+                notes=(*notes, *(spent_renames(table, live_table) if live_table else ())),
             )
         )
 
@@ -318,6 +335,25 @@ def _view_facts(
         properties=live.properties if live else (),
         kind="view",
         schema_exists=schema_exists,
+    )
+
+
+def _rename(
+    table: Table, live: LiveTable | None, found: LiveSchema
+) -> tuple[LiveTable | None, tuple[str, ...]]:
+    """The live table to rename to this spec's name, if there is one — and what
+    to say about the hint when there isn't."""
+    if table.renamed_from is None:
+        return None, ()
+    old = found.get(table.renamed_from)
+    short = table.renamed_from.rsplit(".", 1)[-1]
+    if live is None:
+        return old, ()
+    if old is None:
+        return None, (f"renamed_from {short!r} has done its job — it can be removed",)
+    return None, (
+        f"both this table and {short} exist, so renamed_from is ignored and {short} "
+        "is left as it is",
     )
 
 

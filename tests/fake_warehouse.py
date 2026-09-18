@@ -22,6 +22,7 @@ import json
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
+from typing import TypeVar
 
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.table import (
@@ -466,7 +467,26 @@ class FakeWarehouse:
         if match is None:
             raise FakeSqlError(f"cannot read: {flat}")
         table = self._table(_unquote(match.group(1)))
+        if rename := re.fullmatch(r"RENAME TO (\S+)", match.group(2)):
+            return self._rename_table(table, _unquote(rename.group(1)))
         self._store(_apply_alter(table, match.group(2)))
+        return ()
+
+    def _rename_table(self, table: Table, new_name: str) -> tuple[Row, ...]:
+        """A rename moves the table — and what the fake keeps beside it."""
+        if table.name.rsplit(".", 1)[0] != new_name.rsplit(".", 1)[0]:
+            raise FakeSqlError(f"a rename stays in its schema: {new_name}")
+        if new_name in self.tables or new_name in self.views:
+            raise FakeSqlError(f"{new_name} already exists")
+        del self.tables[table.name]
+        _move_key(self.sizes, table.name, new_name)
+        _move_key(self.versions, table.name, new_name)
+        _move_key(self.partitions, table.name, new_name)
+        for (owner, column), row in list(self.column_features.items()):
+            if owner == table.name:
+                self.column_features[(new_name, column)] = row
+                del self.column_features[(owner, column)]
+        self._store(replace(table, name=new_name))
         return ()
 
     def _grant(self, flat: str) -> tuple[Row, ...]:
@@ -594,6 +614,14 @@ class FakeWarehouse:
 # ---------------------------------------------------------------------------
 # statement interpretation
 # ---------------------------------------------------------------------------
+
+
+_V = TypeVar("_V")
+
+
+def _move_key(store: dict[str, _V], old: str, new: str) -> None:
+    if old in store:
+        store[new] = store.pop(old)
 
 
 def _apply_alter(table: Table, clause: str) -> Table:

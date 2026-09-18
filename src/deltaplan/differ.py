@@ -635,6 +635,9 @@ def is_applied(change: Change, live: Relation | None) -> bool:
     match change.kind:
         case "claim_table":
             return live.managed
+        case "rename_table":
+            # `live` is whatever answers to the new name: the rename happened.
+            return True
         case "set_property":
             return live.properties_map().get(change.path) == change.after
         case "set_tag":
