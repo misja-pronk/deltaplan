@@ -165,7 +165,8 @@ def test_validate_takes_explicit_paths(project: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_plan_renders_the_diff(project: Path, live: FakeRunner) -> None:
+@pytest.mark.usefixtures("live")
+def test_plan_renders_the_diff(project: Path) -> None:
     result = runner.invoke(
         app, ["plan", "-t", "dev", "--config", str(project / "deltaplan.yml")]
     )
@@ -176,7 +177,8 @@ def test_plan_renders_the_diff(project: Path, live: FakeRunner) -> None:
     assert "Plan: 0 add, 1 change, 0 destroy" in result.output
 
 
-def test_plan_writes_json(project: Path, live: FakeRunner, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("live")
+def test_plan_writes_json(project: Path, tmp_path: Path) -> None:
     destination = tmp_path / "plan.json"
     result = runner.invoke(
         app,
@@ -322,7 +324,8 @@ def test_plan_needs_a_target_when_there_are_several(project: Path) -> None:
     assert "Pick a target with -t" in result.output
 
 
-def test_plan_refuses_to_run_with_spec_errors(project: Path, live: FakeRunner) -> None:
+@pytest.mark.usefixtures("live")
+def test_plan_refuses_to_run_with_spec_errors(project: Path) -> None:
     (project / "tables" / "orders.yml").write_text(
         "table: ${catalog}.sales.orders\ncluster_by: [nope]\n"
         "columns: [{name: id, type: bigint}]\n"
@@ -334,7 +337,8 @@ def test_plan_refuses_to_run_with_spec_errors(project: Path, live: FakeRunner) -
     assert "Refusing to plan" in result.output
 
 
-def test_plan_as_markdown(project: Path, live: FakeRunner) -> None:
+@pytest.mark.usefixtures("live")
+def test_plan_as_markdown(project: Path) -> None:
     result = runner.invoke(
         app,
         ["plan", "-t", "dev", "--config", str(project / "deltaplan.yml"), "-f", "md"],
@@ -344,8 +348,9 @@ def test_plan_as_markdown(project: Path, live: FakeRunner) -> None:
     assert "```diff" in result.output
 
 
+@pytest.mark.usefixtures("live")
 def test_show_renders_a_saved_plan_without_a_warehouse(
-    project: Path, live: FakeRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     plan_file = tmp_path / "plan.json"
     written = runner.invoke(
@@ -378,9 +383,8 @@ def test_show_renders_a_saved_plan_without_a_warehouse(
     assert "### 🟡 deltaplan plan · `dev`" in as_markdown.output
 
 
-def test_drift_exits_2_when_live_tables_have_moved(
-    project: Path, live: FakeRunner
-) -> None:
+@pytest.mark.usefixtures("live")
+def test_drift_exits_2_when_live_tables_have_moved(project: Path) -> None:
     result = runner.invoke(
         app, ["drift", "-t", "dev", "--config", str(project / "deltaplan.yml")]
     )
@@ -432,7 +436,8 @@ def test_drift_ignores_what_deltaplan_never_claimed(
     assert result.exit_code == 0, result.output
 
 
-def test_drift_as_markdown_has_its_own_marker(project: Path, live: FakeRunner) -> None:
+@pytest.mark.usefixtures("live")
+def test_drift_as_markdown_has_its_own_marker(project: Path) -> None:
     result = runner.invoke(
         app,
         ["drift", "-t", "dev", "--config", str(project / "deltaplan.yml"), "-f", "md"],
@@ -446,9 +451,8 @@ def test_drift_as_markdown_has_its_own_marker(project: Path, live: FakeRunner) -
 # ---------------------------------------------------------------------------
 
 
-def test_import_writes_specs_that_load_back(
-    project: Path, live: FakeRunner, tmp_path: Path
-) -> None:
+@pytest.mark.usefixtures("live")
+def test_import_writes_specs_that_load_back(project: Path, tmp_path: Path) -> None:
     destination = tmp_path / "imported"
     result = runner.invoke(
         app,
@@ -484,14 +488,16 @@ def test_import_writes_specs_that_load_back(
     assert order_id is not None and order_id.nullable is False
 
 
-def test_import_needs_a_qualified_schema(project: Path) -> None:
+@pytest.mark.usefixtures("project")
+def test_import_needs_a_qualified_schema() -> None:
     result = runner.invoke(app, ["import", "sales"])
     assert result.exit_code == 1
     assert "catalog.schema" in result.output
 
 
+@pytest.mark.usefixtures("project")
 def test_import_writes_views_and_reports_what_it_skipped(
-    project: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     fake = fake_runner(
         tables=(
@@ -515,8 +521,9 @@ def test_import_writes_views_and_reports_what_it_skipped(
     assert "skipped main.sales.daily (materialized view)" in result.output
 
 
+@pytest.mark.usefixtures("project")
 def test_import_with_nothing_to_import(
-    project: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake_runner())
     result = runner.invoke(app, ["import", "main.sales", "-o", str(tmp_path / "out")])

@@ -378,7 +378,7 @@ def test_a_using_expression_is_taken_as_written() -> None:
         name=NAME,
         comment=LIVE.comment,
     )
-    fake, plan = plan_against(desired, LIVE)
+    _, plan = plan_against(desired, LIVE)
     assert all(step.sql for step in plan.steps), "nothing should be unrunnable"
     assert "CAST(address.street AS STRING) AS `address`" in (plan.steps[0].sql or "")
     converge(desired, LIVE)

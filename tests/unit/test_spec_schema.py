@@ -44,7 +44,7 @@ def test_every_example_validates(path: Path) -> None:
     assert errors(validator, document) == []
 
 
-def test_everything_import_writes_validates(tmp_path: Path) -> None:
+def test_everything_import_writes_validates() -> None:
     from dataclasses import replace
 
     from deltaplan.model.table import RowFilter
@@ -129,7 +129,7 @@ def test_what_the_loader_refuses_the_schema_refuses(
 ) -> None:
     from deltaplan.loader import SpecError
 
-    assert errors(SPEC, spec), f"the schema accepted {spec}"
+    assert errors(SPEC, spec), f"the schema accepted {spec}, despite its {problem}"
     path = tmp_path / "s.yml"
     path.write_text(yaml.safe_dump(spec))
     with pytest.raises(SpecError):

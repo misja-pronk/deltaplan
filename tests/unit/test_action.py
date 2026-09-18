@@ -160,9 +160,7 @@ def test_every_run_step_names_its_shell(action: dict[str, Any]) -> None:
             assert step.get("shell") == "bash"
 
 
-def test_the_comment_script_is_where_the_action_looks_for_it(
-    action: dict[str, Any],
-) -> None:
+def test_the_comment_script_is_where_the_action_looks_for_it() -> None:
     text = (ROOT / "action.yml").read_text()
     assert '"$ACTION_PATH/action/upsert_comment.py"' in text
     assert (ROOT / "action" / "upsert_comment.py").is_file()

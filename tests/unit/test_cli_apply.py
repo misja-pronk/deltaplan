@@ -134,8 +134,9 @@ def test_a_plan_that_already_ran_is_refused_as_stale(
     assert len(warehouse.ddl) == ddl, "nothing may run a second time"
 
 
+@pytest.mark.usefixtures("warehouse")
 def test_replanning_after_an_apply_finds_nothing_to_do(
-    project: Path, warehouse: FakeWarehouse, tmp_path: Path
+    project: Path, tmp_path: Path
 ) -> None:
     plan_file = tmp_path / "plan.json"
     write_plan(project, plan_file)
