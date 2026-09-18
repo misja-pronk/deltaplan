@@ -20,6 +20,7 @@ ChangeKind: TypeAlias = Literal[
     "set_cluster_by",
     "set_property",
     "set_tag",
+    "set_column_tag",
     "add_column",
     "drop_column",
     "rename_column",
@@ -30,6 +31,10 @@ ChangeKind: TypeAlias = Literal[
     "add_constraint",
     "drop_constraint",
 ]
+
+#: Kinds whose `path` names something other than a column — a property key, a
+#: tag key, a principal.
+TABLE_LEVEL_KINDS: frozenset[str] = frozenset({"set_property", "set_tag"})
 
 #: Whatever a change is about. Every member is hashable, so changes are too.
 ChangeValue: TypeAlias = (
@@ -60,7 +65,7 @@ class Change:
     @property
     def column(self) -> str:
         """The top-level column this change belongs to, or "" for table-level."""
-        if self.kind in {"set_property", "set_tag"}:
+        if self.kind in TABLE_LEVEL_KINDS:
             return ""
         return self.path.split(".")[0] if self.path else ""
 

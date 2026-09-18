@@ -144,6 +144,18 @@ class FakeWarehouse:
                 for table in tables
                 for position, column in enumerate(table.columns, start=1)
             )
+        if "information_schema.column_tags" in flat:
+            return tuple(
+                {
+                    "table_name": table.short_name,
+                    "column_name": column.name,
+                    "tag_name": key,
+                    "tag_value": value,
+                }
+                for table in tables
+                for column in table.columns
+                for key, value in column.tags
+            )
         if "information_schema.table_tags" in flat:
             return tuple(
                 {"table_name": table.short_name, "tag_name": key, "tag_value": value}
@@ -298,6 +310,17 @@ def _apply_alter(table: Table, clause: str) -> Table:
     if match := re.fullmatch(r"RENAME COLUMN (\S+) TO (\S+)", clause):
         path, new_name = _unquote(match.group(1)), _unquote(match.group(2))
         return _edit_container(table, path, _rename(_leaf(path), new_name))
+    if match := re.fullmatch(r"ALTER COLUMN (\S+) SET TAGS \((.*)\)", clause):
+        path = _unquote(match.group(1))
+        added = _pairs(match.group(2))
+        return _edit_container(
+            table,
+            path,
+            _amend(
+                _leaf(path),
+                lambda f: replace(f, tags=tuple((dict(f.tags) | added).items())),
+            ),
+        )
     if match := re.fullmatch(r"ALTER COLUMN (\S+) TYPE (.+)", clause):
         return _set_type(table, _unquote(match.group(1)), parse_type(match.group(2)))
     if match := re.fullmatch(r"ALTER COLUMN (\S+) (SET|DROP) NOT NULL", clause):

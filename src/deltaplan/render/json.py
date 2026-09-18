@@ -138,6 +138,8 @@ def _field_to_dict(field: Field) -> dict[str, Any]:
         rendered["renamed_from"] = field.renamed_from
     if field.using is not None:
         rendered["using"] = field.using
+    if field.tags:
+        rendered["tags"] = dict(field.tags)
     return rendered
 
 
@@ -255,7 +257,7 @@ def _value_from(kind: str, raw: Any) -> Any:
             return parse_type(str(raw))
         case "add_constraint" | "drop_constraint":
             return _constraint_from_dict(raw)
-        case "set_cluster_by" | "reorder_columns":
+        case "set_cluster_by" | "reorder_columns" | "set_column_tag":
             return tuple(str(item) for item in raw)
         case _:
             return raw
@@ -269,6 +271,7 @@ def _field_from_dict(entry: dict[str, Any]) -> Field:
         comment=entry.get("comment"),
         renamed_from=entry.get("renamed_from"),
         using=entry.get("using"),
+        tags=tuple(sorted(entry.get("tags", {}).items())),
     )
 
 

@@ -11,6 +11,8 @@
             name='id',
             nullable=False,
             renamed_from=None,
+            tags=tuple(
+            ),
             type=Primitive(
               name='bigint',
             ),
@@ -41,6 +43,8 @@
         name='sku',
         nullable=False,
         renamed_from=None,
+        tags=tuple(
+        ),
         type=Primitive(
           name='string',
         ),
@@ -103,6 +107,8 @@
         name='zip',
         nullable=True,
         renamed_from=None,
+        tags=tuple(
+        ),
         type=Primitive(
           name='string',
         ),
@@ -119,6 +125,8 @@
         name='country',
         nullable=True,
         renamed_from=None,
+        tags=tuple(
+        ),
         type=Primitive(
           name='string',
         ),
@@ -136,6 +144,8 @@
         name='old_zip',
         nullable=True,
         renamed_from=None,
+        tags=tuple(
+        ),
         type=Primitive(
           name='string',
         ),
@@ -152,6 +162,8 @@
         name='gone',
         nullable=True,
         renamed_from=None,
+        tags=tuple(
+        ),
         type=Primitive(
           name='int',
         ),

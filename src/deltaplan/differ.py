@@ -95,6 +95,12 @@ def unmanaged(desired: Table, actual: Table) -> tuple[str, ...]:
     for key in sorted(actual.tags_map()):
         if key not in desired_tags:
             found.append(f"tag {key}")
+    for live_column in actual.columns:
+        column = desired.column(live_column.name)
+        declared = dict(column.tags) if column else {}
+        for key, _ in live_column.tags:
+            if key not in declared:
+                found.append(f"tag {key} on column {live_column.name}")
     if desired.primary_key() is None and actual.primary_key() is not None:
         found.append("primary key")
     desired_checks = {check.name for check in desired.checks()}
@@ -209,6 +215,7 @@ def _diff_columns(
                 )
             )
         changes.extend(_diff_field(desired.name, column.name, column, live))
+        changes.extend(_diff_column_tags(desired.name, column, live))
 
     for live in actual.columns:
         if live.name in consumed:
@@ -229,6 +236,22 @@ def _diff_columns(
                 )
             )
     return changes
+
+
+def _diff_column_tags(table: str, desired: Field, actual: Field) -> list[Change]:
+    """Column tags, additively: set what the spec names, leave the rest."""
+    live = dict(actual.tags)
+    return [
+        Change(
+            table,
+            "set_column_tag",
+            desired.name,
+            before=(key, live[key]) if key in live else None,
+            after=(key, value),
+        )
+        for key, value in desired.tags
+        if live.get(key) != value
+    ]
 
 
 def _diff_field(table: str, path: str, desired: Field, actual: Field) -> list[Change]:
@@ -391,6 +414,10 @@ def is_applied(change: Change, live: Table | None) -> bool:
             return live.properties_map().get(change.path) == change.after
         case "set_tag":
             return live.tags_map().get(change.path) == change.after
+        case "set_column_tag":
+            column = live.column(change.path)
+            wanted = change.after if isinstance(change.after, tuple) else ()
+            return column is not None and tuple(wanted) in column.tags
         case "add_column":
             return type_at(live, change.path) is not None
         case "drop_column":

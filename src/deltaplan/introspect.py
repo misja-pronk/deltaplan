@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
 from deltaplan.model.table import Check, Constraint, PrimaryKey, Table
@@ -88,6 +88,15 @@ class Introspector:
         """Every Delta table in one schema, as the model."""
         comments, formats = self._table_rows(catalog, schema)
         columns = self._column_rows(catalog, schema)
+        column_tags = self._column_tag_rows(catalog, schema)
+        for table_name, table_columns in columns.items():
+            columns[table_name] = [
+                replace(
+                    c,
+                    tags=tuple(sorted(column_tags.get((table_name, c.name), {}).items())),
+                )
+                for c in table_columns
+            ]
         tags = self._tag_rows(catalog, schema)
         constraints = self._constraint_rows(catalog, schema)
 
@@ -201,6 +210,28 @@ class Introspector:
             if table_name is None or tag is None:
                 continue
             tags.setdefault(table_name, {})[tag] = row.get("tag_value") or ""
+        return tags
+
+    def _column_tag_rows(
+        self, catalog: str, schema: str
+    ) -> dict[tuple[str, str], dict[str, str]]:
+        # TODO(verify): column_tags column names against a live workspace.
+        # https://docs.databricks.com/aws/en/sql/language-manual/information-schema/column_tags
+        rows = self.runner.query(
+            "SELECT table_name, column_name, tag_name, tag_value "
+            f"FROM {_information_schema(catalog)}.column_tags "
+            f"WHERE schema_name = {quote_literal(schema)}"
+        )
+        tags: dict[tuple[str, str], dict[str, str]] = {}
+        for row in rows:
+            table_name, column, tag = (
+                row.get("table_name"),
+                row.get("column_name"),
+                row.get("tag_name"),
+            )
+            if table_name is None or column is None or tag is None:
+                continue
+            tags.setdefault((table_name, column), {})[tag] = row.get("tag_value") or ""
         return tags
 
     def _constraint_rows(self, catalog: str, schema: str) -> dict[str, list[Constraint]]:

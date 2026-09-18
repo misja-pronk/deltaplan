@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Column tags** (`tags:` on a column), additive like table tags. A rewrite
+  puts back the table and column tags the spec doesn't declare, so rebuilding a
+  table never diffs away what deltaplan doesn't manage.
+
+## [0.5.0 — milestone 4]
+
+### Added
+
 - **Milestone 4 (CI) is complete.**
 - `--format md`: the plan as a pull-request comment — summary, GitHub alerts for
   anything destructive, expensive or impossible, a `diff` block per table so

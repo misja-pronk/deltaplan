@@ -83,6 +83,9 @@ def describe(change: Change) -> tuple[str, str]:
             return "~", (f"property {change.path} = {change.after!r}")
         case "set_tag":
             return "~", (f"tag {change.path} = {change.after!r}")
+        case "set_column_tag":
+            key, value = change.after if isinstance(change.after, tuple) else ("", "")
+            return "~", (f"{leaf}  tag {key} = {value!r}")
         case "reorder_columns":
             order = change.after if isinstance(change.after, tuple) else ()
             return "~", (f"column order [{', '.join(order)}]")

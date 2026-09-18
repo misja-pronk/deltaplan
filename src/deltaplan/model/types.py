@@ -146,6 +146,13 @@ class Field:
     #: A SQL expression over the *live* table, used only when this table has to
     #: be rewritten and deltaplan can't work out the conversion itself.
     using: str | None = field(default=None, compare=False)
+    #: Unity Catalog tags on a column. Top-level columns only; stored sorted, as
+    #: the unordered map they are.
+    tags: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.tags:
+            object.__setattr__(self, "tags", tuple(sorted(self.tags)))
 
 
 #: A column is a top-level field.

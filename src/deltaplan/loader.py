@@ -291,7 +291,7 @@ def _string_list(ctx: _Ctx, node: Node, what: str) -> tuple[str, ...]:
 # types
 # ---------------------------------------------------------------------------
 
-FIELD_KEYS = {"name", "type", "nullable", "comment", "renamed_from", "using"}
+FIELD_KEYS = {"name", "type", "nullable", "comment", "renamed_from", "using", "tags"}
 
 
 def _read_type(ctx: _Ctx, node: Node, what: str) -> DataType:
@@ -365,6 +365,9 @@ def _read_field(ctx: _Ctx, node: Node) -> Field:
     using = None
     if "using" in items:
         using = _string(ctx, items["using"][0], f"using of {name!r}")
+    tags: tuple[tuple[str, str], ...] = ()
+    if "tags" in items:
+        tags = _string_map(ctx, items["tags"][0], f"tags of {name!r}")
     return Field(
         name,
         field_type,
@@ -372,6 +375,7 @@ def _read_field(ctx: _Ctx, node: Node) -> Field:
         comment=comment,
         renamed_from=renamed_from,
         using=using,
+        tags=tags,
     )
 
 
@@ -663,6 +667,9 @@ def _lint_field(
     error: Callable[[str], None],
     warn: Callable[[str], None],
 ) -> None:
+    if field.tags and "." in path:
+        error(f"{path}: tags go on columns, not on fields inside them")
+
     if field.using is not None and "." in path:
         error(
             f"{path}: `using` applies to whole columns only — put the expression on "
@@ -745,6 +752,8 @@ def _column_document(column: Field) -> dict[str, object]:
         rendered["nullable"] = False
     if column.comment is not None:
         rendered["comment"] = column.comment
+    if column.tags:
+        rendered["tags"] = dict(column.tags)
     return rendered
 
 

@@ -311,10 +311,25 @@ class _Planner:
         # rest of the shape is put back with ordinary ALTERs — worked out by the
         # differ rather than by a second hand-rolled list.
         finishing = compute_changes(desired, ctas_result(desired))
+        # TODO(verify): whether REPLACE keeps column and table tags. Assuming it
+        # doesn't, the tags the spec *doesn't* declare are put back as they were —
+        # a rewrite must not diff away what deltaplan doesn't manage.
+        carried = _unmanaged_tags(desired, live)
         unreachable = [change for change in finishing if needs_rewrite(change)]
         for change in finishing:
             if change not in unreachable:
                 self.plan_change(change, facts)
+        for column, tags in carried:
+            if column:
+                self._emit_column_tags(table_diff.table, column, tags)
+            else:
+                self.emit(
+                    table_diff.table,
+                    "SET TAGS",
+                    "meta",
+                    sql=set_tags_sql(table_diff.table, tags),
+                    note="put back after the rewrite, as the table had them",
+                )
         if unreachable:
             # A rewrite builds the new table out of a query, and a query result
             # has no required fields inside a struct. There is no ALTER for it
@@ -353,6 +368,8 @@ class _Planner:
                 self._property(change)
             case "set_tag":
                 self._tag(change)
+            case "set_column_tag":
+                self._column_tag(change)
             case "add_column":
                 self._add_column(change, facts)
             case "drop_column":
@@ -431,6 +448,9 @@ class _Planner:
                 "meta",
                 sql=set_tags_sql(table.name, table.tags),
             )
+        for column in table.columns:
+            if column.tags:
+                self._emit_column_tags(table.name, column.name, column.tags)
 
     def _table_comment(self, change: Change) -> None:
         comment = change.after
@@ -478,6 +498,21 @@ class _Planner:
             sql=set_tags_sql(change.table, ((change.path, value),)),
         )
 
+    def _column_tag(self, change: Change) -> None:
+        key, value = change.after if isinstance(change.after, tuple) else ("", "")
+        self._emit_column_tags(change.table, change.path, ((key, value),))
+
+    def _emit_column_tags(
+        self, table: str, column: str, tags: tuple[tuple[str, str], ...]
+    ) -> None:
+        self.emit(
+            table,
+            "SET COLUMN TAGS",
+            "meta",
+            path=column,
+            sql=column_tags_sql(table, column, tags),
+        )
+
     # -- columns -----------------------------------------------------------
     def _add_column(self, change: Change, facts: TableFacts) -> None:
         column = change.after
@@ -502,6 +537,8 @@ class _Planner:
                 facts,
                 warnings=(NEW_NOT_NULL_WARNING,),
             )
+        if column.tags and not change.nested:
+            self._emit_column_tags(change.table, change.path, column.tags)
 
     def _drop_column(self, change: Change, facts: TableFacts) -> None:
         self.need_column_mapping(facts, change.path)
@@ -725,6 +762,17 @@ def set_tags_sql(table: str, tags: tuple[tuple[str, str], ...]) -> str:
         f"{quote_literal(key)} = {quote_literal(value)}" for key, value in tags
     )
     return f"ALTER TABLE {quote_qualified(table)} SET TAGS ({pairs})"
+
+
+def column_tags_sql(table: str, column: str, tags: tuple[tuple[str, str], ...]) -> str:
+    """TODO(verify): column tag syntax against a live workspace.
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-alter-table-manage-column
+    """
+    pairs = ", ".join(f"{quote_literal(k)} = {quote_literal(v)}" for k, v in tags)
+    return (
+        f"ALTER TABLE {quote_qualified(table)} "
+        f"ALTER COLUMN {quote_ident(column)} SET TAGS ({pairs})"
+    )
 
 
 def create_table_sql(table: Table) -> str:
@@ -989,6 +1037,28 @@ def replace_table_sql(
     clauses.append(f"TBLPROPERTIES (\n{rendered}\n)")
     clauses.append(f"AS SELECT * FROM {quote_qualified(source)}")
     return "\n".join(clauses)
+
+
+def _unmanaged_tags(
+    desired: Table, live: Table
+) -> list[tuple[str, tuple[tuple[str, str], ...]]]:
+    """Live tags the spec doesn't declare, as (column or "", tags) pairs."""
+    carried: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+    declared_table = desired.tags_map()
+    table_tags = tuple((k, v) for k, v in live.tags if k not in declared_table)
+    if table_tags:
+        carried.append(("", table_tags))
+    for live_column in live.columns:
+        column = desired.column(live_column.name) or next(
+            (c for c in desired.columns if c.renamed_from == live_column.name), None
+        )
+        if column is None:
+            continue  # the column is going; its tags go with it
+        declared = dict(column.tags)
+        extra = tuple((k, v) for k, v in live_column.tags if k not in declared)
+        if extra:
+            carried.append((column.name, extra))
+    return carried
 
 
 def ctas_result(desired: Table) -> Table:

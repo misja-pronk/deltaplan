@@ -138,6 +138,19 @@ have it). Once the old name is gone and the new one exists, the hint is inert;
     Enabling `columnMapping` on a table breaks existing streaming readers. The plan
     labels that step `[feature]` and warns before you apply it.
 
+## Column tags
+
+```yaml
+- name: email
+  type: string
+  tags: {pii: email, owner: crm}
+```
+
+Tags go on columns, not on fields inside them. Like table tags they are additive: the
+tags in the spec are set, and tags someone else put on the column are listed as
+unmanaged and left alone — including across a rewrite, which puts them back after
+rebuilding the table.
+
 ## Rewrites and `using`
 
 Some changes can't be made in place: a column whose type can't be widened, a struct that
