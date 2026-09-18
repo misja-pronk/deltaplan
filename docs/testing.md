@@ -74,6 +74,36 @@ Every Databricks behaviour deltaplan relies on should have a test here and a lin
 documentation in its docstring. Where a behaviour is assumed but unverified, the code
 says `TODO(verify)` rather than pretending.
 
+### Running the live suite
+
+Nothing in deltaplan has been verified against a real workspace until this has run. Every
+`TODO(verify)` in the source names an assumption one of these tests settles.
+
+You need:
+
+- a **catalog you can write to** — every test creates a schema called
+  `deltaplan_it_<random>` in it and drops it, with everything inside, when it finishes;
+- a **SQL warehouse** — the tests run a few dozen small statements; a 2X-Small
+  serverless warehouse is plenty;
+- a principal allowed to `CREATE SCHEMA` in that catalog and `CREATE FUNCTION` in its
+  schemas (the mask test creates a masking function);
+- optionally a principal to grant to — `account users` by default.
+
+```sh
+databricks auth login --host https://<workspace> --profile deltaplan-test
+
+DATABRICKS_CONFIG_PROFILE=deltaplan-test \
+DATABRICKS_WAREHOUSE_ID=<warehouse id> \
+DELTAPLAN_TEST_CATALOG=<scratch catalog> \
+DELTAPLAN_TEST_PRINCIPAL="account users" \
+  uv run pytest -m integration -v
+```
+
+A failure here is the point of the suite: an assumption about Databricks was wrong. Fix
+the code, keep the test, and remove the `TODO(verify)` it settled — and if the fake
+warehouse agreed with the wrong assumption, fix the fake too, so the offline suite stops
+agreeing with it.
+
 ## Where a new test goes
 
 | You changed | Test it in |

@@ -57,6 +57,17 @@ out = Console()
 err = Console(stderr=True, soft_wrap=True)
 
 
+#: Which workspace to talk to. Shared by every command that talks to one.
+ProfileOption = Annotated[
+    str | None,
+    typer.Option(
+        "--profile",
+        "-p",
+        help="~/.databrickscfg profile to connect with (default: the target's).",
+    ),
+]
+
+
 class Format(StrEnum):
     """How to render a plan."""
 
@@ -169,6 +180,7 @@ def import_schema(
     warehouse_id: Annotated[
         str | None, typer.Option("--warehouse-id", help="SQL warehouse to read through.")
     ] = None,
+    profile: ProfileOption = None,
 ) -> None:
     """Write specs for tables that already exist."""
     parts = schema.split(".")
@@ -178,7 +190,7 @@ def import_schema(
 
     project = _optional_project(config)
     chosen = _target(project, target) if project else None
-    live = _introspect(_warehouse(warehouse_id, chosen), parts[0], parts[1])
+    live = _introspect(_warehouse(warehouse_id, chosen, profile), parts[0], parts[1])
 
     directory = output or (project.spec_paths[0] if project else Path("tables"))
     directory.mkdir(parents=True, exist_ok=True)
@@ -242,9 +254,17 @@ def plan(
     warehouse_id: Annotated[
         str | None, typer.Option("--warehouse-id", help="SQL warehouse to read through.")
     ] = None,
+    profile: ProfileOption = None,
 ) -> None:
     """Diff your specs against live Unity Catalog and show what would change."""
-    built = _plan_for(config, target, warehouse_id, check_order=check_order, clone=clone)
+    built = _plan_for(
+        config,
+        target,
+        warehouse_id,
+        profile=profile,
+        check_order=check_order,
+        clone=clone,
+    )
     _output(built, output_format, output, heading="plan")
 
 
@@ -285,6 +305,7 @@ def drift(
     warehouse_id: Annotated[
         str | None, typer.Option("--warehouse-id", help="SQL warehouse to read through.")
     ] = None,
+    profile: ProfileOption = None,
 ) -> None:
     """Check live tables against their specs. Exits 2 if they have drifted.
 
@@ -292,7 +313,7 @@ def drift(
     outside deltaplan, a spec merged but never applied. Unmanaged objects are
     not drift — deltaplan never claimed them.
     """
-    built = _plan_for(config, target, warehouse_id)
+    built = _plan_for(config, target, warehouse_id, profile=profile)
     _output(built, output_format, output, heading="drift")
     if built.empty:
         raise typer.Exit(IN_SYNC)
@@ -309,6 +330,7 @@ def _plan_for(
     target: str | None,
     warehouse_id: str | None,
     *,
+    profile: str | None = None,
     check_order: bool = False,
     clone: bool = False,
 ) -> Plan:
@@ -316,7 +338,7 @@ def _plan_for(
     chosen = _target(project, target)
     specs = _load(project, chosen)
     _abort_on_lint_errors(specs)
-    runner = _warehouse(warehouse_id, chosen)
+    runner = _warehouse(warehouse_id, chosen, profile)
     return _plan(project, chosen, specs, runner, check_order=check_order, clone=clone)
 
 
@@ -386,12 +408,13 @@ def apply(
     warehouse_id: Annotated[
         str | None, typer.Option("--warehouse-id", help="SQL warehouse to run on.")
     ] = None,
+    profile: ProfileOption = None,
 ) -> None:
     """Run a plan. Resumes an interrupted one instead of starting over."""
     built = _read_plan(plan_file)
     project = _project(config)
     target = _target(project, built.target)
-    runner = _warehouse(warehouse_id, target)
+    runner = _warehouse(warehouse_id, target, profile)
     history = _history(project, target, runner)
 
     out.print(
@@ -462,11 +485,12 @@ def force_unlock(
     warehouse_id: Annotated[
         str | None, typer.Option("--warehouse-id", help="SQL warehouse to run on.")
     ] = None,
+    profile: ProfileOption = None,
 ) -> None:
     """Release the apply lock after a run died holding it."""
     project = _project(config)
     chosen = _target(project, target)
-    runner = _warehouse(warehouse_id, chosen)
+    runner = _warehouse(warehouse_id, chosen, profile)
     try:
         holder = _history(project, chosen, runner).force_unlock(chosen.name)
     except IntrospectionError as error:
@@ -570,7 +594,9 @@ def _abort_on_lint_errors(specs: tuple[LoadedSpec, ...]) -> None:
         raise typer.Exit(1)
 
 
-def _warehouse(warehouse_id: str | None, target: Target | None) -> WarehouseRunner:
+def _warehouse(
+    warehouse_id: str | None, target: Target | None, profile: str | None = None
+) -> WarehouseRunner:
     chosen = (
         warehouse_id
         or (target.warehouse_id if target else None)
@@ -584,7 +610,18 @@ def _warehouse(warehouse_id: str | None, target: Target | None) -> WarehouseRunn
         raise typer.Exit(1)
     from databricks.sdk import WorkspaceClient
 
-    return WarehouseRunner(WorkspaceClient(), chosen)
+    use = profile or (target.profile if target else None)
+    try:
+        client = WorkspaceClient(profile=use) if use else WorkspaceClient()
+    except Exception as error:  # the SDK raises ValueError for most config problems
+        where = f"profile {use!r}" if use else "the environment or the DEFAULT profile"
+        err.print(
+            f"[red]Can't connect to a Databricks workspace using {where}: {error}[/]\n"
+            "Set `profile:` on the target, pass --profile, or export DATABRICKS_HOST "
+            "and a token."
+        )
+        raise typer.Exit(1) from error
+    return WarehouseRunner(client, chosen)
 
 
 def _introspect(runner: WarehouseRunner, catalog: str, schema: str) -> LiveSchema:

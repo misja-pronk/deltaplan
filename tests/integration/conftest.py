@@ -4,8 +4,10 @@ Every test here runs against a real workspace in a schema created for the run an
 dropped afterwards. Without credentials the whole suite skips, so a fork, a
 laptop and CI all stay green.
 
-Set DATABRICKS_HOST plus a token (or any other unified-auth source),
-DATABRICKS_WAREHOUSE_ID, and optionally DELTAPLAN_TEST_CATALOG.
+Credentials come from the Databricks SDK's unified auth — DATABRICKS_HOST and a
+token, a `~/.databrickscfg` profile named by DATABRICKS_CONFIG_PROFILE, OAuth.
+Also set DATABRICKS_WAREHOUSE_ID, and optionally DELTAPLAN_TEST_CATALOG (default
+`main`): every test creates and drops its own schema there.
 """
 
 from __future__ import annotations
@@ -35,11 +37,15 @@ def catalog() -> str:
 
 @pytest.fixture(scope="session")
 def runner(warehouse_id: str) -> WarehouseRunner:
-    if not os.environ.get("DATABRICKS_HOST"):
-        pytest.skip("DATABRICKS_HOST is not set")
     from databricks.sdk import WorkspaceClient
 
-    return WarehouseRunner(WorkspaceClient(), warehouse_id)
+    # Not a check for DATABRICKS_HOST: a profile is just as good, and requiring
+    # the variable would skip the whole suite for anyone who uses one.
+    try:
+        client = WorkspaceClient()
+    except Exception as error:  # the SDK raises ValueError when nothing is configured
+        pytest.skip(f"no Databricks workspace configured: {error}")
+    return WarehouseRunner(client, warehouse_id)
 
 
 @pytest.fixture

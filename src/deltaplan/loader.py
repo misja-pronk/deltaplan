@@ -87,12 +87,18 @@ class Diagnostic:
 
 @dataclass(frozen=True, slots=True)
 class Target:
-    """A named deployment: the variables a spec is rendered with."""
+    """A named deployment: which workspace, and what the specs are rendered with.
+
+    `profile` names a `~/.databrickscfg` profile, because dev and prod are
+    usually different workspaces; without one, the Databricks SDK's own defaults
+    apply (environment variables, then the DEFAULT profile).
+    """
 
     name: str
     variables: tuple[tuple[str, str], ...] = ()
     warehouse_id: str | None = None
     mode: Mode = "additive"
+    profile: str | None = None
 
     def variables_map(self) -> dict[str, str]:
         return dict(self.variables)
@@ -623,7 +629,7 @@ def _read_grants(ctx: _Ctx, node: Node) -> tuple[Grant, ...]:
 # ---------------------------------------------------------------------------
 
 CONFIG_KEYS = {"version", "specs", "targets", "history_schema", "schemas"}
-TARGET_KEYS = {"vars", "warehouse_id", "mode"}
+TARGET_KEYS = {"vars", "warehouse_id", "mode", "profile"}
 
 
 def find_project_file(start: Path) -> Path:
@@ -707,7 +713,10 @@ def _read_target(ctx: _Ctx, name: str, node: Node) -> Target:
     mode: Mode = "additive"
     if "mode" in items:
         mode = _read_mode(ctx, items["mode"][0])
-    return Target(name, variables, warehouse_id, mode)
+    profile = None
+    if "profile" in items:
+        profile = _string(ctx, items["profile"][0], "profile")
+    return Target(name, variables, warehouse_id, mode, profile)
 
 
 def spec_files(project: Project) -> tuple[Path, ...]:

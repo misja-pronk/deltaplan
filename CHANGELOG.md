@@ -6,7 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A target can name its workspace**: `profile:` on a target picks a
+  `~/.databrickscfg` profile, and `--profile` overrides it on every command that
+  connects — dev and prod are usually different workspaces.
+- A runbook for the live test suite in the testing guide.
+
 ### Fixed
+
+- The live suite skipped entirely unless `DATABRICKS_HOST` was set, so anyone
+  authenticating with a profile would never have run it. It now accepts any
+  source the Databricks SDK does, and says why when it skips.
+- Failing to connect to a workspace is a message naming the profile, not a
+  traceback.
 
 - **A differently-cased name could drop a live table.** A spec naming
   `main.sales.Orders` against the live `orders`, in a strict schema, planned a

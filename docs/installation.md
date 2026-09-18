@@ -41,8 +41,33 @@ uv run deltaplan version
 ## Connecting to a workspace
 
 deltaplan delegates authentication to the Databricks SDK's unified auth, so anything
-that works for the Databricks CLI works here — a `~/.databrickscfg` profile, OAuth, or
-environment variables:
+that works for the Databricks CLI works here.
+
+**Per target, with profiles** — the usual setup, since dev and prod tend to be
+different workspaces. Log in once per workspace with the Databricks CLI, then name the
+profile and a SQL warehouse on each target:
+
+```sh
+databricks auth login --host https://adb-1111.1.azuredatabricks.net --profile dev
+databricks auth login --host https://adb-2222.2.azuredatabricks.net --profile prod
+```
+
+```yaml
+targets:
+  dev:
+    vars: {catalog: dev}
+    profile: dev
+    warehouse_id: abc123def456
+  prod:
+    vars: {catalog: prod}
+    profile: prod
+    warehouse_id: 789ghi012jkl
+```
+
+`--profile` on any command overrides the target's.
+
+**From the environment** — what CI does. With no profile set anywhere, the SDK's
+defaults apply:
 
 ```sh
 export DATABRICKS_HOST="https://adb-1234567890.1.azuredatabricks.net"
@@ -50,8 +75,9 @@ export DATABRICKS_TOKEN="dapi..."
 export DATABRICKS_WAREHOUSE_ID="abc123def456"
 ```
 
-Statements run on a SQL warehouse via the Statement Execution API, so a warehouse id is
-required for everything except `validate`.
+Statements run on a SQL warehouse via the Statement Execution API, so a warehouse id —
+from the target, `--warehouse-id`, or `DATABRICKS_WAREHOUSE_ID` — is required for
+everything except `validate` and `show`.
 
 !!! tip "`validate` needs nothing"
     `deltaplan validate` is a pure spec lint — no credentials, no network. It is the

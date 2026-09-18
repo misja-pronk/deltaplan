@@ -41,6 +41,7 @@ targets:
   dev:
     vars:
       catalog: dev
+    profile: dev                       # optional ~/.databrickscfg profile
     warehouse_id: abc123def456         # optional; falls back to $DATABRICKS_WAREHOUSE_ID
   prod:
     vars:
