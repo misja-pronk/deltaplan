@@ -63,6 +63,45 @@ can, so one project file serves every catalog. What the modes mean is in the
 There is a runnable example of exactly this layout in
 [`examples/`](https://github.com/misja-pronk/deltaplan/tree/main/examples).
 
+Without `-t`, a command uses the only target, or the one marked `default: true`.
+
+### Next to an Asset Bundle
+
+A project that already has a [Databricks Asset Bundle](https://docs.databricks.com/aws/en/dev-tools/bundles/)
+doesn't need to list its targets twice. Name the bundle, and its targets become
+deltaplan's:
+
+```yaml
+specs: [tables]
+bundle: databricks.yml                 # relative to this file
+
+targets:                               # optional: only what a bundle has no word for
+  prod:
+    mode: strict
+    warehouse_id: abc123def456
+```
+
+From the bundle deltaplan takes each target's name, the `default: true` one, its
+`workspace` (`profile`, or `host`), and the bundle's variables as that target resolves
+them: defaults, the target's overrides, `BUNDLE_VAR_<name>` from the environment, and
+references to `${var.…}`, `${bundle.target}` and `${bundle.name}`. Files listed under
+`include:` are read too.
+
+- **Specs can spell a variable either way**: `${catalog}` or the bundle's
+  `${var.catalog}`.
+- **deltaplan.yml has the last word.** Its targets add `mode` and `warehouse_id`, and
+  their `vars` and `profile` override the bundle's. A target there that the bundle
+  doesn't have is an error — it's almost certainly a typo.
+- **The warehouse** is the target's `warehouse_id`, else the bundle's `warehouse_id`
+  variable. If that variable is a lookup (`lookup: {warehouse: "Starter Warehouse"}`,
+  as the `default-sql` template writes it), deltaplan finds the warehouse by name once
+  connected.
+- **Some variables need a workspace**: other lookups, complex variables, and anything
+  using `${workspace.current_user.short_name}`. deltaplan doesn't guess them. A spec
+  that uses one fails and says why; give the value under the target's `vars` instead.
+- A bundle's own `mode: development | production` is about jobs and pipelines and has
+  nothing to do with deltaplan's `additive | strict`, so it's ignored.
+
 ## Variables
 
 `${catalog}` and friends come from the target's `vars`, so one spec serves dev, staging

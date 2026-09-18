@@ -1,14 +1,14 @@
 """The `deltaplan` command line.
 
-Milestone 1 is read-only: `validate` lints specs offline, `import` writes specs
-for tables that already exist, and `plan` diffs specs against live Unity Catalog.
-Nothing here writes to a workspace — `apply` arrives with milestone 2.
+`validate` lints specs offline; `import` writes specs for what already exists;
+`plan`, `show` and `drift` read; `apply` and `force-unlock` are the only commands
+that write to a workspace.
 """
 
 import os
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from rich.console import Console
@@ -43,6 +43,9 @@ from deltaplan.render.json import dumps as plan_json
 from deltaplan.render.json import loads as plan_loads
 from deltaplan.render.markdown import render_markdown
 from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, plan_text, render_plan
+
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
 
 app = typer.Typer(
     name="deltaplan",
@@ -119,16 +122,17 @@ def validate(
     ] = None,
 ) -> None:
     """Lint specs. No workspace, no network — safe in a pre-commit hook."""
-    variables: dict[str, str] = {}
+    chosen: Target | None = None
     if paths:
         files = tuple(paths)
         if target:
-            variables = _project(config).target(target).variables_map()
+            chosen = _target(_project(config), target)
     else:
         project = _project(config)
         chosen = _target(project, target)
-        variables = chosen.variables_map()
         files = spec_files(project)
+    variables = chosen.variables_map() if chosen else {}
+    unresolved = chosen.unresolved_map() if chosen else {}
 
     if not files:
         err.print("[yellow]No specs found.[/]")
@@ -137,7 +141,7 @@ def validate(
     problems = 0
     for path in files:
         try:
-            table = load_spec(path, variables)
+            table = load_spec(path, variables, unresolved)
         except SpecError as error:
             err.print(f"[red]{error}[/]")
             problems += 1
@@ -559,7 +563,7 @@ def _optional_project(config: Path | None) -> Project | None:
     except FileNotFoundError:
         return None
     try:
-        return load_project(path)
+        return load_project(path, os.environ)
     except SpecError as error:
         err.print(f"[red]{error}[/]")
         raise typer.Exit(1) from error
@@ -567,8 +571,8 @@ def _optional_project(config: Path | None) -> Project | None:
 
 def _target(project: Project, name: str | None) -> Target:
     if name is None:
-        if len(project.targets) == 1:
-            return project.targets[0]
+        if project.default_target is not None:
+            return project.target(project.default_target)
         known = ", ".join(t.name for t in project.targets) or "none defined"
         err.print(f"[red]Pick a target with -t (known: {known}).[/]")
         raise typer.Exit(1)
@@ -610,26 +614,66 @@ def _warehouse(
         or (target.warehouse_id if target else None)
         or os.environ.get("DATABRICKS_WAREHOUSE_ID")
     )
-    if not chosen:
+    lookup = target.warehouse_lookup if target else None
+    if not chosen and not lookup:
         err.print(
             "[red]No SQL warehouse. Pass --warehouse-id, set warehouse_id on the "
             "target, or export DATABRICKS_WAREHOUSE_ID.[/]"
         )
         raise typer.Exit(1)
+    client = _client(target, profile)
+    if not chosen:
+        assert lookup is not None
+        chosen = _find_warehouse(client, lookup)
+    return WarehouseRunner(client, chosen)
+
+
+def _client(target: Target | None, profile: str | None) -> "WorkspaceClient":
+    """A workspace client: the --profile, else the target's profile, else the
+    target's host (from a bundle), else the SDK's own defaults.
+
+    TODO(verify): that a host alone authenticates the way the Databricks CLI
+    does after `databricks auth login --host` — the SDK's `databricks-cli`
+    credentials provider is meant to cover it.
+    https://docs.databricks.com/aws/en/dev-tools/auth/unified-auth
+    """
     from databricks.sdk import WorkspaceClient
 
     use = profile or (target.profile if target else None)
+    host = None if use else (target.host if target else None)
     try:
-        client = WorkspaceClient(profile=use) if use else WorkspaceClient()
+        if use:
+            return WorkspaceClient(profile=use)
+        if host:
+            return WorkspaceClient(host=host)
+        return WorkspaceClient()
     except Exception as error:  # the SDK raises ValueError for most config problems
-        where = f"profile {use!r}" if use else "the environment or the DEFAULT profile"
+        where = (
+            f"profile {use!r}"
+            if use
+            else f"host {host}"
+            if host
+            else "the environment or the DEFAULT profile"
+        )
         err.print(
             f"[red]Can't connect to a Databricks workspace using {where}: {error}[/]\n"
             "Set `profile:` on the target, pass --profile, or export DATABRICKS_HOST "
             "and a token."
         )
         raise typer.Exit(1) from error
-    return WarehouseRunner(client, chosen)
+
+
+def _find_warehouse(client: "WorkspaceClient", name: str) -> str:
+    """The id of the SQL warehouse a bundle's `warehouse_id` lookup names."""
+    found = [w.id for w in client.warehouses.list() if w.name == name and w.id]
+    if len(found) != 1:
+        problem = "no SQL warehouse" if not found else "more than one SQL warehouse"
+        err.print(
+            f"[red]The bundle looks up the warehouse by name, and there is {problem} "
+            f"called {name!r}. Set warehouse_id on the target in deltaplan.yml.[/]"
+        )
+        raise typer.Exit(1)
+    return found[0]
 
 
 def _introspect(runner: WarehouseRunner, catalog: str, schema: str) -> LiveSchema:

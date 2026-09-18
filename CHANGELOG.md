@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Asset Bundles.** `bundle: databricks.yml` in `deltaplan.yml` takes the
+  targets from the bundle: names, the default, each target's workspace, and
+  its variables (defaults, overrides, `BUNDLE_VAR_*`, `${var.…}` and
+  `${bundle.target}` references, `include:` files). A `warehouse_id` lookup is
+  resolved by name once connected. Variables that only a workspace could
+  resolve are reported, with the reason, when a spec uses one.
+- Specs may write a variable as `${var.name}`, as bundles do.
+- A target can be marked `default: true`; `-t` is then optional.
 - **SQL functions** (`function:` specs): parameters, return type, body,
   comment and `EXECUTE` grants. Created before the tables and views that call
   them, replaced when their definition changes (grants put back), never

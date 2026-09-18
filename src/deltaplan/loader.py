@@ -12,7 +12,7 @@ are caught where they were written.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TypeAlias
@@ -20,6 +20,7 @@ from typing import Literal, TypeAlias
 import yaml
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
+from deltaplan.bundle import WAREHOUSE_VARIABLE, BundleError, BundleTarget, read_bundle
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.table import (
     MAINTAINED_PROPERTIES,
@@ -52,7 +53,8 @@ from deltaplan.typeparser import TypeParseError, parse_type
 
 SPEC_SUFFIXES = (".yml", ".yaml")
 CONFIG_NAMES = ("deltaplan.yml", "deltaplan.yaml")
-VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+#: `${name}`, or `${var.name}` — the spelling a bundle uses for the same thing.
+VARIABLE = re.compile(r"\$\{(?:var\.)?([A-Za-z_][A-Za-z0-9_]*)\}")
 
 Mode: TypeAlias = Literal["additive", "strict"]
 Severity: TypeAlias = Literal["error", "warning"]
@@ -96,8 +98,13 @@ class Target:
     """A named deployment: which workspace, and what the specs are rendered with.
 
     `profile` names a `~/.databrickscfg` profile, because dev and prod are
-    usually different workspaces; without one, the Databricks SDK's own defaults
-    apply (environment variables, then the DEFAULT profile).
+    usually different workspaces; without one, `host` (from a bundle) or the
+    Databricks SDK's own defaults apply (environment variables, then the DEFAULT
+    profile).
+
+    From a bundle, `unresolved` holds the variables that have no value without
+    a workspace, with the reason, and `warehouse_lookup` the name of a warehouse
+    to find once connected.
     """
 
     name: str
@@ -105,9 +112,15 @@ class Target:
     warehouse_id: str | None = None
     mode: Mode = "additive"
     profile: str | None = None
+    host: str | None = None
+    unresolved: tuple[tuple[str, str], ...] = ()
+    warehouse_lookup: str | None = None
 
     def variables_map(self) -> dict[str, str]:
         return dict(self.variables)
+
+    def unresolved_map(self) -> dict[str, str]:
+        return dict(self.unresolved)
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +136,10 @@ class Project:
     targets: tuple[Target, ...]
     history_schema: str | None = None
     schema_modes: tuple[tuple[str, Mode], ...] = ()
+    #: The target to use when none is named: the only one, or the one marked
+    #: `default: true` here or in the bundle.
+    default_target: str | None = None
+    bundle: Path | None = None
 
     def target(self, name: str) -> Target:
         for candidate in self.targets:
@@ -169,15 +186,25 @@ class LoadedSpec:
 # ---------------------------------------------------------------------------
 
 
-def substitute(text: str, variables: dict[str, str]) -> str:
-    """Replace `${name}` from `variables`. An undefined name is a KeyError."""
+def substitute(
+    text: str,
+    variables: Mapping[str, str],
+    unresolved: Mapping[str, str] | None = None,
+) -> str:
+    """Replace `${name}` from `variables`. An undefined name is a KeyError —
+    saying why, when `unresolved` knows."""
 
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
-        if name not in variables:
-            known = ", ".join(sorted(variables)) or "none defined"
-            raise KeyError(f"undefined variable ${{{name}}} (known: {known})")
-        return variables[name]
+        if name in variables:
+            return variables[name]
+        if unresolved and name in unresolved:
+            raise KeyError(
+                f"variable ${{{name}}} comes from the bundle but {unresolved[name]}; "
+                "set it under this target's vars in deltaplan.yml"
+            )
+        known = ", ".join(sorted(variables)) or "none defined"
+        raise KeyError(f"undefined variable ${{{name}}} (known: {known})")
 
     return VARIABLE.sub(replace, text)
 
@@ -186,6 +213,7 @@ def substitute(text: str, variables: dict[str, str]) -> str:
 class _Ctx:
     file: Path
     variables: tuple[tuple[str, str], ...] = ()
+    unresolved: tuple[tuple[str, str], ...] = ()
     #: Leave `${var}` alone. The project file is read before any target is
     #: chosen, so its variables can only be resolved later.
     raw: bool = False
@@ -269,7 +297,7 @@ def _substitute(ctx: _Ctx, text: str, loc: Loc) -> str:
     if ctx.raw:
         return text
     try:
-        return substitute(text, ctx.variables_map())
+        return substitute(text, ctx.variables_map(), dict(ctx.unresolved))
     except KeyError as error:
         message = str(error.args[0])
         if not ctx.variables:
@@ -592,10 +620,18 @@ def _read_primary_key(ctx: _Ctx, node: Node) -> PrimaryKey:
 VIEW_KEYS = {"view", "query", "comment", "tags", "properties", "grants"}
 
 
-def load_spec(path: Path, variables: dict[str, str] | None = None) -> Relation:
+def load_spec(
+    path: Path,
+    variables: Mapping[str, str] | None = None,
+    unresolved: Mapping[str, str] | None = None,
+) -> Relation:
     """Read one spec file: a table, or — with a `view:` or `function:` key — one
     of those."""
-    ctx = _Ctx(path, tuple(sorted((variables or {}).items())))
+    ctx = _Ctx(
+        path,
+        tuple(sorted((variables or {}).items())),
+        tuple(sorted((unresolved or {}).items())),
+    )
     node = _compose(path)
     if node is None:
         raise SpecError("spec file is empty", Loc(path, 1, 1))
@@ -770,8 +806,8 @@ def _read_grants(
 # project config
 # ---------------------------------------------------------------------------
 
-CONFIG_KEYS = {"version", "specs", "targets", "history_schema", "schemas"}
-TARGET_KEYS = {"vars", "warehouse_id", "mode", "profile"}
+CONFIG_KEYS = {"version", "specs", "targets", "history_schema", "schemas", "bundle"}
+TARGET_KEYS = {"vars", "warehouse_id", "mode", "profile", "default"}
 
 
 def find_project_file(start: Path) -> Path:
@@ -786,8 +822,12 @@ def find_project_file(start: Path) -> Path:
     )
 
 
-def load_project(path: Path) -> Project:
-    """Read a `deltaplan.yml`."""
+def load_project(path: Path, environ: Mapping[str, str] | None = None) -> Project:
+    """Read a `deltaplan.yml` — and the bundle it names, if any.
+
+    `environ` supplies a bundle's `BUNDLE_VAR_<name>` overrides; it is passed in
+    rather than read here so that loading stays a function of its arguments.
+    """
     ctx = _Ctx(path, raw=True)
     node = _compose(path)
     if node is None:
@@ -806,11 +846,40 @@ def load_project(path: Path) -> Project:
         history_schema = _string(ctx, items["history_schema"][0], "history_schema")
 
     targets: list[Target] = []
+    target_locs: dict[str, Loc] = {}
     if "targets" in items:
-        for name, (target_node, _) in _mapping(
+        for name, (target_node, key_loc) in _mapping(
             ctx, items["targets"][0], "targets"
         ).items():
             targets.append(_read_target(ctx, name, target_node))
+            target_locs[name] = key_loc
+
+    bundle_path: Path | None = None
+    marked = [
+        t.name
+        for t, default in zip(targets, _defaults(ctx, items), strict=True)
+        if default
+    ]
+    default_target = marked[0] if marked else None
+    if "bundle" in items:
+        bundle_node = items["bundle"][0]
+        bundle_path = root / _string(ctx, bundle_node, "bundle")
+        try:
+            bundle = read_bundle(bundle_path, environ)
+        except BundleError as error:
+            raise SpecError(str(error), ctx.loc(bundle_node)) from error
+        for target in targets:
+            if bundle.target(target.name) is None:
+                known = ", ".join(t.name for t in bundle.targets)
+                raise SpecError(
+                    f"target {target.name!r} isn't in the bundle (its targets: {known})",
+                    target_locs[target.name],
+                )
+        own = {target.name: target for target in targets}
+        targets = [_from_bundle(entry, own.get(entry.name)) for entry in bundle.targets]
+        default_target = default_target or bundle.default
+    if default_target is None and len(targets) == 1:
+        default_target = targets[0].name
 
     schema_modes: list[tuple[str, Mode]] = []
     if "schemas" in items:
@@ -831,6 +900,51 @@ def load_project(path: Path) -> Project:
         targets=tuple(targets),
         history_schema=history_schema,
         schema_modes=tuple(schema_modes),
+        default_target=default_target,
+        bundle=bundle_path,
+    )
+
+
+def _defaults(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> list[bool]:
+    """Which of the config's own targets say `default: true`, in order."""
+    if "targets" not in items:
+        return []
+    found: list[bool] = []
+    for name, (node, _) in _mapping(ctx, items["targets"][0], "targets").items():
+        entry = _mapping(ctx, node, f"target {name!r}")
+        found.append("default" in entry and _bool(ctx, entry["default"][0], "default"))
+    if sum(found) > 1:
+        raise SpecError(
+            "only one target can be the default", ctx.loc(items["targets"][0])
+        )
+    return found
+
+
+def _from_bundle(entry: BundleTarget, own: Target | None) -> Target:
+    """A bundle target, with what deltaplan.yml says about it on top.
+
+    deltaplan.yml wins where both speak: its `vars` override the bundle's
+    variables, its `profile` the bundle's workspace. `warehouse_id` falls back to
+    the bundle's variable of that name.
+    """
+    variables = dict(entry.variables)
+    if own is not None:
+        variables |= own.variables_map()
+    unresolved = {k: v for k, v in entry.unresolved if k not in variables}
+    warehouse_id = own.warehouse_id if own else None
+    lookup = None
+    if warehouse_id is None:
+        warehouse_id = variables.get(WAREHOUSE_VARIABLE)
+        lookup = entry.warehouse_lookup if warehouse_id is None else None
+    return Target(
+        name=entry.name,
+        variables=tuple(sorted(variables.items())),
+        warehouse_id=warehouse_id,
+        mode=own.mode if own else "additive",
+        profile=(own.profile if own else None) or entry.profile,
+        host=entry.host,
+        unresolved=tuple(sorted(unresolved.items())),
+        warehouse_lookup=lookup,
     )
 
 
@@ -878,8 +992,10 @@ def spec_files(project: Project) -> tuple[Path, ...]:
 def load_specs(project: Project, target: Target) -> tuple[LoadedSpec, ...]:
     """Load every spec in a project, rendered for one target."""
     variables = target.variables_map()
+    unresolved = target.unresolved_map()
     return tuple(
-        LoadedSpec(path, load_spec(path, variables)) for path in spec_files(project)
+        LoadedSpec(path, load_spec(path, variables, unresolved))
+        for path in spec_files(project)
     )
 
 

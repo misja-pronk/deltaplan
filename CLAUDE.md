@@ -110,6 +110,13 @@ column masks and row filters (additive, never removed, never rewritten), and
 views (`model/view.py`; `Relation = Table | View`; tables and views share
 `Securable`). Every milestone in DESIGN.md is built.
 
+Since then, beyond the design: schema creation, hooks and backfills, identity /
+generated / default columns, foreign keys, SQL functions (`model/function.py`;
+`Relation = Table | View | Function`) and Asset Bundle targets (`bundle.py`, a
+new module the layout doesn't list: it reads someone else's YAML leniently,
+which `loader.py`'s strict validator shouldn't). External tables are out of
+scope for now — managed tables only.
+
 What remains is verification, not construction: nothing has run against a real
 workspace. Every `TODO(verify)` in `src/` names an assumption the live suite in
 `tests/integration/` is written to settle — run it (`uv run pytest -m

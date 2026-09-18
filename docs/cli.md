@@ -15,8 +15,10 @@ deltaplan force-unlock
     been run against a real workspace.
 
 Every command takes `--config` to point at a `deltaplan.yml`, and `-t/--target` to pick
-the target whose variables are substituted. `plan` and `import` also take
-`--warehouse-id`, which otherwise comes from the target or `$DATABRICKS_WAREHOUSE_ID`.
+the target whose variables are substituted — without it, the only target or the one
+marked `default: true` (in `deltaplan.yml` or the [bundle](spec.md#next-to-an-asset-bundle)).
+`plan` and `import` also take `--warehouse-id`, which otherwise comes from the target
+or `$DATABRICKS_WAREHOUSE_ID`.
 
 ## `validate`
 
