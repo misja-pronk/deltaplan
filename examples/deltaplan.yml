@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://misja-pronk.github.io/deltaplan/schema/project.json
 # A deltaplan project: where the specs are, and what a target substitutes into
 # them. Run `deltaplan validate -t dev` from this directory to try it.
 version: 1

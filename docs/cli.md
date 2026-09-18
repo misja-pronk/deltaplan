@@ -33,6 +33,16 @@ contradictory `renamed_from` hints, and type names that look misspelled. No cred
 no network — ideal for a pre-commit hook or the fast lane of CI. Exits non-zero if
 anything is wrong.
 
+## `schema`
+
+```sh
+deltaplan schema spec       # the JSON Schema for YAML specs
+deltaplan schema project    # ... and for deltaplan.yml
+```
+
+Prints the JSON Schema an editor uses for completion and inline errors, for the version
+you have installed. See [editor support](editors.md).
+
 ## `import`
 
 ```sh

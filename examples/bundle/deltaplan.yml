@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://misja-pronk.github.io/deltaplan/schema/project.json
 # deltaplan next to an Asset Bundle: the targets, their workspaces and their
 # variables come from databricks.yml. Run `deltaplan validate` from this
 # directory — no -t needed, the bundle's default target is used.

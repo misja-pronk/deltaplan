@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Editor support.** JSON Schemas for YAML specs and `deltaplan.yml`, published
+  with the docs and printed by `deltaplan schema`, give completion and inline
+  errors in any editor with a YAML language server. `import` writes the
+  `$schema` line into each spec. Built from the loader's own key sets and held
+  to them by tests, so the editor and `validate` agree.
 - **SQL specs.** A `.sql` file holding a `CREATE TABLE`, `CREATE VIEW` or `CREATE
   FUNCTION` — optionally followed by `ALTER … SET TAGS` and `GRANT` for the same
   object — is a spec, read with sqlglot into the same model as YAML. SQL specs

@@ -5,6 +5,7 @@
 that write to a workspace.
 """
 
+import json
 import os
 from enum import StrEnum
 from pathlib import Path
@@ -43,6 +44,7 @@ from deltaplan.render.json import dumps as plan_json
 from deltaplan.render.json import loads as plan_loads
 from deltaplan.render.markdown import render_markdown
 from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, plan_text, render_plan
+from deltaplan.spec_schema import MODELINE, project_schema, spec_schema
 from deltaplan.sqlspec import dump_sql_spec, sql_cannot_say
 
 if TYPE_CHECKING:
@@ -70,6 +72,13 @@ ProfileOption = Annotated[
         help="~/.databrickscfg profile to connect with (default: the target's).",
     ),
 ]
+
+
+class SchemaKind(StrEnum):
+    """Which JSON Schema `deltaplan schema` prints."""
+
+    spec = "spec"
+    project = "project"
 
 
 class SpecFormat(StrEnum):
@@ -174,6 +183,20 @@ def _print_diagnostic(diagnostic: Diagnostic) -> None:
 # ---------------------------------------------------------------------------
 
 
+@app.command("schema")
+def schema_command(
+    kind: Annotated[
+        SchemaKind,
+        typer.Argument(
+            help="spec (a table, view or function) or project (deltaplan.yml)."
+        ),
+    ] = SchemaKind.spec,
+) -> None:
+    """Print the JSON Schema editors use for completion and inline errors."""
+    schema = spec_schema() if kind is SchemaKind.spec else project_schema()
+    typer.echo(json.dumps(schema, indent=2))
+
+
 @app.command("import")
 def import_schema(
     schema: Annotated[
@@ -233,7 +256,9 @@ def import_schema(
             text = dump_sql_spec(relation, catalog_variable=variable)
         else:
             path = directory / f"{stem}.yml"
-            text = dump_spec(relation, catalog_variable=variable)
+            # The first line points an editor at the schema: completion and
+            # inline errors from the moment the file is opened.
+            text = MODELINE + "\n" + dump_spec(relation, catalog_variable=variable)
         path.write_text(text, encoding="utf-8")
         note = f" [dim](YAML: SQL can't say {reason})[/]" if reason else ""
         out.print(f"[green]+[/] {path}{note}")

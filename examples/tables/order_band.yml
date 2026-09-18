@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://misja-pronk.github.io/deltaplan/schema/spec.json
 # A SQL function spec. Functions are created before the tables and views that
 # call them, so a mask or a view can use one declared in the same project.
 # A changed body replaces it; a function is never dropped.

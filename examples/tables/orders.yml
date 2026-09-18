@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://misja-pronk.github.io/deltaplan/schema/spec.json
 # A worked example of the spec format. Every key here is optional except
 # `table` and `columns`; see https://misja-pronk.github.io/deltaplan/spec/
 table: ${catalog}.sales.orders

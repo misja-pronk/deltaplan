@@ -469,7 +469,10 @@ def test_import_writes_specs_that_load_back(
 
     text = written.read_text()
     # The target's catalog comes back out as a variable, so one spec fits all.
-    assert text.startswith("table: ${catalog}.sales.orders")
+    # An editor finds the schema from the first line; the spec follows.
+    first, rest = text.split("\n", 1)
+    assert first.startswith("# yaml-language-server: $schema=")
+    assert rest.startswith("table: ${catalog}.sales.orders")
     # deltaplan's own marker is not something you should have to write.
     assert "deltaplan.managed" not in text
 
@@ -507,7 +510,7 @@ def test_import_writes_views_and_reports_what_it_skipped(
     result = runner.invoke(app, ["import", "main.sales", "-o", str(tmp_path / "out")])
     assert result.exit_code == 0, result.output
     written = (tmp_path / "out" / "v_orders.yml").read_text()
-    assert written.startswith("view: main.sales.v_orders")
+    assert written.split("\n", 1)[1].startswith("view: main.sales.v_orders")
     assert "query: |" in written, "a query reads like SQL, not one long line"
     assert "skipped main.sales.daily (materialized view)" in result.output
 
@@ -559,3 +562,17 @@ def test_import_as_sql_falls_back_to_yaml_for_what_sql_cannot_say(
     assert "YAML: SQL can't say column masks" in " ".join(result.output.split())
     loaded = load_spec(destination / "orders.sql", {"catalog": "main"})
     assert loaded.comment == "It's plain"
+
+
+@pytest.mark.parametrize("kind", ["spec", "project"])
+def test_schema_prints_the_json_schema(kind: str) -> None:
+    import json
+
+    from deltaplan import spec_schema
+
+    result = runner.invoke(app, ["schema", kind])
+    assert result.exit_code == 0, result.output
+    expected = (
+        spec_schema.spec_schema() if kind == "spec" else spec_schema.project_schema()
+    )
+    assert json.loads(result.output) == expected

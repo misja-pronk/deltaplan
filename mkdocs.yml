@@ -82,6 +82,7 @@ nav:
   - Guide:
       - Writing a spec: spec.md
       - YAML and SQL specs: formats.md
+      - Editor support: editors.md
       - Commands: cli.md
       - Safety model: safety.md
       - In CI: ci.md

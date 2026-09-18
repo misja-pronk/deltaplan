@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://misja-pronk.github.io/deltaplan/schema/spec.json
 # A view spec: its shape is its query, so that is what deltaplan compares. A
 # changed query replaces the view; tags and grants work as they do on a table.
 view: ${catalog}.sales.big_orders

@@ -341,6 +341,21 @@ def _string_list(ctx: _Ctx, node: Node, what: str) -> tuple[str, ...]:
 # types
 # ---------------------------------------------------------------------------
 
+# Every key set a spec's objects accept. `deltaplan.spec_schema` builds the
+# editor's JSON Schema from these, so the two can't disagree.
+TYPE_KEYS = {"struct", "array", "map"}
+ARRAY_KEYS = {"element", "contains_null"}
+MAP_KEYS = {"key", "value"}
+IDENTITY_KEYS = {"generated", "start", "increment"}
+MASK_KEYS = {"function", "using_columns"}
+ROW_FILTER_KEYS = {"function", "columns"}
+CHECK_KEYS = {"name", "expression"}
+FOREIGN_KEY_KEYS = {"columns", "references", "referenced_columns", "name"}
+PRIMARY_KEY_KEYS = {"columns", "name"}
+PARAMETER_KEYS = {"name", "type"}
+HOOK_KEYS = {"before", "after"}
+GRANT_KEYS = {"principal", "privileges"}
+
 FIELD_KEYS = {
     "name",
     "type",
@@ -366,7 +381,7 @@ def _read_type(ctx: _Ctx, node: Node, what: str) -> DataType:
             raise SpecError(str(error), ctx.loc(node)) from error
 
     items = _mapping(ctx, node, what)
-    _known_keys(items, allowed={"struct", "array", "map"}, what=what)
+    _known_keys(items, allowed=TYPE_KEYS, what=what)
     if len(items) != 1:
         raise SpecError(
             f"{what} must name exactly one of struct, array or map", ctx.loc(node)
@@ -389,7 +404,7 @@ def _read_array(ctx: _Ctx, node: Node) -> Array:
     if isinstance(node, ScalarNode):
         return Array(_read_type(ctx, node, "array element"))
     items = _mapping(ctx, node, "array")
-    _known_keys(items, allowed={"element", "contains_null"}, what="array")
+    _known_keys(items, allowed=ARRAY_KEYS, what="array")
     element_node = _require(ctx, items, node, "element", "an array")
     contains_null = True
     if "contains_null" in items:
@@ -399,7 +414,7 @@ def _read_array(ctx: _Ctx, node: Node) -> Array:
 
 def _read_map(ctx: _Ctx, node: Node) -> Map:
     items = _mapping(ctx, node, "map")
-    _known_keys(items, allowed={"key", "value"}, what="map")
+    _known_keys(items, allowed=MAP_KEYS, what="map")
     key_node = _require(ctx, items, node, "key", "a map")
     value_node = _require(ctx, items, node, "value", "a map")
     return Map(
@@ -472,7 +487,7 @@ def _read_identity(ctx: _Ctx, node: Node) -> Identity:
     if isinstance(node, ScalarNode):
         return Identity(always=kind(node))
     items = _mapping(ctx, node, "an identity")
-    _known_keys(items, allowed={"generated", "start", "increment"}, what="an identity")
+    _known_keys(items, allowed=IDENTITY_KEYS, what="an identity")
     always = kind(items["generated"][0]) if "generated" in items else True
     start = _integer(ctx, items["start"][0], "start") if "start" in items else 1
     increment = (
@@ -507,7 +522,7 @@ def _read_mask(ctx: _Ctx, node: Node) -> Mask:
     if isinstance(node, ScalarNode):
         return Mask(_read_function(ctx, node, "mask"))
     items = _mapping(ctx, node, "a mask")
-    _known_keys(items, allowed={"function", "using_columns"}, what="a mask")
+    _known_keys(items, allowed=MASK_KEYS, what="a mask")
     function = _read_function(
         ctx, _require(ctx, items, node, "function", "a mask"), "mask function"
     )
@@ -519,7 +534,7 @@ def _read_mask(ctx: _Ctx, node: Node) -> Mask:
 
 def _read_row_filter(ctx: _Ctx, node: Node) -> RowFilter:
     items = _mapping(ctx, node, "a row filter")
-    _known_keys(items, allowed={"function", "columns"}, what="a row filter")
+    _known_keys(items, allowed=ROW_FILTER_KEYS, what="a row filter")
     function = _read_function(
         ctx, _require(ctx, items, node, "function", "a row filter"), "row filter function"
     )
@@ -558,7 +573,7 @@ def _read_constraint(ctx: _Ctx, node: Node) -> Constraint:
             return _read_primary_key(ctx, value_node)
         case "check":
             check_items = _mapping(ctx, value_node, "a check constraint")
-            _known_keys(check_items, allowed={"name", "expression"}, what="a check")
+            _known_keys(check_items, allowed=CHECK_KEYS, what="a check")
             name_node = _require(ctx, check_items, value_node, "name", "a check")
             expr_node = _require(ctx, check_items, value_node, "expression", "a check")
             return Check(
@@ -579,7 +594,7 @@ def _read_foreign_key(ctx: _Ctx, node: Node) -> ForeignKey:
     items = _mapping(ctx, node, "a foreign key")
     _known_keys(
         items,
-        allowed={"columns", "references", "referenced_columns", "name"},
+        allowed=FOREIGN_KEY_KEYS,
         what="a foreign key",
     )
     columns = _string_list(
@@ -611,7 +626,7 @@ def _read_primary_key(ctx: _Ctx, node: Node) -> PrimaryKey:
     if isinstance(node, SequenceNode):
         return PrimaryKey(_string_list(ctx, node, "primary_key"))
     items = _mapping(ctx, node, "a primary key")
-    _known_keys(items, allowed={"columns", "name"}, what="a primary key")
+    _known_keys(items, allowed=PRIMARY_KEY_KEYS, what="a primary key")
     columns_node = _require(ctx, items, node, "columns", "a primary key")
     name = None
     if "name" in items:
@@ -673,7 +688,7 @@ def _read_function_spec(
     if "parameters" in items:
         for item in _sequence(ctx, items["parameters"][0], "parameters"):
             entry = _mapping(ctx, item, "a parameter")
-            _known_keys(entry, allowed={"name", "type"}, what="a parameter")
+            _known_keys(entry, allowed=PARAMETER_KEYS, what="a parameter")
             parameter_name = _string(
                 ctx, _require(ctx, entry, item, "name", "a parameter"), "parameter name"
             )
@@ -767,7 +782,7 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
     hooks = None
     if "hooks" in items:
         hook_items = _mapping(ctx, items["hooks"][0], "hooks")
-        _known_keys(hook_items, allowed={"before", "after"}, what="hooks")
+        _known_keys(hook_items, allowed=HOOK_KEYS, what="hooks")
         hooks = Hooks(
             before=_string(ctx, hook_items["before"][0], "before hook")
             if "before" in hook_items
@@ -807,7 +822,7 @@ def _read_grants(
     seen: set[str] = set()
     for item in _sequence(ctx, node, "grants"):
         entry = _mapping(ctx, item, "a grant")
-        _known_keys(entry, allowed={"principal", "privileges"}, what="a grant")
+        _known_keys(entry, allowed=GRANT_KEYS, what="a grant")
         principal = _string(
             ctx, _require(ctx, entry, item, "principal", "a grant"), "principal"
         )

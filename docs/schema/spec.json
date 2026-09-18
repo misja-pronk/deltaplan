@@ -1,0 +1,581 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://misja-pronk.github.io/deltaplan/schema/spec.json",
+  "title": "deltaplan spec",
+  "description": "A table, view or SQL function. https://misja-pronk.github.io/deltaplan/spec/",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "cluster_by": {
+          "description": "Liquid clustering keys, or `auto`.",
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^[Aa][Uu][Tt][Oo]$"
+            }
+          ]
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/field"
+          },
+          "minItems": 1
+        },
+        "comment": {
+          "type": "string"
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "primary_key": {
+                    "oneOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "columns": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "columns"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "primary_key"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "check": {
+                    "type": "object",
+                    "properties": {
+                      "expression": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "expression",
+                      "name"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "check"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "foreign_key": {
+                    "type": "object",
+                    "properties": {
+                      "columns": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "referenced_columns": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "references": {
+                        "type": "string",
+                        "description": "The referenced table, in full."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "columns",
+                      "referenced_columns",
+                      "references"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "foreign_key"
+                ]
+              }
+            ]
+          }
+        },
+        "grants": {
+          "type": "array",
+          "description": "Privileges per principal. Principals not named are left alone.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "principal": {
+                "type": "string",
+                "description": "A user, group or service principal."
+              },
+              "privileges": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "ALL PRIVILEGES",
+                        "APPLY TAG",
+                        "MANAGE",
+                        "MODIFY",
+                        "SELECT"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[Aa][Ll][Ll][ _]+[Pp][Rr][Ii][Vv][Ii][Ll][Ee][Gg][Ee][Ss]|[Aa][Pp][Pp][Ll][Yy][ _]+[Tt][Aa][Gg]|[Mm][Aa][Nn][Aa][Gg][Ee]|[Mm][Oo][Dd][Ii][Ff][Yy]|[Ss][Ee][Ll][Ee][Cc][Tt])$"
+                    }
+                  ]
+                },
+                "minItems": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "principal",
+              "privileges"
+            ]
+          }
+        },
+        "hooks": {
+          "type": "object",
+          "properties": {
+            "after": {
+              "type": "string",
+              "description": "SQL run after the table's changes."
+            },
+            "before": {
+              "type": "string",
+              "description": "SQL run before the table's changes."
+            }
+          },
+          "additionalProperties": false
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "renamed_from": {
+          "type": "string",
+          "description": "The table's old name, while a rename is to happen."
+        },
+        "row_filter": {
+          "type": "object",
+          "properties": {
+            "columns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "function": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "columns",
+            "function"
+          ]
+        },
+        "table": {
+          "type": "string",
+          "description": "catalog.schema.table \u2014 `${catalog}` and friends allowed."
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "columns",
+        "table"
+      ],
+      "description": "A Delta table."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "comment": {
+          "type": "string"
+        },
+        "grants": {
+          "type": "array",
+          "description": "Privileges per principal. Principals not named are left alone.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "principal": {
+                "type": "string",
+                "description": "A user, group or service principal."
+              },
+              "privileges": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "ALL PRIVILEGES",
+                        "APPLY TAG",
+                        "MANAGE",
+                        "MODIFY",
+                        "SELECT"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[Aa][Ll][Ll][ _]+[Pp][Rr][Ii][Vv][Ii][Ll][Ee][Gg][Ee][Ss]|[Aa][Pp][Pp][Ll][Yy][ _]+[Tt][Aa][Gg]|[Mm][Aa][Nn][Aa][Gg][Ee]|[Mm][Oo][Dd][Ii][Ff][Yy]|[Ss][Ee][Ll][Ee][Cc][Tt])$"
+                    }
+                  ]
+                },
+                "minItems": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "principal",
+              "privileges"
+            ]
+          }
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "query": {
+          "type": "string",
+          "description": "The view's query, kept as written."
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "view": {
+          "type": "string",
+          "description": "catalog.schema.view"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "query",
+        "view"
+      ],
+      "description": "A view."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": "string",
+          "description": "The expression after RETURN, kept as written."
+        },
+        "comment": {
+          "type": "string"
+        },
+        "function": {
+          "type": "string",
+          "description": "catalog.schema.function"
+        },
+        "grants": {
+          "type": "array",
+          "description": "Privileges per principal. Principals not named are left alone.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "principal": {
+                "type": "string",
+                "description": "A user, group or service principal."
+              },
+              "privileges": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "ALL PRIVILEGES",
+                        "EXECUTE",
+                        "MANAGE"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[Aa][Ll][Ll][ _]+[Pp][Rr][Ii][Vv][Ii][Ll][Ee][Gg][Ee][Ss]|[Ee][Xx][Ee][Cc][Uu][Tt][Ee]|[Mm][Aa][Nn][Aa][Gg][Ee])$"
+                    }
+                  ]
+                },
+                "minItems": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "principal",
+              "privileges"
+            ]
+          }
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "$ref": "#/definitions/type"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "type"
+            ]
+          }
+        },
+        "returns": {
+          "$ref": "#/definitions/type"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "body",
+        "function",
+        "returns"
+      ],
+      "description": "A SQL function."
+    }
+  ],
+  "definitions": {
+    "type": {
+      "description": "A Databricks type string (`decimal(18,2)`, `struct<street:string,zip:string>`) or the nested YAML form.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "array": {
+              "oneOf": [
+                {
+                  "$ref": "#/definitions/type"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "contains_null": {
+                      "type": "boolean"
+                    },
+                    "element": {
+                      "$ref": "#/definitions/type"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "element"
+                  ]
+                }
+              ]
+            },
+            "map": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "$ref": "#/definitions/type"
+                },
+                "value": {
+                  "$ref": "#/definitions/type"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "key",
+                "value"
+              ]
+            },
+            "struct": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/field"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "field": {
+      "type": "object",
+      "properties": {
+        "comment": {
+          "type": "string"
+        },
+        "default": {
+          "type": "string",
+          "description": "DEFAULT \u2026: the expression, e.g. `'new'` or `current_date()`."
+        },
+        "generated": {
+          "type": "string",
+          "description": "GENERATED ALWAYS AS (\u2026): the expression."
+        },
+        "identity": {
+          "description": "`always`, `by_default`, or with start and increment.",
+          "oneOf": [
+            {
+              "anyOf": [
+                {
+                  "enum": [
+                    "always",
+                    "by_default"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(?:[Aa][Ll][Ww][Aa][Yy][Ss]|[Bb][Yy][ _]+[Dd][Ee][Ff][Aa][Uu][Ll][Tt])$"
+                }
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "generated": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "always",
+                        "by_default"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[Aa][Ll][Ww][Aa][Yy][Ss]|[Bb][Yy][ _]+[Dd][Ee][Ff][Aa][Uu][Ll][Tt])$"
+                    }
+                  ]
+                },
+                "increment": {
+                  "type": "integer",
+                  "not": {
+                    "const": 0
+                  }
+                },
+                "start": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "mask": {
+          "description": "A column mask: a function name, or with using_columns.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "function": {
+                  "type": "string"
+                },
+                "using_columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "function"
+              ]
+            }
+          ]
+        },
+        "name": {
+          "type": "string",
+          "description": "The column or field name."
+        },
+        "nullable": {
+          "type": "boolean",
+          "description": "false for NOT NULL."
+        },
+        "renamed_from": {
+          "type": "string",
+          "description": "The old name, while a rename is still to happen."
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "type": {
+          "$ref": "#/definitions/type"
+        },
+        "using": {
+          "type": "string",
+          "description": "How to fill it from the rest of the row: for a rewrite's conversion, or a new column's backfill."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "type"
+      ]
+    }
+  }
+}
