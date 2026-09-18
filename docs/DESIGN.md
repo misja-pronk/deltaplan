@@ -14,7 +14,10 @@ Working name: `deltaplan`. Declarative, Terraform-style `plan` / `apply` for Dat
 
 - Views, grants, masks, row filters, volumes, functions (later milestones).
 - Data backfills beyond simple pre/post SQL hooks.
-- Parsing SQL DDL as the source of truth.
+- ~~Parsing SQL DDL as the source of truth.~~ **Changed 2026-09-18, by the owner:**
+  a spec may be a `.sql` `CREATE` statement, parsed with sqlglot into the same model
+  as YAML. SQL specs support exactly what sqlglot parses into structure; YAML stays
+  the complete format. See `docs/formats.md` and `deltaplan.features`.
 - Non-Delta formats.
 
 ## Pipeline

@@ -117,6 +117,12 @@ new module the layout doesn't list: it reads someone else's YAML leniently,
 which `loader.py`'s strict validator shouldn't). External tables are out of
 scope for now — managed tables only.
 
+**SQL specs** (`sqlspec.py`, `features.py`) overturn a DESIGN.md non-goal, by
+the owner's decision (noted there). The rule is fixed: a SQL spec supports
+exactly what sqlglot parses into structure — never hand-parse around sqlglot to
+add a feature to SQL; add it to YAML and mark it `—` for SQL in `FEATURES`.
+Every row of `FEATURES` is a test, and `docs/formats.md` is generated from it.
+
 What remains is verification, not construction: nothing has run against a real
 workspace. Every `TODO(verify)` in `src/` names an assumption the live suite in
 `tests/integration/` is written to settle — run it (`uv run pytest -m

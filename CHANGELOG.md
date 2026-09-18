@@ -8,6 +8,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **SQL specs.** A `.sql` file holding a `CREATE TABLE`, `CREATE VIEW` or `CREATE
+  FUNCTION` — optionally followed by `ALTER … SET TAGS` and `GRANT` for the same
+  object — is a spec, read with sqlglot into the same model as YAML. SQL specs
+  support what sqlglot parses into structure; what it can't (column masks, row
+  filters, column tags today) is refused with its line and a pointer to YAML.
+  View queries and function bodies are kept exactly as written. A project can mix
+  both formats.
+- **A supported-features list** for YAML and SQL (`docs/formats.md`), generated
+  from `deltaplan.features` and proven row by row by the tests.
+
 - **`cluster_by: auto`** — automatic liquid clustering. Only whether it is on is
   compared: the keys are Databricks' choice. Naming keys turns it off.
 - **The `timestampNtz` feature is enabled first** when a `timestamp_ntz` column is

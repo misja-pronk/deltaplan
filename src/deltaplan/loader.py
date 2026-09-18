@@ -52,7 +52,7 @@ from deltaplan.model.view import Relation, View
 from deltaplan.sql import FUNCTION_PRIVILEGES, TABLE_PRIVILEGES, privilege_sql
 from deltaplan.typeparser import TypeParseError, parse_type
 
-SPEC_SUFFIXES = (".yml", ".yaml")
+SPEC_SUFFIXES = (".yml", ".yaml", ".sql")
 CONFIG_NAMES = ("deltaplan.yml", "deltaplan.yaml")
 #: `${name}`, or `${var.name}` — the spelling a bundle uses for the same thing.
 VARIABLE = re.compile(r"\$\{(?:var\.)?([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -628,7 +628,12 @@ def load_spec(
     unresolved: Mapping[str, str] | None = None,
 ) -> Relation:
     """Read one spec file: a table, or — with a `view:` or `function:` key — one
-    of those."""
+    of those. A `.sql` file is a CREATE statement, read by `deltaplan.sqlspec`."""
+    if path.suffix.lower() == ".sql":
+        # Imported here: sqlspec builds on this module's variables and errors.
+        from deltaplan.sqlspec import load_sql_spec
+
+        return load_sql_spec(path, variables, unresolved)
     ctx = _Ctx(
         path,
         tuple(sorted((variables or {}).items())),

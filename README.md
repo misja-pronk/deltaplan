@@ -44,6 +44,20 @@ columns:
         - {name: zip, type: string}
 ```
 
+Or as SQL — the same model, read with [sqlglot](https://github.com/tobymao/sqlglot):
+
+```sql
+CREATE TABLE ${catalog}.sales.customers (
+  customer_id BIGINT NOT NULL,
+  name        STRING,
+  CONSTRAINT customers_pk PRIMARY KEY (customer_id)
+)
+CLUSTER BY AUTO;
+```
+
+A project can mix both. SQL specs support what sqlglot can parse; YAML supports
+everything — [the list](https://misja-pronk.github.io/deltaplan/formats/) says which.
+
 ## The plan
 
 ```

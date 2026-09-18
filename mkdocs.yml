@@ -81,6 +81,7 @@ nav:
   - Installation: installation.md
   - Guide:
       - Writing a spec: spec.md
+      - YAML and SQL specs: formats.md
       - Commands: cli.md
       - Safety model: safety.md
       - In CI: ci.md

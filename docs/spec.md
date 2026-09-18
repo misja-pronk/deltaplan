@@ -1,7 +1,9 @@
 # Writing a spec
 
-A deltaplan project is a `deltaplan.yml` and a directory of specs — one YAML file
-per table, describing the state you want rather than the statements to get there.
+A deltaplan project is a `deltaplan.yml` and a directory of specs — one file per
+table, view or function, describing the state you want rather than the statements to
+get there. This page covers YAML specs; a spec can also be a `CREATE` statement in a
+`.sql` file — see [YAML and SQL specs](formats.md) for what each can say.
 
 ```yaml
 table: ${catalog}.sales.orders
