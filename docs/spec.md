@@ -239,8 +239,9 @@ row_filter:
   columns: [region]
 ```
 
-The functions are ordinary SQL UDFs you create yourself, named in full
-(`catalog.schema.function`). deltaplan treats what they protect as security controls:
+The functions are SQL UDFs named in full (`catalog.schema.function`) — created by hand,
+or declared in a [function spec](#functions) so they're created in the same plan, before
+the tables that use them. deltaplan treats what they protect as security controls:
 
 - **It only adds or replaces them.** A mask or filter in the spec is set, or replaced if
   it names a different function. One the spec doesn't mention is listed as unmanaged
@@ -346,6 +347,41 @@ query: |
   table where the spec says view, planning stops and says so.
 - `import` writes view specs too, with the query as the catalog holds it — catalog names
   and all, since rewriting names inside SQL isn't something to do by text search.
+
+## Functions
+
+A function spec has a `function:` key, its parameters, what it returns, and a body — the
+expression after `RETURN`.
+
+```yaml
+function: ${catalog}.security.mask_email
+comment: Hide emails from everyone outside pii
+parameters:
+  - {name: email, type: string}
+returns: string
+grants:
+  - {principal: analysts, privileges: [EXECUTE]}
+body: |
+  CASE WHEN is_account_group_member('pii') THEN email ELSE '***' END
+```
+
+- **SQL functions only.** Python UDFs aren't modelled; `import` skips them and `plan`
+  leaves them alone.
+- **Parameters, return type, body and comment are its shape.** Whitespace and a trailing
+  semicolon in the body don't count; any other change is planned as a
+  `REPLACE FUNCTION`, with the old definition as its undo. A replace takes effect for
+  every mask, row filter and view that calls the function, from the moment it runs — the
+  plan warns about exactly that.
+- **Grants survive a replace**, put back as they were, and are otherwise managed per
+  principal as for [tables](#grants). Function privileges are `EXECUTE`, `MANAGE` and
+  `ALL PRIVILEGES`.
+- **Functions come first**: before tables, so a mask or row filter can call one created
+  in the same plan, and before views that call them. A function that calls another
+  comes after it; a cycle is an error.
+- **A function is never dropped.** It carries no ownership marker, so nothing shows
+  deltaplan created it; one without a spec is left alone, in strict schemas too.
+- Unity Catalog lets a function share a table's name. deltaplan doesn't: plans are keyed
+  by name, so planning stops and asks you to rename one.
 
 ## Constraints
 

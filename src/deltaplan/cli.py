@@ -198,19 +198,27 @@ def import_schema(
     variable = _catalog_variable(chosen, parts[0])
     relations: list[Relation] = [entry.table for entry in live.tables]
     relations.extend(live.views)
+    relations.extend(live.functions)
+    written: set[str] = set()
     for relation in relations:
-        path = directory / f"{relation.short_name}.yml"
+        # Functions don't share a namespace with tables and views, so a function
+        # may have a table's name; its file then says what it is.
+        stem = relation.short_name
+        if stem in written:
+            stem = f"{stem}.function"
+        written.add(stem)
+        path = directory / f"{stem}.yml"
         path.write_text(dump_spec(relation, catalog_variable=variable), encoding="utf-8")
         out.print(f"[green]+[/] {path}")
 
     for name, reason in live.skipped:
         out.print(
-            f"[dim]· skipped {name} ({reason}) — deltaplan manages Delta tables and "
-            "views[/]"
+            f"[dim]· skipped {name} ({reason}) — deltaplan manages Delta tables, "
+            "views and SQL functions[/]"
         )
 
     if not relations:
-        err.print(f"[yellow]No Delta tables or views found in {schema}.[/]")
+        err.print(f"[yellow]No Delta tables, views or functions found in {schema}.[/]")
 
 
 def _catalog_variable(target: Target | None, catalog: str) -> str | None:

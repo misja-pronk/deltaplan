@@ -26,6 +26,7 @@ from typing import assert_never
 from deltaplan.differ import diff as compute_changes
 from deltaplan.differ import unmanaged_properties
 from deltaplan.model.change import Change
+from deltaplan.model.function import Function
 from deltaplan.model.plan import Plan, Risk, Step, TableDiff, TableFacts
 from deltaplan.model.table import (
     COLUMN_MAPPING_PROPERTY,
@@ -346,8 +347,8 @@ class _Planner:
 
     @property
     def _object(self) -> str:
-        """`TABLE` or `VIEW`, for the statements that say which."""
-        return "VIEW" if self._kind == "view" else "TABLE"
+        """`TABLE`, `VIEW` or `FUNCTION`, for the statements that say which."""
+        return {"view": "VIEW", "function": "FUNCTION"}.get(self._kind, "TABLE")
 
     def _rewrite(self, table_diff: TableDiff) -> None:
         desired, live = table_diff.desired, table_diff.live
@@ -579,6 +580,10 @@ class _Planner:
                 self._grant(change)
             case "revoke":
                 self._revoke(change)
+            case "create_function":
+                self._function(change, facts, replacing=False)
+            case "replace_function":
+                self._function(change, facts, replacing=True)
             case "create_view":
                 self._create_view(change, facts)
             case "replace_view":
@@ -714,7 +719,7 @@ class _Planner:
             f"GRANT to {principal}",
             "meta",
             path=principal,
-            sql=grant_sql(table, principal, privileges),
+            sql=grant_sql(table, principal, privileges, self._object),
         )
 
     def _revoke(self, change: Change) -> None:
@@ -725,11 +730,12 @@ class _Planner:
             "meta",
             path=change.path,
             sql=(
-                f"REVOKE {', '.join(privilege_sql(p) for p in privileges)} ON TABLE "
-                f"{quote_qualified(change.table)} FROM {quote_ident(change.path)}"
+                f"REVOKE {', '.join(privilege_sql(p) for p in privileges)} ON "
+                f"{self._object} {quote_qualified(change.table)} "
+                f"FROM {quote_ident(change.path)}"
             ),
             warnings=(f"takes {', '.join(privileges)} away from {change.path}",),
-            undo_hint=grant_sql(change.table, change.path, privileges),
+            undo_hint=grant_sql(change.table, change.path, privileges, self._object),
         )
 
     def _claim(self, change: Change) -> None:
@@ -747,6 +753,46 @@ class _Planner:
                 "manages it — in a strict schema, removing its spec later will drop it"
             ),
         )
+
+    def _function(self, change: Change, facts: TableFacts, *, replacing: bool) -> None:
+        function = change.after
+        assert isinstance(function, Function)
+        if not replacing:
+            self.need_schema(facts)
+        previous = change.before
+        self.emit(
+            function.name,
+            f"{'REPLACE' if replacing else 'CREATE'} FUNCTION {function.short_name}",
+            "meta",
+            sql=create_function_sql(function, replace=replacing),
+            undo_hint=(
+                create_function_sql(previous, replace=True)
+                if isinstance(previous, Function)
+                else f"DROP FUNCTION {quote_qualified(function.name)}"
+            ),
+            warnings=(
+                (
+                    "anything calling it — a mask, a row filter, a view — sees the new "
+                    "definition from the moment it runs",
+                )
+                if replacing
+                else ()
+            ),
+        )
+        if not replacing:
+            for grant in function.grants:
+                self._emit_grant(function.name, grant.principal, grant.privileges)
+            return
+        # TODO(verify): whether CREATE OR REPLACE FUNCTION keeps the function's
+        # grants. Put them back as they were, as for a view, so the answer doesn't
+        # matter; the spec's own grant changes follow as their own steps.
+        # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create-sql-function
+        assert isinstance(previous, Function)
+        change_index = self._change
+        self._change = -1
+        for grant in previous.grants:
+            self._emit_grant(function.name, grant.principal, grant.privileges)
+        self._change = change_index
 
     def _create_view(self, change: Change, facts: TableFacts) -> None:
         view = change.after
@@ -1229,12 +1275,33 @@ def create_view_sql(view: View, *, if_not_exists: bool = False) -> str:
     return "\n".join(lines)
 
 
-def grant_sql(table: str, principal: str, privileges: tuple[str, ...]) -> str:
+def grant_sql(
+    table: str, principal: str, privileges: tuple[str, ...], kind: str = "TABLE"
+) -> str:
     """https://docs.databricks.com/aws/en/sql/language-manual/security-grant"""
     return (
-        f"GRANT {', '.join(privilege_sql(p) for p in privileges)} ON TABLE "
+        f"GRANT {', '.join(privilege_sql(p) for p in privileges)} ON {kind} "
         f"{quote_qualified(table)} TO {quote_ident(principal)}"
     )
+
+
+def create_function_sql(function: Function, *, replace: bool = False) -> str:
+    """`CREATE FUNCTION … RETURNS … RETURN body`.
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create-sql-function
+    """
+    verb = "CREATE OR REPLACE FUNCTION" if replace else "CREATE FUNCTION IF NOT EXISTS"
+    parameters = ", ".join(
+        f"{quote_ident(p.name)} {render_type(p.type, upper=True)}"
+        for p in function.parameters
+    )
+    lines = [
+        f"{verb} {quote_qualified(function.name)}({parameters})",
+        f"RETURNS {render_type(function.returns, upper=True)}",
+    ]
+    if function.comment is not None:
+        lines.append(f"COMMENT {quote_literal(function.comment)}")
+    lines.append(f"RETURN {function.body.strip().rstrip(';')}")
+    return "\n".join(lines)
 
 
 def column_tags_sql(table: str, column: str, tags: tuple[tuple[str, str], ...]) -> str:

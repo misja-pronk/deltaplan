@@ -20,6 +20,7 @@ from typing import Literal, TypeAlias
 import yaml
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
+from deltaplan.model.function import Function, Parameter
 from deltaplan.model.table import (
     MAINTAINED_PROPERTIES,
     PREREQUISITE_PROPERTIES,
@@ -46,7 +47,7 @@ from deltaplan.model.types import (
     render_type,
 )
 from deltaplan.model.view import Relation, View
-from deltaplan.sql import privilege_sql
+from deltaplan.sql import FUNCTION_PRIVILEGES, TABLE_PRIVILEGES, privilege_sql
 from deltaplan.typeparser import TypeParseError, parse_type
 
 SPEC_SUFFIXES = (".yml", ".yaml")
@@ -592,7 +593,8 @@ VIEW_KEYS = {"view", "query", "comment", "tags", "properties", "grants"}
 
 
 def load_spec(path: Path, variables: dict[str, str] | None = None) -> Relation:
-    """Read one spec file: a table, or — with a `view:` key — a view."""
+    """Read one spec file: a table, or — with a `view:` or `function:` key — one
+    of those."""
     ctx = _Ctx(path, tuple(sorted((variables or {}).items())))
     node = _compose(path)
     if node is None:
@@ -600,17 +602,56 @@ def load_spec(path: Path, variables: dict[str, str] | None = None) -> Relation:
     items = _mapping(ctx, node, "a spec")
     if "view" in items:
         return _read_view(ctx, node, items)
+    if "function" in items:
+        return _read_function_spec(ctx, node, items)
     if "table" not in items:
-        raise SpecError("a spec needs a 'table' or a 'view' key", ctx.loc(node))
+        raise SpecError("a spec needs a 'table', 'view' or 'function' key", ctx.loc(node))
     return _read_table(ctx, node, items)
 
 
 def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
     """Read one spec file that must describe a table."""
     spec = load_spec(path, variables)
-    if isinstance(spec, View):
-        raise SpecError("this spec describes a view, not a table", Loc(path, 1, 1))
+    if not isinstance(spec, Table):
+        kind = "view" if isinstance(spec, View) else "function"
+        raise SpecError(f"this spec describes a {kind}, not a table", Loc(path, 1, 1))
     return spec
+
+
+FUNCTION_KEYS = {"function", "parameters", "returns", "body", "comment", "grants"}
+
+
+def _read_function_spec(
+    ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]
+) -> Function:
+    _known_keys(items, allowed=FUNCTION_KEYS, what="a function spec")
+    name = _string(ctx, items["function"][0], "function name")
+    parameters: list[Parameter] = []
+    if "parameters" in items:
+        for item in _sequence(ctx, items["parameters"][0], "parameters"):
+            entry = _mapping(ctx, item, "a parameter")
+            _known_keys(entry, allowed={"name", "type"}, what="a parameter")
+            parameter_name = _string(
+                ctx, _require(ctx, entry, item, "name", "a parameter"), "parameter name"
+            )
+            parameter_type = _read_type(
+                ctx,
+                _require(ctx, entry, item, "type", "a parameter"),
+                f"type of {parameter_name!r}",
+            )
+            parameters.append(Parameter(parameter_name, parameter_type))
+    returns = _read_type(
+        ctx, _require(ctx, items, node, "returns", "a function spec"), "returns"
+    )
+    body_node = _require(ctx, items, node, "body", "a function spec")
+    body = _string(ctx, body_node, "body")
+    if not body.strip():
+        raise SpecError("a function's body cannot be empty", ctx.loc(body_node))
+    comment = _string(ctx, items["comment"][0], "comment") if "comment" in items else None
+    grants: tuple[Grant, ...] = ()
+    if "grants" in items:
+        grants = _read_grants(ctx, items["grants"][0], allowed=FUNCTION_PRIVILEGES)
+    return Function(name, tuple(parameters), returns, body, comment, grants)
 
 
 def _read_view(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> View:
@@ -696,7 +737,9 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
     )
 
 
-def _read_grants(ctx: _Ctx, node: Node) -> tuple[Grant, ...]:
+def _read_grants(
+    ctx: _Ctx, node: Node, *, allowed: frozenset[str] = TABLE_PRIVILEGES
+) -> tuple[Grant, ...]:
     grants: list[Grant] = []
     seen: set[str] = set()
     for item in _sequence(ctx, node, "grants"):
@@ -716,7 +759,7 @@ def _read_grants(ctx: _Ctx, node: Node) -> tuple[Grant, ...]:
         for privilege_node in _sequence(ctx, privileges_node, "privileges"):
             raw = _string(ctx, privilege_node, "privilege")
             try:
-                privileges.append(privilege_sql(raw))
+                privileges.append(privilege_sql(raw, allowed))
             except ValueError as error:
                 raise SpecError(str(error), ctx.loc(privilege_node)) from error
         grants.append(Grant(principal, tuple(privileges)))
@@ -851,10 +894,28 @@ MAX_CLUSTER_COLUMNS = 4
 
 
 def validate_spec(spec: Relation, where: str) -> tuple[Diagnostic, ...]:
-    """Lint a table or a view."""
+    """Lint a table, a view or a function."""
     if isinstance(spec, View):
         return validate_view(spec, where)
+    if isinstance(spec, Function):
+        return validate_function(spec, where)
     return validate_table(spec, where)
+
+
+def validate_function(function: Function, where: str) -> tuple[Diagnostic, ...]:
+    found: list[Diagnostic] = []
+    if len(function.parts) != 3:
+        found.append(
+            Diagnostic(
+                "error",
+                f"function name {function.name!r} must be catalog.schema.function",
+                where,
+            )
+        )
+    names = [p.name.casefold() for p in function.parameters]
+    for name in sorted({n for n in names if names.count(n) > 1}):
+        found.append(Diagnostic("error", f"parameter {name!r} is declared twice", where))
+    return tuple(found)
 
 
 def validate_view(view: View, where: str) -> tuple[Diagnostic, ...]:
@@ -1027,6 +1088,8 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
         name = f"${{{catalog_variable}}}.{rest}"
     if isinstance(table, View):
         return _dump_view(table, name)
+    if isinstance(table, Function):
+        return _dump_function(table, name)
 
     document: dict[str, object] = {"table": name}
     if table.comment is not None:
@@ -1064,6 +1127,26 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
         ]
 
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False, width=100)
+
+
+def _dump_function(function: Function, name: str) -> str:
+    document: dict[str, object] = {"function": name}
+    if function.comment is not None:
+        document["comment"] = function.comment
+    if function.parameters:
+        document["parameters"] = [
+            {"name": p.name, "type": render_type(p.type)} for p in function.parameters
+        ]
+    document["returns"] = render_type(function.returns)
+    if function.grants:
+        document["grants"] = [
+            {"principal": grant.principal, "privileges": list(grant.privileges)}
+            for grant in function.grants
+        ]
+    document["body"] = _LiteralText(function.body.strip() + "\n")
+    return yaml.dump(
+        document, Dumper=_SpecDumper, sort_keys=False, default_flow_style=False, width=100
+    )
 
 
 def _dump_view(view: View, name: str) -> str:

@@ -116,6 +116,11 @@ def _outer_parens_wrap(text: str) -> bool:
 TABLE_PRIVILEGES: frozenset[str] = frozenset(
     {"ALL PRIVILEGES", "APPLY TAG", "MANAGE", "MODIFY", "SELECT"}
 )
+#: What can be granted on a function.
+FUNCTION_PRIVILEGES: frozenset[str] = frozenset({"ALL PRIVILEGES", "EXECUTE", "MANAGE"})
+#: Every privilege deltaplan will put in a statement. The loader checks each
+#: grant against its object's own list; this is the last line, at SQL time.
+KNOWN_PRIVILEGES: frozenset[str] = TABLE_PRIVILEGES | FUNCTION_PRIVILEGES
 
 
 def normalise_privilege(privilege: str) -> str:
@@ -123,10 +128,10 @@ def normalise_privilege(privilege: str) -> str:
     return " ".join(privilege.replace("_", " ").upper().split())
 
 
-def privilege_sql(privilege: str) -> str:
-    """A privilege, fit for a GRANT or REVOKE. Anything unknown is refused."""
+def privilege_sql(privilege: str, allowed: frozenset[str] = KNOWN_PRIVILEGES) -> str:
+    """A privilege, fit for a GRANT or REVOKE. Anything not allowed is refused."""
     normalised = normalise_privilege(privilege)
-    if normalised not in TABLE_PRIVILEGES:
-        known = ", ".join(sorted(TABLE_PRIVILEGES))
+    if normalised not in allowed:
+        known = ", ".join(sorted(allowed))
         raise ValueError(f"unknown privilege {privilege!r} (known: {known})")
     return normalised

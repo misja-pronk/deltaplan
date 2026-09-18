@@ -7,7 +7,7 @@ apart.
 
 from __future__ import annotations
 
-from deltaplan.model.change import Change
+from deltaplan.model.change import CREATE_KINDS, Change
 from deltaplan.model.table import Check, ForeignKey, PrimaryKey, RowFilter, Table
 from deltaplan.model.types import Decimal, Field, Mask, as_data_type, render_type
 from deltaplan.model.view import View, normalise_query
@@ -32,11 +32,15 @@ def display_name(name: str) -> str:
     return ".".join(parts[-2:]) if len(parts) > 2 else name
 
 
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
 def table_verb(kinds: set[str]) -> tuple[str, str]:
     """The marker and verb for a table's header line."""
     if not kinds:
         return " ", "no changes"
-    if "create_table" in kinds:
+    if kinds & CREATE_KINDS:
         return "+", "create"
     if "drop_table" in kinds:
         return "-", "destroy"
@@ -50,13 +54,19 @@ def describe(change: Change) -> tuple[str, str]:
         case "create_table":
             table = change.after
             columns = len(table.columns) if isinstance(table, Table) else 0
-            return "+", (f"{columns} columns")
+            return "+", _count(columns, "column")
         case "drop_table":
             table = change.before
             columns = len(table.columns) if isinstance(table, Table) else 0
-            return "-", (f"{columns} columns — its spec is gone and the schema is strict")
+            return "-", (
+                f"{_count(columns, 'column')} — its spec is gone and the schema is strict"
+            )
         case "create_view":
             return "+", ("view")
+        case "create_function":
+            return "+", ("function")
+        case "replace_function":
+            return "~", ("definition")
         case "replace_view":
             before, after = change.before, change.after
             if isinstance(before, View) and isinstance(after, View):

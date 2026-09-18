@@ -22,6 +22,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
+from deltaplan.model.function import Function, Parameter
 from deltaplan.model.table import (
     Check,
     Constraint,
@@ -93,6 +94,7 @@ class LiveSchema:
     views: tuple[View, ...] = ()
     #: False when the schema itself isn't there yet — a fresh target.
     exists: bool = True
+    functions: tuple[Function, ...] = ()
 
     def get(self, name: str) -> LiveTable | None:
         for live in self.tables:
@@ -106,10 +108,18 @@ class LiveSchema:
                 return view
         return None
 
+    def get_function(self, name: str) -> Function | None:
+        for function in self.functions:
+            if function.name == name:
+                return function
+        return None
+
     def relation(self, name: str) -> Relation | None:
-        """A table or a view, whichever lives under that name."""
+        """A table, a view or a function, whichever lives under that name."""
         live = self.get(name)
-        return live.table if live else self.get_view(name)
+        if live is not None:
+            return live.table
+        return self.get_view(name) or self.get_function(name)
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -199,7 +209,14 @@ class Introspector:
                     unmodelled=_unmodelled(detail, column_features.get(name, [])),
                 )
             )
-        return LiveSchema(catalog, schema, tuple(tables), tuple(skipped), tuple(views))
+        return LiveSchema(
+            catalog,
+            schema,
+            tuple(tables),
+            tuple(skipped),
+            tuple(views),
+            functions=self._functions(catalog, schema, grants),
+        )
 
     def table(self, name: str) -> LiveTable | None:
         """One table by its full `catalog.schema.table` name."""
@@ -337,6 +354,78 @@ class Introspector:
                 continue
             tags.setdefault((table_name, column), {})[tag] = row.get("tag_value") or ""
         return tags
+
+    def _functions(
+        self, catalog: str, schema: str, table_grants: dict[str, dict[str, list[str]]]
+    ) -> tuple[Function, ...]:
+        """The SQL functions in a schema. Python UDFs aren't modelled and are skipped.
+
+        TODO(verify): routines, parameters and routine_privileges column names,
+        and that `specific_name` is the routine's name (no overloading in UC).
+        https://docs.databricks.com/aws/en/sql/language-manual/information-schema/routines
+        """
+        del table_grants
+        rows = self.runner.query(
+            "SELECT routine_name, routine_definition, full_data_type, comment "
+            f"FROM {_information_schema(catalog)}.routines "
+            f"WHERE routine_schema = {quote_literal(schema)} "
+            "AND routine_type = 'FUNCTION' AND routine_body = 'SQL'"
+        )
+        if not rows:
+            return ()
+        parameter_rows = self.runner.query(
+            "SELECT specific_name, parameter_name, ordinal_position, full_data_type "
+            f"FROM {_information_schema(catalog)}.parameters "
+            f"WHERE specific_schema = {quote_literal(schema)} "
+            "ORDER BY specific_name, ordinal_position"
+        )
+        parameters: dict[str, list[Parameter]] = {}
+        for row in parameter_rows:
+            owner, name = row.get("specific_name"), row.get("parameter_name")
+            if owner is None or name is None:
+                continue
+            parameters.setdefault(owner, []).append(
+                Parameter(name, _parse_live_type(row.get("full_data_type"), owner, name))
+            )
+        privilege_rows = self.runner.query(
+            "SELECT routine_name, grantee, privilege_type, inherited_from "
+            f"FROM {_information_schema(catalog)}.routine_privileges "
+            f"WHERE routine_schema = {quote_literal(schema)}"
+        )
+        grants: dict[str, dict[str, list[str]]] = {}
+        for row in privilege_rows:
+            routine, grantee, privilege = (
+                row.get("routine_name"),
+                row.get("grantee"),
+                row.get("privilege_type"),
+            )
+            if routine is None or grantee is None or privilege is None:
+                continue
+            if (row.get("inherited_from") or "NONE").upper() != "NONE":
+                continue
+            grants.setdefault(routine, {}).setdefault(grantee, []).append(
+                normalise_privilege(privilege)
+            )
+
+        found: list[Function] = []
+        for row in rows:
+            name = row.get("routine_name")
+            if name is None:
+                continue
+            found.append(
+                Function(
+                    name=f"{catalog}.{schema}.{name}",
+                    parameters=tuple(parameters.get(name, ())),
+                    returns=_parse_live_type(row.get("full_data_type"), name, "RETURNS"),
+                    body=row.get("routine_definition") or "",
+                    comment=row.get("comment"),
+                    grants=tuple(
+                        Grant(principal, tuple(privileges))
+                        for principal, privileges in grants.get(name, {}).items()
+                    ),
+                )
+            )
+        return tuple(found)
 
     def _schema_exists(self, catalog: str, schema: str) -> bool:
         """TODO(verify): that a missing *catalog* fails this query, rather than

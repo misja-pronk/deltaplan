@@ -13,7 +13,7 @@ then apply it.
 
 > **Status: pre-alpha.** Every milestone in the design is built — plan, apply
 > (rewrites included), drift, the GitHub Action, and governance (tags, grants, masks,
-> row filters, views). None of it has run against a real workspace yet: the live test
+> row filters, views, SQL functions). None of it has run against a real workspace yet: the live test
 > suite is written and waiting for credentials.
 
 **[Read the docs →](https://misja-pronk.github.io/deltaplan/)** — the spec format, the

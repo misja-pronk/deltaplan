@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
+from deltaplan.model.function import Function
 from deltaplan.model.table import Constraint, RowFilter, Table
 from deltaplan.model.types import DataType, Field, Identity, Mask
 from deltaplan.model.view import View
@@ -19,6 +20,8 @@ ChangeKind: TypeAlias = Literal[
     "claim_table",
     "create_view",
     "replace_view",
+    "create_function",
+    "replace_function",
     "set_table_comment",
     "set_cluster_by",
     "set_property",
@@ -42,6 +45,11 @@ ChangeKind: TypeAlias = Literal[
     "revoke",
 ]
 
+#: Kinds that bring a table, view or function into being.
+CREATE_KINDS: frozenset[str] = frozenset(
+    {"create_table", "create_view", "create_function"}
+)
+
 #: Kinds whose `path` names something other than a column — a property key, a
 #: tag key, a principal.
 TABLE_LEVEL_KINDS: frozenset[str] = frozenset(
@@ -59,6 +67,7 @@ ChangeValue: TypeAlias = (
     | Constraint
     | Table
     | View
+    | Function
     | Mask
     | RowFilter
     | Identity

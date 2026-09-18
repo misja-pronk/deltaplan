@@ -59,6 +59,9 @@ _FRAGMENTS = {
     "history": "DESCRIBE HISTORY",
     "grants": "information_schema.table_privileges",
     "schemata": "information_schema.schemata",
+    "routines": "information_schema.routines",
+    "parameters": "information_schema.parameters",
+    "routine_grants": "information_schema.routine_privileges",
 }
 
 

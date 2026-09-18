@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Literal, TypeAlias
 
-from deltaplan.model.change import Change
+from deltaplan.model.change import CREATE_KINDS, Change
 from deltaplan.model.view import Relation
 
 #: What a step can cost you.
@@ -75,7 +75,7 @@ class TableFacts:
     delta_version: int | None = None
     #: Tables and views take different statements for the same idea —
     #: `ALTER VIEW … SET TAGS`, `DROP VIEW`.
-    kind: Literal["table", "view"] = "table"
+    kind: Literal["table", "view", "function"] = "table"
     #: What the live table has that the model doesn't cover. See LiveTable.
     unmodelled: tuple[str, ...] = ()
     #: Whether the schema it lives in exists. A table in a fresh schema needs the
@@ -170,14 +170,15 @@ class Plan:
         def has(diff: TableDiff, kind: str) -> bool:
             return any(change.kind == kind for change in diff.changes)
 
-        created = sum(1 for diff in self.diffs if has(diff, "create_table"))
+        def creates(diff: TableDiff) -> bool:
+            return any(change.kind in CREATE_KINDS for change in diff.changes)
+
+        created = sum(1 for diff in self.diffs if creates(diff))
         destroyed = sum(1 for diff in self.diffs if has(diff, "drop_table"))
         changed = sum(
             1
             for diff in self.diffs
-            if diff.changes
-            and not has(diff, "create_table")
-            and not has(diff, "drop_table")
+            if diff.changes and not creates(diff) and not has(diff, "drop_table")
         )
         return Summary(
             add=created,

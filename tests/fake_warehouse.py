@@ -23,6 +23,7 @@ import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 
+from deltaplan.model.function import Function, Parameter
 from deltaplan.model.table import (
     Check,
     Constraint,
@@ -51,6 +52,7 @@ class FakeWarehouse:
 
     tables: dict[str, Table] = field(default_factory=dict)
     views: dict[str, View] = field(default_factory=dict)
+    functions: dict[str, Function] = field(default_factory=dict)
     #: Schemas that exist even with nothing in them. A schema holding a table or
     #: view exists regardless.
     schemas: set[str] = field(default_factory=set)
@@ -73,13 +75,16 @@ class FakeWarehouse:
     @classmethod
     def of(
         cls,
-        *relations: Table | View,
+        *relations: Table | View | Function,
         sizes: dict[str, int] | None = None,
     ) -> FakeWarehouse:
         fake = cls(sizes=sizes or {})
         for relation in relations:
             if isinstance(relation, View):
                 fake.views[relation.name] = relation
+                continue
+            if isinstance(relation, Function):
+                fake.functions[relation.name] = relation
                 continue
             fake.tables[relation.name] = relation
             fake.versions.setdefault(relation.name, 1)
@@ -119,6 +124,11 @@ class FakeWarehouse:
             return ()
         if upper.startswith(("CREATE VIEW", "CREATE OR REPLACE VIEW")):
             return self._create_view(original)
+        if upper.startswith(("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION")):
+            return self._create_function(original)
+        if upper.startswith("DROP FUNCTION"):
+            self.functions.pop(_unquote(flat[len("DROP FUNCTION ") :]), None)
+            return ()
         if upper.startswith("DROP VIEW"):
             self.views.pop(_unquote(flat[len("DROP VIEW ") :]), None)
             return ()
@@ -157,6 +167,8 @@ class FakeWarehouse:
             _literal_after(flat, "table_schema = ")
             or _literal_after(flat, "schema_name = ")
             or _literal_after(flat, "constraint_schema = ")
+            or _literal_after(flat, "routine_schema = ")
+            or _literal_after(flat, "specific_schema = ")
         )
         if schema is None:
             raise FakeSqlError(f"no schema filter in: {flat}")
@@ -171,13 +183,52 @@ class FakeWarehouse:
             for name, view in sorted(self.views.items())
             if name.startswith(f"{catalog}.{schema}.")
         ]
+        functions = [
+            function
+            for name, function in sorted(self.functions.items())
+            if name.startswith(f"{catalog}.{schema}.")
+        ]
         governed: list[Table | View] = [*tables, *views]
         if "information_schema.schemata" in flat:
             name = f"{catalog}.{schema}".lower()
             present = name in self.schemas or any(
-                other.startswith(f"{name}.") for other in [*self.tables, *self.views]
+                other.startswith(f"{name}.")
+                for other in [*self.tables, *self.views, *self.functions]
             )
             return ({"schema_name": schema},) if present else ()
+        if "information_schema.routines" in flat:
+            return tuple(
+                {
+                    "routine_name": function.short_name,
+                    "routine_definition": function.body,
+                    "full_data_type": _render(function.returns),
+                    "comment": function.comment,
+                }
+                for function in functions
+            )
+        if "information_schema.parameters" in flat:
+            return tuple(
+                {
+                    "specific_name": function.short_name,
+                    "parameter_name": parameter.name,
+                    "ordinal_position": str(position),
+                    "full_data_type": _render(parameter.type),
+                }
+                for function in functions
+                for position, parameter in enumerate(function.parameters)
+            )
+        if "information_schema.routine_privileges" in flat:
+            return tuple(
+                {
+                    "routine_name": function.short_name,
+                    "grantee": grant.principal,
+                    "privilege_type": privilege,
+                    "inherited_from": "NONE",
+                }
+                for function in functions
+                for grant in function.grants
+                for privilege in grant.privileges
+            )
         if "information_schema.tables" in flat:
             return tuple(
                 {
@@ -420,15 +471,20 @@ class FakeWarehouse:
 
     def _grant(self, flat: str) -> tuple[Row, ...]:
         match = re.fullmatch(
-            r"(GRANT|REVOKE) (.+) ON TABLE (\S+) (?:TO|FROM) (\S+)", flat
+            r"(GRANT|REVOKE) (.+) ON (?:TABLE|VIEW|FUNCTION) (\S+) (?:TO|FROM) (\S+)",
+            flat,
         )
         if match is None:
             raise FakeSqlError(f"cannot read: {flat}")
         verb, privileges, name, principal = match.groups()
         target = _unquote(name)
-        table: Table | View = (
-            self.views[target] if target in self.views else self._table(target)
-        )
+        table: Table | View | Function
+        if target in self.functions:
+            table = self.functions[target]
+        elif target in self.views:
+            table = self.views[target]
+        else:
+            table = self._table(target)
         who = _unquote(principal)
         held = dict(table.grants_map())
         changed = {p.strip() for p in privileges.split(",")}
@@ -441,10 +497,41 @@ class FakeWarehouse:
         updated = replace(
             table, grants=tuple(Grant(p, tuple(v)) for p, v in held.items())
         )
-        if isinstance(updated, View):
+        if isinstance(updated, Function):
+            self.functions[updated.name] = updated
+        elif isinstance(updated, View):
             self.views[updated.name] = updated
         else:
             self._store(updated)
+        return ()
+
+    def _create_function(self, statement: str) -> tuple[Row, ...]:
+        match = _FUNCTION.fullmatch(statement.strip())
+        if match is None:
+            raise FakeSqlError(f"cannot read CREATE FUNCTION:\n{statement}")
+        name = _unquote(match.group("name"))
+        if match.group("verb").endswith("IF NOT EXISTS") and name in self.functions:
+            return ()
+        existing = self.functions.get(name)
+        parameters = tuple(
+            Parameter(
+                _unquote(entry.split(" ", 1)[0]), parse_type(entry.split(" ", 1)[1])
+            )
+            for entry in _split_args(match.group("parameters"))
+            if entry.strip()
+        )
+        self.functions[name] = Function(
+            name=name,
+            parameters=parameters,
+            returns=parse_type(match.group("returns")),
+            body=match.group("body"),
+            comment=_unliteral(match.group("comment"))
+            if match.group("comment")
+            else None,
+            # A replace keeps the grants in the fake; the planner puts them back
+            # anyway, so either behaviour converges.
+            grants=existing.grants if existing else (),
+        )
         return ()
 
     def _create_view(self, statement: str) -> tuple[Row, ...]:
@@ -845,6 +932,15 @@ _VIEW = re.compile(
     r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
     r"\nTBLPROPERTIES \((?P<properties>.*?)\n\)"
     r"\nAS\n(?P<query>.*)",
+    re.DOTALL,
+)
+
+_FUNCTION = re.compile(
+    r"(?P<verb>CREATE FUNCTION IF NOT EXISTS|CREATE OR REPLACE FUNCTION) "
+    r"(?P<name>[^(\s]+)\((?P<parameters>.*?)\)"
+    r"\nRETURNS (?P<returns>[^\n]+)"
+    r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
+    r"\nRETURN (?P<body>.*)",
     re.DOTALL,
 )
 

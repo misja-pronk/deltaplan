@@ -21,18 +21,22 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from typing import TypeVar
 
 from deltaplan.differ import (
     diff,
+    diff_function,
     diff_view,
     ownership,
     spent_renames,
     unmanaged,
+    unmanaged_function,
     unmanaged_view,
 )
 from deltaplan.introspect import Introspector, LiveSchema, LiveTable
 from deltaplan.loader import Mode
 from deltaplan.model.change import Change
+from deltaplan.model.function import Function
 from deltaplan.model.plan import Plan, TableDiff, TableFacts, fingerprint
 from deltaplan.model.table import Table
 from deltaplan.model.view import Relation, View
@@ -53,22 +57,51 @@ def plan_tables(
     check_order: bool = False,
     clone: bool = False,
 ) -> Plan:
-    """Plan every table and view against live state.
+    """Plan every function, table and view against live state.
 
-    Tables come first, then views in dependency order: a view is planned after
-    anything its query reads that is also being planned.
+    Functions come first, in the order their bodies call each other, because
+    masks, row filters and views call them. Then tables, then views in
+    dependency order: a view is planned after anything its query reads that is
+    also being planned. A function is never dropped — it carries no ownership
+    marker — so one without a spec is simply left alone.
 
     `mode_for` answers `strict` or `additive` for a `catalog.schema` — it is a
     callable rather than a mapping because which schemas matter isn't known
     until the specs have been read.
     """
     schemas = _introspect(specs, introspector)
-    described = {spec.name for spec in specs}
+    # Functions have a namespace of their own; only tables and views can clash.
+    described = {spec.name for spec in specs if not isinstance(spec, Function)}
     tables = [spec for spec in specs if isinstance(spec, Table)]
     views = order_views([spec for spec in specs if isinstance(spec, View)])
-    _refuse_kind_changes(specs, schemas)
+    functions = _order(
+        [spec for spec in specs if isinstance(spec, Function)],
+        lambda function: function.body,
+        "functions call each other",
+    )
+    _refuse_kind_changes([s for s in specs if not isinstance(s, Function)], schemas)
+    _refuse_shared_names(functions, described, schemas)
 
     diffs: list[TableDiff] = []
+    # Functions first: masks, row filters and views call them.
+    for function in functions:
+        found = _schema_of(schemas, function.name)
+        live_function = found.get_function(function.name)
+        diffs.append(
+            TableDiff(
+                function.name,
+                diff_function(function, live_function),
+                TableFacts(
+                    function.name,
+                    exists=live_function is not None,
+                    kind="function",
+                    schema_exists=found.exists,
+                ),
+                unmanaged_function(function, live_function) if live_function else (),
+                desired=function,
+                live=live_function,
+            )
+        )
     for table in tables:
         live = _schema_of(schemas, table.name).get(table.name)
         live_table = live.table if live else None
@@ -170,31 +203,39 @@ def plan_tables(
     )
 
 
-def order_views(views: Sequence[View]) -> list[View]:
-    """Views in an order where each comes after the views its query reads.
+_Ordered = TypeVar("_Ordered", View, Function)
 
-    Stable: views that don't depend on each other keep their spec order. A cycle
+
+def order_views(views: Sequence[View]) -> list[View]:
+    """Views in an order where each comes after the views its query reads."""
+    return _order(views, lambda view: view.query, "views read each other")
+
+
+def _order(
+    items: Sequence[_Ordered], text: Callable[[_Ordered], str], what: str
+) -> list[_Ordered]:
+    """Items in an order where each comes after the ones its SQL names.
+
+    Stable: items that don't depend on each other keep their spec order. A cycle
     is an error — no order could create them.
     """
-    names = [view.name for view in views]
+    names = [item.name for item in items]
     depends_on = {
-        view.name: {o for o in names if o != view.name and _reads(view.query, o)}
-        for view in views
+        item.name: {o for o in names if o != item.name and _reads(text(item), o)}
+        for item in items
     }
-    ordered: list[View] = []
+    ordered: list[_Ordered] = []
     placed: set[str] = set()
-    while len(ordered) < len(views):
+    while len(ordered) < len(items):
         ready = [
-            v for v in views if v.name not in placed and depends_on[v.name] <= placed
+            i for i in items if i.name not in placed and depends_on[i.name] <= placed
         ]
         if not ready:
             stuck = sorted(name for name in names if name not in placed)
-            raise PlanningError(
-                f"these views read each other in a cycle: {', '.join(stuck)}"
-            )
-        for view in ready:
-            ordered.append(view)
-            placed.add(view.name)
+            raise PlanningError(f"these {what} in a cycle: {', '.join(stuck)}")
+        for item in ready:
+            ordered.append(item)
+            placed.add(item.name)
     return ordered
 
 
@@ -203,6 +244,28 @@ def _reads(query: str, name: str) -> bool:
     pattern = r"\s*\.\s*".join(rf"`?{re.escape(part)}`?" for part in name.split("."))
     found = re.search(rf"(?<![\w`.]){pattern}(?![\w`])", query, re.IGNORECASE)
     return found is not None
+
+
+def _refuse_shared_names(
+    functions: Sequence[Function],
+    described: set[str],
+    schemas: dict[tuple[str, str], LiveSchema],
+) -> None:
+    """A function with a table's or view's name.
+
+    Unity Catalog allows it — functions have a namespace of their own — but a
+    plan, its history and its renderings are keyed by name, so deltaplan would
+    confuse the two.
+    """
+    for function in functions:
+        found = _schema_of(schemas, function.name)
+        if function.name in described or (
+            found.get(function.name) or found.get_view(function.name)
+        ):
+            raise PlanningError(
+                f"{function.name} names both a function and a table or view. "
+                "deltaplan keys a plan by name, so it cannot manage both; rename one."
+            )
 
 
 def _refuse_kind_changes(

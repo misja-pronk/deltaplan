@@ -18,6 +18,7 @@ Two rules shape everything here:
 from __future__ import annotations
 
 from deltaplan.model.change import Change
+from deltaplan.model.function import Function
 from deltaplan.model.table import (
     MANAGED_PROPERTY,
     Check,
@@ -98,6 +99,33 @@ def diff_view(desired: View, actual: View | None) -> tuple[Change, ...]:
     return tuple(changes)
 
 
+def diff_function(desired: Function, actual: Function | None) -> tuple[Change, ...]:
+    """Diff one function. Its signature and body are its shape.
+
+    A changed body, return type, parameter list or comment replaces it; grants
+    are managed per principal as everywhere else.
+    """
+    if actual is None:
+        return (Change(desired.name, "create_function", after=desired),)
+    changes: list[Change] = []
+    if _function_shape(desired) != _function_shape(actual):
+        changes.append(
+            Change(desired.name, "replace_function", before=actual, after=desired)
+        )
+    changes.extend(_diff_grants(desired, actual))
+    return tuple(changes)
+
+
+def _function_shape(function: Function) -> tuple[object, ...]:
+    """TODO(verify): that routine_definition comes back as the body was written."""
+    return (
+        tuple((p.name.casefold(), p.type) for p in function.parameters),
+        function.returns,
+        normalise_query(function.body),
+        function.comment,
+    )
+
+
 def _diff_governance(desired: Securable, actual: Securable) -> list[Change]:
     """Properties and tags, additively, then grants per principal."""
     changes: list[Change] = []
@@ -135,6 +163,11 @@ def unmanaged_properties(
 
 def unmanaged_view(desired: View, actual: View) -> tuple[str, ...]:
     """What a live view carries that its spec doesn't mention."""
+    return tuple(_unmanaged_governance(desired, actual))
+
+
+def unmanaged_function(desired: Function, actual: Function) -> tuple[str, ...]:
+    """What a live function carries that its spec doesn't mention: grants."""
     return tuple(_unmanaged_governance(desired, actual))
 
 
@@ -592,7 +625,7 @@ def is_applied(change: Change, live: Relation | None) -> bool:
     Being wrong in the "not applied yet" direction is the safe one: the step runs
     again, and every statement deltaplan generates is safe to repeat.
     """
-    if change.kind in {"create_table", "create_view"}:
+    if change.kind in {"create_table", "create_view", "create_function"}:
         return live is not None
     if change.kind == "drop_table":
         return live is None
@@ -612,6 +645,13 @@ def is_applied(change: Change, live: Relation | None) -> bool:
         case "revoke":
             gone = change.before if isinstance(change.before, tuple) else ()
             return not set(gone) & set(live.grants_map().get(change.path, ()))
+        case "replace_function":
+            wanted = change.after
+            return (
+                isinstance(live, Function)
+                and isinstance(wanted, Function)
+                and _function_shape(live) == _function_shape(wanted)
+            )
         case "replace_view":
             wanted = change.after
             return (

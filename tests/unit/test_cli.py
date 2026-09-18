@@ -517,4 +517,4 @@ def test_import_with_nothing_to_import(
 ) -> None:
     monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake_runner())
     result = runner.invoke(app, ["import", "main.sales", "-o", str(tmp_path / "out")])
-    assert "No Delta tables or views found" in result.output
+    assert "No Delta tables, views or functions found" in result.output

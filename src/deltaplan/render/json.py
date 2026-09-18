@@ -12,9 +12,10 @@ the same order, and a missing entry would make a valid plan look stale.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from deltaplan.model.change import Change
+from deltaplan.model.function import Function, Parameter
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
 from deltaplan.model.table import (
     Check,
@@ -124,7 +125,7 @@ def _value(value: object) -> Any:
         return value
     if isinstance(value, Field):
         return _field_to_dict(value)
-    if isinstance(value, Table | View):
+    if isinstance(value, Table | View | Function):
         return _relation_to_dict(value)
     if isinstance(value, PrimaryKey):
         return {"primary_key": {"name": value.name, "columns": list(value.columns)}}
@@ -196,7 +197,18 @@ def _row_filter_to_dict(row_filter: RowFilter) -> dict[str, Any]:
     return {"function": row_filter.function, "columns": list(row_filter.columns)}
 
 
-def _relation_to_dict(relation: Table | View) -> dict[str, Any]:
+def _relation_to_dict(relation: Table | View | Function) -> dict[str, Any]:
+    if isinstance(relation, Function):
+        return {
+            "function": relation.name,
+            "parameters": [
+                {"name": p.name, "type": render_type(p.type)} for p in relation.parameters
+            ],
+            "returns": render_type(relation.returns),
+            "body": relation.body,
+            "comment": relation.comment,
+            "grants": {g.principal: list(g.privileges) for g in relation.grants},
+        }
     if isinstance(relation, View):
         return {
             "view": relation.name,
@@ -209,7 +221,22 @@ def _relation_to_dict(relation: Table | View) -> dict[str, Any]:
     return _table_to_dict(relation)
 
 
-def _relation_from_dict(entry: dict[str, Any]) -> Table | View:
+def _relation_from_dict(entry: dict[str, Any]) -> Table | View | Function:
+    if "function" in entry:
+        return Function(
+            name=str(entry["function"]),
+            parameters=tuple(
+                Parameter(str(p["name"]), parse_type(str(p["type"])))
+                for p in entry.get("parameters", ())
+            ),
+            returns=parse_type(str(entry["returns"])),
+            body=str(entry["body"]),
+            comment=entry.get("comment"),
+            grants=tuple(
+                Grant(principal, tuple(privileges))
+                for principal, privileges in entry.get("grants", {}).items()
+            ),
+        )
     if "view" in entry:
         return View(
             name=str(entry["view"]),
@@ -297,7 +324,7 @@ def _diff_from_dict(entry: dict[str, Any]) -> TableDiff:
             properties=tuple(sorted(facts.get("properties", {}).items())),
             size_bytes=facts.get("size_bytes"),
             delta_version=facts.get("delta_version"),
-            kind="view" if facts.get("kind") == "view" else "table",
+            kind=_kind(facts.get("kind")),
             unmodelled=tuple(facts.get("unmodelled", ())),
         ),
         unmanaged=tuple(entry.get("unmanaged", ())),
@@ -305,6 +332,16 @@ def _diff_from_dict(entry: dict[str, Any]) -> TableDiff:
         live=_relation_from_dict(entry["live"]) if entry.get("live") else None,
         notes=tuple(entry.get("notes", ())),
     )
+
+
+def _kind(value: object) -> Literal["table", "view", "function"]:
+    match value:
+        case "view":
+            return "view"
+        case "function":
+            return "function"
+        case _:
+            return "table"
 
 
 def _step_from_dict(entry: dict[str, Any]) -> Step:
@@ -343,7 +380,14 @@ def _value_from(kind: str, raw: Any) -> Any:
     if raw is None:
         return None
     match kind:
-        case "create_table" | "drop_table" | "create_view" | "replace_view":
+        case (
+            "create_table"
+            | "drop_table"
+            | "create_view"
+            | "replace_view"
+            | "create_function"
+            | "replace_function"
+        ):
             return _relation_from_dict(raw)
         case "add_column" | "drop_column":
             return _field_from_dict(raw)

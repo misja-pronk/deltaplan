@@ -8,6 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **SQL functions** (`function:` specs): parameters, return type, body,
+  comment and `EXECUTE` grants. Created before the tables and views that call
+  them, replaced when their definition changes (grants put back), never
+  dropped. Introspected from `information_schema.routines` and imported.
 - **Foreign keys** (`foreign_key:` constraints), introspected, diffed, planned
   and imported. They are planned after every table, so the table they reference
   exists first, and matched by what they mean rather than only by name.
@@ -44,6 +48,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A new view was headed `~ update` and counted as a change rather than an add.
+- `plan -o plan.txt` also printed the whole plan to stdout.
 - **A rewrite could drop a column without `--allow-destructive`.** A rewrite
   copies only the columns the spec lists, so a column the spec also removed went
   with it — inside a step classed `rewrite`, which the flag doesn't gate. The
