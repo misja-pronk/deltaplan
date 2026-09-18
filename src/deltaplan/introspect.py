@@ -60,11 +60,18 @@ class SqlRunner(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class LiveTable:
-    """A live table, plus the facts the planner needs about it."""
+    """A live table, plus the facts the planner needs about it.
+
+    `unmodelled` describes what the table has that deltaplan's model doesn't
+    cover — partitioning, identity and generated columns, column defaults. It is
+    reported, never diffed; and because a rewrite rebuilds a table from a query
+    that carries none of it, a table with any is never rewritten.
+    """
 
     table: Table
     size_bytes: int | None = None
     data_format: str = "DELTA"
+    unmodelled: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +119,7 @@ class Introspector:
     def schema(self, catalog: str, schema: str) -> LiveSchema:
         """Every Delta table in one schema, as the model."""
         comments, formats = self._table_rows(catalog, schema)
-        columns = self._column_rows(catalog, schema)
+        columns, column_features = self._column_rows(catalog, schema)
         column_tags = self._column_tag_rows(catalog, schema)
         masks = self._mask_rows(catalog, schema)
         for table_name, table_columns in columns.items():
@@ -176,6 +183,7 @@ class Introspector:
                     ),
                     size_bytes=_as_int(detail.get("sizeInBytes")),
                     data_format=table_type,
+                    unmodelled=_unmodelled(detail, column_features.get(name, [])),
                 )
             )
         return LiveSchema(catalog, schema, tuple(tables), tuple(skipped), tuple(views))
@@ -230,20 +238,44 @@ class Introspector:
                 formats[name] = data_format or "UNKNOWN"
         return comments, formats
 
-    def _column_rows(self, catalog: str, schema: str) -> dict[str, list[Column]]:
+    def _column_rows(
+        self, catalog: str, schema: str
+    ) -> tuple[dict[str, list[Column]], dict[str, list[str]]]:
+        """Each table's columns, and the column features deltaplan doesn't model.
+
+        TODO(verify): the identity, generation and default columns of
+        information_schema.columns against a live workspace.
+        https://docs.databricks.com/aws/en/sql/language-manual/information-schema/columns
+        """
         rows = self.runner.query(
             "SELECT table_name, column_name, ordinal_position, full_data_type, "
-            "is_nullable, comment "
+            "is_nullable, comment, column_default, is_identity, is_generated, "
+            "generation_expression "
             f"FROM {_information_schema(catalog)}.columns "
             f"WHERE table_schema = {quote_literal(schema)} "
             "ORDER BY table_name, ordinal_position"
         )
         columns: dict[str, list[Column]] = {}
+        features: dict[str, list[str]] = {}
         for row in rows:
             table_name = row.get("table_name")
             column_name = row.get("column_name")
             if table_name is None or column_name is None:
                 continue
+            if (row.get("is_identity") or "NO").upper() == "YES":
+                features.setdefault(table_name, []).append(
+                    f"identity column {column_name}"
+                )
+            if row.get("generation_expression") or (
+                (row.get("is_generated") or "NEVER").upper() not in {"NEVER", "NO"}
+            ):
+                features.setdefault(table_name, []).append(
+                    f"generated column {column_name}"
+                )
+            if row.get("column_default") is not None:
+                features.setdefault(table_name, []).append(
+                    f"default on column {column_name}"
+                )
             columns.setdefault(table_name, []).append(
                 Field(
                     column_name,
@@ -252,7 +284,7 @@ class Introspector:
                     comment=row.get("comment"),
                 )
             )
-        return columns
+        return columns, features
 
     def _tag_rows(self, catalog: str, schema: str) -> dict[str, dict[str, str]]:
         # TODO(verify): table_tags column names against a live workspace.
@@ -573,6 +605,15 @@ def _json_list(value: str | None) -> tuple[str, ...]:
     except json.JSONDecodeError:
         return ()
     return tuple(str(item) for item in parsed) if isinstance(parsed, list) else ()
+
+
+def _unmodelled(detail: Row, column_features: list[str]) -> tuple[str, ...]:
+    found: list[str] = []
+    partitions = _json_list(detail.get("partitionColumns"))
+    if partitions:
+        found.append(f"partitioned by ({', '.join(partitions)})")
+    found.extend(column_features)
+    return tuple(found)
 
 
 def _function_name(row: Row, prefix: str) -> str | None:

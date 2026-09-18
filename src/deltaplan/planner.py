@@ -285,6 +285,22 @@ class _Planner:
         staging = staging_name(table_diff.table)
         projection = build_projection(desired, live)
 
+        if facts.unmodelled:
+            # A rewrite rebuilds the table from a query, which carries none of
+            # these — an identity column would come back as a plain BIGINT.
+            self.emit(
+                table_diff.table,
+                "REWRITE",
+                "rewrite",
+                sql=None,
+                est_bytes=facts.size_bytes,
+                note=(
+                    f"this table has {', '.join(facts.unmodelled)}, which deltaplan "
+                    "doesn't model and a rewrite would lose. Rewrite it by hand"
+                ),
+            )
+            return
+
         if live.protected:
             # The staging copy is written with whatever the applying principal can
             # see — possibly unmasked — into a table with no mask or filter on it.

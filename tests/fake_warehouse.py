@@ -44,6 +44,12 @@ class FakeWarehouse:
     views: dict[str, View] = field(default_factory=dict)
     sizes: dict[str, int] = field(default_factory=dict)
     versions: dict[str, int] = field(default_factory=dict)
+    #: Table -> partition columns: partitioning isn't in deltaplan's model, so it
+    #: lives here rather than on the Table.
+    partitions: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: (table, column) -> extra information_schema.columns values, for the column
+    #: features deltaplan doesn't model (identity, generated, default).
+    column_features: dict[tuple[str, str], Row] = field(default_factory=dict)
     #: Substring -> error message, so a test can make any statement fail.
     failures: dict[str, str] = field(default_factory=dict)
     #: What a `blocked` precheck should answer.
@@ -178,6 +184,7 @@ class FakeWarehouse:
                     "full_data_type": _render(column.type),
                     "is_nullable": "YES" if column.nullable else "NO",
                     "comment": column.comment,
+                    **self.column_features.get((table.name, column.name), {}),
                 }
                 for table in tables
                 for position, column in enumerate(table.columns, start=1)
@@ -279,6 +286,7 @@ class FakeWarehouse:
                 "format": "delta",
                 "name": table.name,
                 "clusteringColumns": json.dumps(list(table.cluster_by)),
+                "partitionColumns": json.dumps(list(self.partitions.get(table.name, ()))),
                 "sizeInBytes": str(self.sizes.get(table.name, 0)),
                 "properties": json.dumps(dict(table.properties)),
             },

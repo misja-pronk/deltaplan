@@ -74,7 +74,11 @@ def plan_tables(
                 table.name,
                 changes,
                 _facts(introspector, table.name, live, changed=bool(changes)),
-                unmanaged(table, live_table) if live_table else (),
+                (
+                    (*unmanaged(table, live_table), *_not_modelled(live))
+                    if live_table
+                    else ()
+                ),
                 desired=table,
                 live=live_table,
             )
@@ -249,4 +253,11 @@ def _facts(
         delta_version=(
             introspector.latest_version(name) if live is not None and changed else None
         ),
+        unmodelled=live.unmodelled if live else (),
+    )
+
+
+def _not_modelled(live: LiveTable | None) -> tuple[str, ...]:
+    return tuple(
+        f"{feature} (not modelled)" for feature in (live.unmodelled if live else ())
     )

@@ -75,6 +75,7 @@ def _facts_to_dict(facts: TableFacts) -> dict[str, Any]:
         "size_bytes": facts.size_bytes,
         "delta_version": facts.delta_version,
         "kind": facts.kind,
+        "unmodelled": list(facts.unmodelled),
         "properties": dict(facts.properties),
     }
 
@@ -258,6 +259,7 @@ def _diff_from_dict(entry: dict[str, Any]) -> TableDiff:
             size_bytes=facts.get("size_bytes"),
             delta_version=facts.get("delta_version"),
             kind="view" if facts.get("kind") == "view" else "table",
+            unmodelled=tuple(facts.get("unmodelled", ())),
         ),
         unmanaged=tuple(entry.get("unmanaged", ())),
         desired=_relation_from_dict(entry["desired"]) if entry.get("desired") else None,

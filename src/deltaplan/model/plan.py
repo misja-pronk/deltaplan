@@ -76,6 +76,8 @@ class TableFacts:
     #: Tables and views take different statements for the same idea —
     #: `ALTER VIEW … SET TAGS`, `DROP VIEW`.
     kind: Literal["table", "view"] = "table"
+    #: What the live table has that the model doesn't cover. See LiveTable.
+    unmodelled: tuple[str, ...] = ()
 
     def property(self, key: str) -> str | None:
         return dict(self.properties).get(key)

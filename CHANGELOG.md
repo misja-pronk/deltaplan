@@ -27,6 +27,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   retention setting such as `delta.logRetentionDuration`, a CHECK or primary key
   someone else added. The replacement now carries them across, as it already
   did tags and grants; a view replace carries its properties the same way.
+- **Partitioning, identity and generated columns, and column defaults went
+  unnoticed** — and a rewrite would have dropped them (an identity column coming
+  back as a plain BIGINT). They are now read from the catalog, reported as not
+  modelled, and a table that has any is never rewritten.
 - A failed postcheck reports what it means, not a generic message.
 - The live suite skipped entirely unless `DATABRICKS_HOST` was set, so anyone
   authenticating with a profile would never have run it. It now accepts any
