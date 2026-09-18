@@ -26,6 +26,7 @@ from deltaplan.model.table import (
     Check,
     Constraint,
     Grant,
+    Hooks,
     PrimaryKey,
     RowFilter,
     Table,
@@ -460,6 +461,7 @@ TABLE_KEYS = {
     "constraints",
     "grants",
     "row_filter",
+    "hooks",
 }
 
 
@@ -585,6 +587,18 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
     row_filter = None
     if "row_filter" in items:
         row_filter = _read_row_filter(ctx, items["row_filter"][0])
+    hooks = None
+    if "hooks" in items:
+        hook_items = _mapping(ctx, items["hooks"][0], "hooks")
+        _known_keys(hook_items, allowed={"before", "after"}, what="hooks")
+        hooks = Hooks(
+            before=_string(ctx, hook_items["before"][0], "before hook")
+            if "before" in hook_items
+            else None,
+            after=_string(ctx, hook_items["after"][0], "after hook")
+            if "after" in hook_items
+            else None,
+        )
 
     return Table(
         name=name,
@@ -596,6 +610,7 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
         constraints=constraints,
         grants=grants,
         row_filter=row_filter,
+        hooks=hooks,
     )
 
 

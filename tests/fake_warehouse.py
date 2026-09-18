@@ -122,7 +122,9 @@ class FakeWarehouse:
             return self._create_table(original)
         if upper.startswith("DROP TABLE"):
             return self._drop_table(flat)
-        if upper.startswith("INSERT OVERWRITE") or upper.startswith("INSERT INTO"):
+        if upper.startswith(
+            ("INSERT OVERWRITE", "INSERT INTO", "UPDATE ", "DELETE FROM ")
+        ):
             # The fake models schemas, not rows: moving data is a no-op here, and
             # whether it is *valid* is a question only a warehouse can answer.
             return ()

@@ -60,7 +60,8 @@ IRREVERSIBLE_NOTE = "column mapping cannot be turned off again"
 PROTOCOL_NOTE = "raises the table's protocol version; older clients lose access"
 NOT_NULL_WARNING = "fails unless every existing row already has a value"
 NEW_NOT_NULL_WARNING = (
-    "a new column is NULL for every existing row, so this fails until they are backfilled"
+    "a new column is NULL for every existing row, so this fails until they are "
+    "backfilled — give the column a `using:` expression to fill them"
 )
 CHECK_WARNING = "Databricks validates every existing row, which scans the table"
 
@@ -281,17 +282,37 @@ class _Planner:
         if table_diff.facts.exists and table_diff.live is not None:
             self._existing.add(table_diff.table)
         self._kind = table_diff.facts.kind
+        hooks = (
+            table_diff.desired.hooks if isinstance(table_diff.desired, Table) else None
+        )
         start = self._change + 1
+        # Hooks run only when the table has something to do in this plan — they are
+        # for the change, not for every apply.
+        if hooks and hooks.before and table_diff.changes:
+            self._emit_hook(table_diff.table, "BEFORE hook", hooks.before)
         if _rewrites(table_diff):
             # The table is rebuilt whole rather than patched change by change, so
             # its steps belong to the table rather than to any one change.
             self._change = -1
             self._rewrite(table_diff)
             self._change = start + len(table_diff.changes) - 1
-            return
-        for change in table_diff.changes:
-            self._change += 1
-            self.plan_change(change, table_diff.facts)
+        else:
+            for change in table_diff.changes:
+                self._change += 1
+                self.plan_change(change, table_diff.facts)
+        if hooks and hooks.after and table_diff.changes:
+            self._emit_hook(table_diff.table, "AFTER hook", hooks.after)
+
+    def _emit_hook(self, table: str, title: str, sql: str) -> None:
+        change, self._change = self._change, -1
+        self.emit(
+            table,
+            title,
+            "meta",
+            sql=sql.strip().rstrip(";"),
+            warnings=("runs your SQL as written — deltaplan can't tell what it does",),
+        )
+        self._change = change
 
     @property
     def _object(self) -> str:
@@ -789,11 +810,30 @@ class _Planner:
             path=change.path,
             sql=f"ALTER TABLE {quote_qualified(change.table)} ADD COLUMNS ({definition})",
         )
+        backfilled = column.using is not None and not change.nested and facts.exists
+        if backfilled:
+            # `using:` says how to get this column's value from the rest of the
+            # row. On a column being added, that fills the rows already there —
+            # which is what lets a NOT NULL column be added to a table with data.
+            column_sql = quote_ident(column.name)
+            self.emit(
+                change.table,
+                f"BACKFILL {change.path}",
+                "rewrite",
+                path=change.path,
+                sql=(
+                    f"UPDATE {quote_qualified(change.table)} "
+                    f"SET {column_sql} = {column.using} WHERE {column_sql} IS NULL"
+                ),
+                est_bytes=facts.size_bytes,
+                undo_hint=_restore_hint(facts),
+                note="rewrites the files holding rows it fills; safe to repeat",
+            )
         if not column.nullable:
             self._emit_set_not_null(
                 change,
                 facts,
-                warnings=(NEW_NOT_NULL_WARNING,),
+                warnings=() if backfilled else (NEW_NOT_NULL_WARNING,),
             )
         if column.tags and not change.nested:
             self._emit_column_tags(change.table, change.path, column.tags)

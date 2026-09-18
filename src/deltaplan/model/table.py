@@ -6,7 +6,7 @@ never needs to know which came from where.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypeAlias
 
 from deltaplan.model.types import Array, Column, DataType, Field, Map, Struct
@@ -86,6 +86,19 @@ class RowFilter:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "function", self.function.lower())
+
+
+@dataclass(frozen=True, slots=True)
+class Hooks:
+    """SQL to run around a table's changes — only when it has some in the plan.
+
+    The design's "simple pre/post SQL hooks": the escape hatch for what a spec
+    can't say, like a backfill that isn't one column's expression. deltaplan runs
+    them as written and can't tell what they do, so the plan says so.
+    """
+
+    before: str | None = None
+    after: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +193,9 @@ class Table(Securable):
     constraints: tuple[Constraint, ...] = ()
     grants: tuple[Grant, ...] = ()
     row_filter: RowFilter | None = None
+    #: Not state: nothing in the catalog records them, so they take no part in
+    #: comparing a spec with a live table.
+    hooks: Hooks | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         sort_governance(self)

@@ -226,7 +226,7 @@ def test_adding_a_not_null_column_is_two_steps_and_says_why() -> None:
     )
     assert plan.steps[1].warnings == (
         "a new column is NULL for every existing row, so this fails until they are "
-        "backfilled",
+        "backfilled — give the column a `using:` expression to fill them",
     )
     assert plan.steps[1].precheck == (
         "SELECT count(*) > 0 AS blocked FROM `main`.`sales`.`orders` "

@@ -139,9 +139,7 @@ def _render_table(plan: Plan, diff: TableDiff, console: Console, offset: int) ->
     # the table rather than to any one change above.
     rest = [step for step in plan.steps_for(diff.table) if step.id not in shown]
     if rest:
-        # A rewrite's own steps, or what a replace puts back as it found it.
-        rewriting = any(step.risk == "rewrite" for step in rest)
-        console.print(_line(1, "↻", Text("rewrite" if rewriting else "restore")))
+        console.print(_line(1, "↻", Text(_rest_label(rest))))
         for step in rest:
             _render_step(step, console, indent=2)
 
@@ -155,6 +153,15 @@ VERB_STYLE = {
     "destroy": "red",
     "update": "yellow",
 }
+
+
+def _rest_label(rest: list[Step]) -> str:
+    """What the steps that belong to the table rather than a change are."""
+    if any(step.risk == "rewrite" for step in rest):
+        return "rewrite"
+    if all(step.title.endswith("hook") for step in rest):
+        return "hooks"
+    return "restore"
 
 
 def _table_header(diff: TableDiff) -> Text:

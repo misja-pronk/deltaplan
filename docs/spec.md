@@ -156,6 +156,37 @@ tags in the spec are set, and tags someone else put on the column are listed as
 unmanaged and left alone — including across a rewrite, which puts them back after
 rebuilding the table.
 
+## Adding a NOT NULL column to a table with data
+
+A new column arrives empty in every existing row, so `NOT NULL` can't hold until those
+rows are filled. `using:` — the same hint a rewrite reads — says how:
+
+```yaml
+- name: region
+  type: string
+  nullable: false
+  using: "coalesce(country_region, 'unknown')"
+```
+
+The plan adds the column, fills it with
+`UPDATE … SET region = <using> WHERE region IS NULL`, then sets `NOT NULL`. The fill
+rewrites the files holding the rows it touches, so it is classed `rewrite` and a restore
+point is recorded first. It is safe to repeat. Without `using:`, the plan still adds the
+column, but warns that `SET NOT NULL` will fail.
+
+## Hooks
+
+```yaml
+hooks:
+  before: DELETE FROM ${catalog}.sales.orders WHERE order_id IS NULL
+  after: OPTIMIZE ${catalog}.sales.orders
+```
+
+SQL to run around a table's changes, for what a spec can't say. Hooks run only when the
+table has changes in the plan — they are for the change, not for every apply — and
+`before` runs ahead of the table's first step, `after` behind its last. deltaplan runs
+them as written and can't tell what they do, so the plan shows them with that warning.
+
 ## Column masks and row filters
 
 ```yaml

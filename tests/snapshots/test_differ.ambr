@@ -25,6 +25,7 @@
         ),
         grants=tuple(
         ),
+        hooks=None,
         name='main.sales.orders',
         properties=tuple(
         ),

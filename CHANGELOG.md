@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Backfills.** `using:` on a column being added fills the existing rows
+  (`UPDATE … WHERE col IS NULL`) before `SET NOT NULL` — so a NOT NULL column
+  can be added to a table with data. Without it, the plan warns and says what to
+  add.
+- **Table hooks** (`hooks: {before, after}`), the design's simple pre/post SQL
+  hooks: run as written around a table's changes, only when it has some.
 - **Schemas are created when a spec needs them**, once each, just before the
   first table or view in them — so a fresh target plans from nothing. Catalogs
   are never created, and schemas are never dropped. The history schema is
