@@ -1,0 +1,18 @@
+# A SQL function spec. Functions are created before the tables and views that
+# call them, so a mask or a view can use one declared in the same project.
+# A changed body replaces it; a function is never dropped.
+function: ${catalog}.sales.order_band
+comment: Small, medium or large, by amount
+parameters:
+  - name: amount
+    type: decimal(18,2)
+returns: string
+grants:
+  - principal: analysts
+    privileges: [EXECUTE]
+body: |
+  CASE
+    WHEN amount < 100 THEN 'small'
+    WHEN amount < 1000 THEN 'medium'
+    ELSE 'large'
+  END

@@ -1,0 +1,26 @@
+# A Databricks Asset Bundle — the kind a project may already have for its jobs
+# and pipelines. deltaplan reads only its targets and variables.
+bundle:
+  name: sales
+
+variables:
+  catalog:
+    description: The catalog the sales tables live in
+    default: dev
+  warehouse_id:
+    description: The SQL warehouse to run statements on
+    lookup:
+      warehouse: Starter Warehouse
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      profile: dev
+  prod:
+    mode: production
+    workspace:
+      profile: prod
+    variables:
+      catalog: prod

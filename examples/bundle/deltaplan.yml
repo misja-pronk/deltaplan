@@ -1,0 +1,13 @@
+# deltaplan next to an Asset Bundle: the targets, their workspaces and their
+# variables come from databricks.yml. Run `deltaplan validate` from this
+# directory — no -t needed, the bundle's default target is used.
+version: 1
+specs: [../tables]
+bundle: databricks.yml
+history_schema: ${catalog}.deltaplan
+
+# Only what a bundle has no word for. A target named here must exist in the
+# bundle.
+targets:
+  prod:
+    mode: additive
