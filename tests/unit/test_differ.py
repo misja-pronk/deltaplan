@@ -231,7 +231,7 @@ def test_nothing_unmodelled_is_diffed_away() -> None:
         col("id", "bigint"),
         properties=(
             ("deltaplan.managed", "true"),
-            ("delta.enableDeletionVectors", "true"),
+            ("delta.logRetentionDuration", "interval 60 days"),
             ("delta.minReaderVersion", "3"),
         ),
         tags=(("owner", "someone-else"),),
@@ -241,8 +241,27 @@ def test_nothing_unmodelled_is_diffed_away() -> None:
 
     assert diff(desired, live) == ()
     assert unmanaged(desired, live) == (
-        "property delta.enableDeletionVectors",
+        "property delta.logRetentionDuration",
         "tag owner",
         "primary key",
         "check constraint by_hand",
     )
+
+
+def test_platform_defaults_and_internals_are_not_reported() -> None:
+    """Every new table on a current workspace carries these (seen live,
+    2026-09-18). A default that still holds its value, and Unity Catalog's own
+    bookkeeping, aren't anyone's intent — but a default someone changed is."""
+    live = table(
+        col("id", "bigint"),
+        properties=(
+            ("delta.enableDeletionVectors", "true"),
+            ("delta.enableRowTracking", "false"),  # changed by someone: report it
+            ("delta.checkpointPolicy", "v2"),
+            ("delta.parquet.format.version.afe.internal", "2.12.0"),
+            ("delta.rowTracking.materializedRowIdColumnName", "_row-id-col-1"),
+            ("io.unitycatalog.tableId", "4dcae1f4"),
+        ),
+    )
+    desired = table(col("id", "bigint"))
+    assert unmanaged(desired, live) == ("property delta.enableRowTracking",)

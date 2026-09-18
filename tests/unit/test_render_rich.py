@@ -104,7 +104,7 @@ def test_table_level_changes_and_unmanaged_report(snapshot: SnapshotAssertion) -
     live = table(
         col("id", "int"),
         comment="old",
-        properties=(("delta.enableDeletionVectors", "true"),),
+        properties=(("delta.logRetentionDuration", "interval 60 days"),),
         tags=(("owner", "someone-else"),),
     )
     desired = table(
@@ -116,7 +116,7 @@ def test_table_level_changes_and_unmanaged_report(snapshot: SnapshotAssertion) -
     rendered = plan_text(plan_for(desired, live))
     assert "  ~ comment" in rendered
     assert "  ~ cluster_by [id]" in rendered
-    assert "property delta.enableDeletionVectors — unmanaged, left untouched" in rendered
+    assert "property delta.logRetentionDuration — unmanaged, left untouched" in rendered
     assert "tag owner — unmanaged, left untouched" in rendered
     assert rendered == snapshot
 

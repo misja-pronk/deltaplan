@@ -37,7 +37,12 @@ def plan_for(desired: Table, introspector: Introspector) -> Plan:
                     exists=live_table is not None,
                     properties=live_table.properties if live_table else (),
                     size_bytes=live.size_bytes if live else None,
+                    features=live.features if live else (),
                 ),
+                # A rewrite needs both sides: without them the planner can only
+                # classify the change, not rebuild the table.
+                desired=desired,
+                live=live_table,
             )
         ],
         target="integration",

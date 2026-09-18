@@ -447,3 +447,35 @@ def test_a_history_schema_variable_the_target_lacks(tmp_path: Path) -> None:
     project = load_project(tmp_path / "deltaplan.yml")
     with pytest.raises(KeyError, match="undefined variable"):
         project.history_schema_for(project.target("dev"))
+
+
+def test_import_leaves_out_platform_defaults_and_internals() -> None:
+    """A spec written from a live table must not carry Unity Catalog's ids or
+    the platform's defaults — replayed onto another table they'd be wrong or
+    noise. A default someone changed is intent, and is kept."""
+    from deltaplan.loader import dump_spec
+    from deltaplan.model.table import Table
+    from deltaplan.model.types import Field, Primitive
+
+    live = Table(
+        name="main.sales.orders",
+        columns=(Field("id", Primitive("bigint")),),
+        properties=(
+            ("delta.enableDeletionVectors", "true"),
+            ("delta.enableRowTracking", "false"),
+            ("delta.enableChangeDataFeed", "true"),
+            ("delta.rowTracking.materializedRowIdColumnName", "_row-id-col-1"),
+            ("io.unitycatalog.tableId", "4dcae1f4"),
+            ("delta.constraints.positive", "id > 0"),
+        ),
+    )
+    written = dump_spec(live)
+    assert "delta.enableRowTracking" in written
+    assert "delta.enableChangeDataFeed" in written
+    for absent in (
+        "enableDeletionVectors",
+        "materializedRowIdColumnName",
+        "io.unitycatalog",
+        "delta.constraints",
+    ):
+        assert absent not in written, absent

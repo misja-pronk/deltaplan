@@ -103,23 +103,23 @@ def test_detail_gives_clustering_properties_and_size() -> None:
 
 
 def test_tags_and_constraints() -> None:
+    """Keys come from information_schema; CHECK constraints don't — Delta keeps
+    them as `delta.constraints.<name>` properties, which DESCRIBE DETAIL shows
+    and information_schema doesn't. Verified live, 2026-09-18."""
+    detail = dict(ORDERS_DETAIL[0])
+    detail["properties"] = (
+        '{"deltaplan.managed":"true","delta.constraints.positive":"order_id > 0"}'
+    )
     schema = live_schema(
         tables=ORDERS_TABLE,
         columns=ORDERS_COLUMNS,
-        detail=ORDERS_DETAIL,
+        detail=(detail,),
         tags=({"table_name": "orders", "tag_name": "domain", "tag_value": "sales"},),
         constraints=(
             {
                 "table_name": "orders",
                 "constraint_name": "orders_pk",
                 "constraint_type": "PRIMARY KEY",
-                "check_clause": None,
-            },
-            {
-                "table_name": "orders",
-                "constraint_name": "positive",
-                "constraint_type": "CHECK",
-                "check_clause": "(order_id > 0)",
             },
         ),
         keys=(
@@ -135,8 +135,10 @@ def test_tags_and_constraints() -> None:
     assert live.table.tags == (("domain", "sales"),)
     assert live.table.constraints == (
         PrimaryKey(("order_id",), "orders_pk"),
-        # The catalog wraps a check clause in parentheses; a spec doesn't.
         Check("positive", "order_id > 0"),
+    )
+    assert "delta.constraints.positive" not in live.table.properties_map(), (
+        "a CHECK is a constraint, not a property to report or import"
     )
 
 
@@ -259,3 +261,28 @@ def test_names_are_quoted_and_filters_are_literals() -> None:
 )
 def test_normalise_expression(clause: str, expected: str) -> None:
     assert normalise_expression(clause) == expected
+
+
+def test_a_second_read_sees_what_changed_in_between() -> None:
+    """One Introspector, read twice with a change in between: the second read
+    must see it. It once cached DESCRIBE DETAIL and key usage for its whole
+    life, so the second read returned the first — and apply's staleness check,
+    reading through the same object as plan, could never see a change."""
+    from deltaplan.model.table import PrimaryKey
+    from fake_warehouse import FakeWarehouse
+
+    fake = FakeWarehouse.of(
+        table(col("id", "bigint", nullable=False), name="main.sales.t")
+    )
+    introspector = Introspector(fake)
+    assert introspector.table("main.sales.t") is not None
+
+    fake.query("ALTER TABLE `main`.`sales`.`t` CLUSTER BY (`id`)")
+    fake.query("ALTER TABLE `main`.`sales`.`t` SET TBLPROPERTIES ('a' = 'b')")
+    fake.query("ALTER TABLE `main`.`sales`.`t` ADD CONSTRAINT `t_pk` PRIMARY KEY (`id`)")
+
+    again = introspector.table("main.sales.t")
+    assert again is not None
+    assert again.table.cluster_by == ("id",)
+    assert again.table.properties_map().get("a") == "b"
+    assert PrimaryKey(("id",), "t_pk") in again.table.constraints

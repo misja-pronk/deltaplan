@@ -38,6 +38,10 @@ MAINTAINED_PROPERTIES = frozenset(
     }
 )
 
+#: Delta keeps each CHECK constraint as a table property under this prefix,
+#: named after the constraint. deltaplan models them as constraints instead.
+CHECK_PROPERTY_PREFIX = "delta.constraints."
+
 #: How a `set_cluster_by` change says "automatic liquid clustering".
 CLUSTER_AUTO = "auto"
 
@@ -46,13 +50,41 @@ CLUSTER_AUTO = "auto"
 FEATURE_FLAG_PREFIX = "delta.feature."
 
 
+#: Properties Unity Catalog and Delta set for their own use — table ids, the
+#: hidden columns row tracking keeps, internal format markers. Seen on every new
+#: table in a live workspace (2026-09-18); never anyone's intent, and replayed
+#: onto another table they would be wrong.
+INTERNAL_PROPERTY_PREFIXES = ("io.unitycatalog.", "delta.rowTracking.materialized")
+
+#: What a new table gets without asking, on a current workspace (observed
+#: 2026-09-18). Not reported as unmanaged and not written by `import` while they
+#: hold these values — they are the platform's, not the table's. A table where
+#: someone changed one still shows it. A spec may declare them like any other.
+PLATFORM_DEFAULTS: dict[str, str] = {
+    "delta.enableDeletionVectors": "true",
+    "delta.enableRowTracking": "true",
+    "delta.checkpointPolicy": "v2",
+    "delta.checkpoint.writeStatsAsJson": "false",
+    "delta.checkpoint.writeStatsAsStruct": "true",
+    "delta.parquet.compression.codec": "zstd",
+    "delta.parquet.format.version": "2.12.0",
+}
+
+
+def is_platform_default(key: str, value: str) -> bool:
+    return PLATFORM_DEFAULTS.get(key) == value
+
+
 def is_bookkeeping(key: str) -> bool:
     """Is this property Delta's or deltaplan's own, rather than anyone's intent?"""
     return (
         key in MAINTAINED_PROPERTIES
+        or key.startswith(INTERNAL_PROPERTY_PREFIXES)
+        or key.endswith(".internal")
         or key.startswith(FEATURE_FLAG_PREFIX)
         or key == MANAGED_PROPERTY
         or key in PREREQUISITE_PROPERTIES
+        or key.startswith(CHECK_PROPERTY_PREFIX)
     )
 
 

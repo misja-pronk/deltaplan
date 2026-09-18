@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.table import (
+    CHECK_PROPERTY_PREFIX,
     Check,
     Constraint,
     ForeignKey,
@@ -136,12 +137,18 @@ class Introspector:
     """Reads live state through a `SqlRunner`."""
 
     runner: SqlRunner
+    #: Within one read only: the same key usage is asked for by several
+    #: constraints. Kept across reads, a second read returned the first one's
+    #: state — found live, where apply's staleness check could then never see a
+    #: change. Cleared at the start of every read.
     _detail_cache: dict[str, Row] = field(default_factory=dict)
     _keys_cache: dict[str, dict[str, tuple[str, list[str]]]] = field(default_factory=dict)
 
     # -- public ------------------------------------------------------------
     def schema(self, catalog: str, schema: str) -> LiveSchema:
-        """Every Delta table in one schema, as the model."""
+        """Every Delta table in one schema, as the model — read fresh."""
+        self._detail_cache.clear()
+        self._keys_cache.clear()
         if not self._schema_exists(catalog, schema):
             return LiveSchema(catalog, schema, exists=False)
         comments, formats = self._table_rows(catalog, schema)
@@ -191,6 +198,7 @@ class Introspector:
                 skipped.append((full_name, table_type.lower().replace("_", " ")))
                 continue
             detail = self._describe_detail(full_name)
+            properties = _json_map(detail.get("properties"))
             tables.append(
                 LiveTable(
                     table=Table(
@@ -201,9 +209,18 @@ class Introspector:
                         # A top-level DESCRIBE DETAIL field — verified live.
                         cluster_auto=(detail.get("clusterByAuto") or "").lower()
                         == "true",
-                        properties=_pairs(_json_map(detail.get("properties"))),
+                        properties=_pairs(
+                            {
+                                k: v
+                                for k, v in properties.items()
+                                if not k.startswith(CHECK_PROPERTY_PREFIX)
+                            }
+                        ),
                         tags=tuple(sorted(tags.get(name, {}).items())),
-                        constraints=tuple(constraints.get(name, ())),
+                        constraints=(
+                            *constraints.get(name, ()),
+                            *_checks(properties),
+                        ),
                         grants=tuple(
                             Grant(principal, tuple(privileges))
                             for principal, privileges in grants.get(name, {}).items()
@@ -540,15 +557,14 @@ class Introspector:
         return grants
 
     def _constraint_rows(self, catalog: str, schema: str) -> dict[str, list[Constraint]]:
+        """Primary and foreign keys. CHECK constraints aren't here: Delta keeps
+        them as `delta.constraints.<name>` table properties, and neither
+        table_constraints nor check_constraints lists them — verified live. They
+        are read from DESCRIBE DETAIL instead (`_checks`)."""
         rows = self.runner.query(
-            "SELECT tc.table_name, tc.constraint_name, tc.constraint_type, "
-            "cc.check_clause "
-            f"FROM {_information_schema(catalog)}.table_constraints tc "
-            f"LEFT JOIN {_information_schema(catalog)}.check_constraints cc "
-            "ON cc.constraint_catalog = tc.constraint_catalog "
-            "AND cc.constraint_schema = tc.constraint_schema "
-            "AND cc.constraint_name = tc.constraint_name "
-            f"WHERE tc.table_schema = {quote_literal(schema)}"
+            "SELECT table_name, constraint_name, constraint_type "
+            f"FROM {_information_schema(catalog)}.table_constraints "
+            f"WHERE table_schema = {quote_literal(schema)}"
         )
         keys = self._key_usage(catalog, schema)
         references = (
@@ -569,10 +585,6 @@ class Introspector:
             if kind == "PRIMARY KEY":
                 constraints.setdefault(table_name, []).append(
                     PrimaryKey(tuple(keys.get(name, ("", []))[1]), name)
-                )
-            elif kind == "CHECK":
-                constraints.setdefault(table_name, []).append(
-                    Check(name, normalise_expression(row.get("check_clause") or ""))
                 )
             elif kind == "FOREIGN KEY" and name in references:
                 referenced_table, referenced_columns = references[name]
@@ -793,6 +805,16 @@ def _unmodelled(detail: Row, column_features: list[str]) -> tuple[str, ...]:
         found.append(f"partitioned by ({', '.join(partitions)})")
     found.extend(column_features)
     return tuple(found)
+
+
+def _checks(properties: dict[str, str]) -> tuple[Check, ...]:
+    """CHECK constraints, from the `delta.constraints.<name>` properties Delta
+    keeps them in. The value is the expression as written."""
+    return tuple(
+        Check(key.removeprefix(CHECK_PROPERTY_PREFIX), normalise_expression(value))
+        for key, value in sorted(properties.items())
+        if key.startswith(CHECK_PROPERTY_PREFIX)
+    )
 
 
 def _name_list(value: str | None) -> tuple[str, ...]:

@@ -404,10 +404,13 @@ class FakeWarehouse:
                 for key, value in table.tags
             )
         if "information_schema.table_constraints" in flat:
+            # Keys only: Delta keeps CHECKs as table properties, and
+            # information_schema doesn't list them — verified live.
             return tuple(
                 _constraint_row(table, constraint)
                 for table in tables
                 for constraint in table.constraints
+                if not isinstance(constraint, Check)
             )
         if "information_schema.key_column_usage" in flat:
             rows: list[Row] = []
@@ -464,9 +467,17 @@ class FakeWarehouse:
                 # among the properties.
                 "properties": json.dumps(
                     {
-                        k: v
-                        for k, v in table.properties
-                        if not k.startswith(FEATURE_FLAG_PREFIX)
+                        **{
+                            k: v
+                            for k, v in table.properties
+                            if not k.startswith(FEATURE_FLAG_PREFIX)
+                        },
+                        # Where Delta keeps a CHECK constraint.
+                        **{
+                            f"delta.constraints.{c.name}": c.expression
+                            for c in table.constraints
+                            if isinstance(c, Check)
+                        },
                     }
                 ),
                 "tableFeatures": json.dumps(
@@ -1076,25 +1087,12 @@ def _constraint_name(constraint: Constraint, table: Table) -> str:
 
 
 def _constraint_row(table: Table, constraint: Constraint) -> Row:
-    if isinstance(constraint, ForeignKey):
-        return {
-            "table_name": table.short_name,
-            "constraint_name": _constraint_name(constraint, table),
-            "constraint_type": "FOREIGN KEY",
-            "check_clause": None,
-        }
-    if isinstance(constraint, Check):
-        return {
-            "table_name": table.short_name,
-            "constraint_name": constraint.name,
-            "constraint_type": "CHECK",
-            "check_clause": f"({constraint.expression})",
-        }
     return {
         "table_name": table.short_name,
         "constraint_name": _constraint_name(constraint, table),
-        "constraint_type": "PRIMARY KEY",
-        "check_clause": None,
+        "constraint_type": (
+            "FOREIGN KEY" if isinstance(constraint, ForeignKey) else "PRIMARY KEY"
+        ),
     }
 
 

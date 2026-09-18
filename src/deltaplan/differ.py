@@ -29,6 +29,7 @@ from deltaplan.model.table import (
     Table,
     field_at,
     is_bookkeeping,
+    is_platform_default,
     type_at,
 )
 from deltaplan.model.types import Array, DataType, Field, Map, Struct, type_kind, walk
@@ -233,8 +234,12 @@ def unmanaged(desired: Table, actual: Table) -> tuple[str, ...]:
     """Live things the spec says nothing about. Reported, never touched."""
     found: list[str] = []
     desired_properties = desired.properties_map()
-    for key in sorted(actual.properties_map()):
-        if key not in desired_properties and not is_bookkeeping(key):
+    for key, value in sorted(actual.properties_map().items()):
+        if (
+            key not in desired_properties
+            and not is_bookkeeping(key)
+            and not is_platform_default(key, value)
+        ):
             found.append(f"property {key}")
     desired_tags = desired.tags_map()
     for key in sorted(actual.tags_map()):

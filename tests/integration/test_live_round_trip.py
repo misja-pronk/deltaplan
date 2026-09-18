@@ -25,7 +25,7 @@ pytestmark = pytest.mark.integration
 
 def plan_for(desired: Table, live: Table | None, facts: TableFacts) -> Plan:
     return build_plan(
-        [TableDiff(desired.name, diff(desired, live), facts)],
+        [TableDiff(desired.name, diff(desired, live), facts, desired=desired, live=live)],
         target="integration",
         tool_version="0.1.0",
         spec_hash="spec",
@@ -171,7 +171,9 @@ def test_the_widenings_we_claim_are_supported(
     desired = table(col("value", after), name=f"{schema}.orders")
     live, facts = live_table(introspector, desired.name)
     plan = plan_for(desired, live, facts)
-    assert [step.risk for step in plan.steps] == ["feature", "meta"]
+    # timestamp_ntz also needs its own feature before ALTER TABLE may use it.
+    features = 2 if after == "timestamp_ntz" else 1
+    assert [step.risk for step in plan.steps] == ["feature"] * features + ["meta"]
     run_plan(plan, runner)
 
     live_after, _ = live_table(introspector, desired.name)

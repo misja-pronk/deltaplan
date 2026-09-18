@@ -35,7 +35,7 @@
          · applies to new data; run OPTIMIZE to recluster what is there
     ~ property delta.enableChangeDataFeed = 'true'
       3. SET TBLPROPERTIES            [meta]
-    · property delta.enableDeletionVectors — unmanaged, left untouched
+    · property delta.logRetentionDuration — unmanaged, left untouched
     · tag owner — unmanaged, left untouched
   
   Plan: 0 add, 1 change, 0 destroy · 3 steps · 0 rewrites · 0 warnings

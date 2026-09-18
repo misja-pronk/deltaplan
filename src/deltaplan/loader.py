@@ -34,6 +34,7 @@ from deltaplan.model.table import (
     RowFilter,
     Table,
     is_bookkeeping,
+    is_platform_default,
 )
 from deltaplan.model.types import (
     Array,
@@ -1259,7 +1260,8 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
     properties = {
         key: value
         for key, value in table.properties
-        if not is_bookkeeping(key) or key in PREREQUISITE_PROPERTIES
+        if (not is_bookkeeping(key) or key in PREREQUISITE_PROPERTIES)
+        and not is_platform_default(key, value)
     }
     if properties:
         document["properties"] = properties

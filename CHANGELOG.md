@@ -25,6 +25,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Databricks lists them. The `allowColumnDefaults` step was planned again on every
   table that already had it.
 - Plan files keep whether the schema exists, and the table's features.
+- **A second read through the same introspector returned the first one's state**
+  — it cached `DESCRIBE DETAIL` for its whole life. With plan and apply sharing
+  one, apply's staleness check could never see a change. Caches now last one read.
+- **CHECK constraints were never read back**, so every plan re-added them. Delta
+  keeps them as `delta.constraints.<name>` properties, not in
+  `information_schema`; they're read from there, and no longer reported as
+  unmanaged properties.
+- **Less noise about properties nobody set.** Unity Catalog's own bookkeeping
+  (`io.unitycatalog.*`, row tracking's hidden column names, `*.internal`) is
+  never reported or imported; the platform's defaults for new tables aren't
+  either, while they hold the default value.
 
 ## [0.1.0a1] - 2026-09-18
 
