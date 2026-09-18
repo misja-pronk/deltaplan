@@ -71,6 +71,11 @@ Reads live state, diffs it against the specs, and prints the plan. `--format`:
 - `json` — the plan object itself. `-o plan.json` writes it out for `apply` to consume.
 
 All of them render the same plan object, so the review and the artefact can't disagree.
+
+Reading live state costs a query or two per table. Only tables a spec describes are read
+in full; the rest of each schema gets a light read — enough to list it and tell whether
+it's deltaplan's. `--parallel` (default 8) sets how many of those queries run at once;
+`drift` and `import` take it too.
 `--check-order` additionally diffs column order, which is off by default because a
 reordered spec is usually an edit to the file rather than an intent to move columns.
 

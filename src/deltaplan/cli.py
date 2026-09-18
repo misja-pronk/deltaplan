@@ -64,6 +64,15 @@ err = Console(stderr=True, soft_wrap=True)
 
 
 #: Which workspace to talk to. Shared by every command that talks to one.
+ParallelOption = Annotated[
+    int,
+    typer.Option(
+        "--parallel",
+        min=1,
+        help="How many per-table queries run at once while reading live state.",
+    ),
+]
+
 ProfileOption = Annotated[
     str | None,
     typer.Option(
@@ -216,6 +225,7 @@ def import_schema(
         str | None, typer.Option("--warehouse-id", help="SQL warehouse to read through.")
     ] = None,
     profile: ProfileOption = None,
+    parallel: ParallelOption = 8,
     spec_format: Annotated[
         SpecFormat,
         typer.Option(
@@ -233,7 +243,9 @@ def import_schema(
 
     project = _optional_project(config)
     chosen = _target(project, target) if project else None
-    live = _introspect(_warehouse(warehouse_id, chosen, profile), parts[0], parts[1])
+    live = _introspect(
+        _warehouse(warehouse_id, chosen, profile), parts[0], parts[1], parallel
+    )
 
     directory = output or (project.spec_paths[0] if project else Path("tables"))
     directory.mkdir(parents=True, exist_ok=True)
@@ -315,6 +327,7 @@ def plan(
         str | None, typer.Option("--warehouse-id", help="SQL warehouse to read through.")
     ] = None,
     profile: ProfileOption = None,
+    parallel: ParallelOption = 8,
 ) -> None:
     """Diff your specs against live Unity Catalog and show what would change."""
     built = _plan_for(
@@ -324,6 +337,7 @@ def plan(
         profile=profile,
         check_order=check_order,
         clone=clone,
+        parallel=parallel,
     )
     _output(built, output_format, output, heading="plan")
 
@@ -366,6 +380,7 @@ def drift(
         str | None, typer.Option("--warehouse-id", help="SQL warehouse to read through.")
     ] = None,
     profile: ProfileOption = None,
+    parallel: ParallelOption = 8,
 ) -> None:
     """Check live tables against their specs. Exits 2 if they have drifted.
 
@@ -373,7 +388,7 @@ def drift(
     outside deltaplan, a spec merged but never applied. Unmanaged objects are
     not drift — deltaplan never claimed them.
     """
-    built = _plan_for(config, target, warehouse_id, profile=profile)
+    built = _plan_for(config, target, warehouse_id, profile=profile, parallel=parallel)
     _output(built, output_format, output, heading="drift")
     if built.empty:
         raise typer.Exit(IN_SYNC)
@@ -393,13 +408,22 @@ def _plan_for(
     profile: str | None = None,
     check_order: bool = False,
     clone: bool = False,
+    parallel: int = 8,
 ) -> Plan:
     project = _project(config)
     chosen = _target(project, target)
     specs = _load(project, chosen)
     _abort_on_lint_errors(specs)
     runner = _warehouse(warehouse_id, chosen, profile)
-    return _plan(project, chosen, specs, runner, check_order=check_order, clone=clone)
+    return _plan(
+        project,
+        chosen,
+        specs,
+        runner,
+        check_order=check_order,
+        clone=clone,
+        parallel=parallel,
+    )
 
 
 def _output(
@@ -432,11 +456,12 @@ def _plan(
     *,
     check_order: bool = False,
     clone: bool = False,
+    parallel: int = 8,
 ) -> Plan:
     try:
         return plan_tables(
             [spec.table for spec in specs],
-            Introspector(runner),
+            Introspector(runner, parallel=parallel),
             target=target.name,
             tool_version=package_version(),
             mode_for=lambda schema: project.mode_for(target, schema),
@@ -724,9 +749,11 @@ def _find_warehouse(client: "WorkspaceClient", name: str) -> str:
     return found[0]
 
 
-def _introspect(runner: WarehouseRunner, catalog: str, schema: str) -> LiveSchema:
+def _introspect(
+    runner: WarehouseRunner, catalog: str, schema: str, parallel: int = 8
+) -> LiveSchema:
     try:
-        return Introspector(runner).schema(catalog, schema)
+        return Introspector(runner, parallel=parallel).schema(catalog, schema)
     except IntrospectionError as error:
         err.print(f"[red]{error}[/]")
         raise typer.Exit(1) from error

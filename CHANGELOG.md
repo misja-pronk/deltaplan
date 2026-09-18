@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **`plan` reads less, and in parallel.** Only tables a spec describes get the full
+  read (`DESCRIBE DETAIL` and `SHOW CREATE TABLE`); the rest of a schema gets
+  `DESCRIBE DETAIL` alone — unless a strict schema is about to drop it. Per-table
+  queries run eight at a time (`--parallel` on `plan`, `drift` and `import`).
+  `apply` reads only its own tables in full.
+
 ## [0.1.0a2] - 2026-09-18
 
 The first release run against a real workspace. That found six bugs in

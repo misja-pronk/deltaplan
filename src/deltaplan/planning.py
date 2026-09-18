@@ -176,6 +176,9 @@ def plan_tables(
             if not live.table.managed:
                 unmanaged_tables.append(live.table.name)
             elif strict:
+                # About to be dropped: read in full, as apply will read it again
+                # to check nothing changed since the plan.
+                live = introspector.complete(live)
                 drop = Change(live.table.name, "drop_table", before=live.table)
                 diffs.append(
                     TableDiff(
@@ -310,14 +313,23 @@ def _refuse_kind_changes(
 def _introspect(
     specs: Sequence[Relation], introspector: Introspector
 ) -> dict[tuple[str, str], LiveSchema]:
+    for spec in specs:
+        if len(spec.parts) != 3:
+            raise PlanningError(f"name {spec.name!r} must be catalog.schema.name")
+    # Only the tables a spec describes are read in full — and a rename's old
+    # name, which is about to become one. The rest of each schema gets a light
+    # read: enough to list it and see whether it is deltaplan's.
+    described = [spec.name for spec in specs if isinstance(spec, Table)]
+    described += [
+        spec.renamed_from
+        for spec in specs
+        if isinstance(spec, Table) and spec.renamed_from
+    ]
     schemas: dict[tuple[str, str], LiveSchema] = {}
     for spec in specs:
-        parts = spec.parts
-        if len(parts) != 3:
-            raise PlanningError(f"name {spec.name!r} must be catalog.schema.name")
-        key = (parts[0], parts[1])
+        key = (spec.parts[0], spec.parts[1])
         if key not in schemas:
-            schemas[key] = introspector.schema(*key)
+            schemas[key] = introspector.schema(*key, full=described)
     return schemas
 
 

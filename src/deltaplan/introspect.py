@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Collection, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from deltaplan.ddl import DdlError, read_columns
 from deltaplan.model.function import Function, Parameter
@@ -55,6 +56,9 @@ Row = dict[str, str | None]
 _NOT_TABLES = frozenset({"MATERIALIZED_VIEW", "STREAMING_TABLE"})
 
 
+T = TypeVar("T")
+
+
 class IntrospectionError(Exception):
     """A query failed, or came back in a shape we don't understand."""
 
@@ -86,6 +90,10 @@ class LiveTable:
     #: Delta table features, from DESCRIBE DETAIL's `tableFeatures` — verified
     #: live to be where they are listed; its `properties` leave them out.
     features: tuple[str, ...] = ()
+    #: Whether SHOW CREATE TABLE was read. A light read — for a table no spec
+    #: describes — leaves it out: identity, generation, defaults and nested
+    #: NOT NULL are then missing. `Introspector.complete` adds them.
+    definition_read: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +146,10 @@ class Introspector:
     """Reads live state through a `SqlRunner`."""
 
     runner: SqlRunner
+    #: How many per-table queries (DESCRIBE DETAIL, SHOW CREATE TABLE, SHOW
+    #: TBLPROPERTIES) run at once. One per table, each about a second on a
+    #: warehouse: sequentially, a 300-table schema took minutes.
+    parallel: int = 8
     #: Within one read only: the same key usage is asked for by several
     #: constraints. Kept across reads, a second read returned the first one's
     #: state — found live, where apply's staleness check could then never see a
@@ -146,8 +158,15 @@ class Introspector:
     _keys_cache: dict[str, dict[str, tuple[str, list[str]]]] = field(default_factory=dict)
 
     # -- public ------------------------------------------------------------
-    def schema(self, catalog: str, schema: str) -> LiveSchema:
-        """Every Delta table in one schema, as the model — read fresh."""
+    def schema(
+        self, catalog: str, schema: str, *, full: Collection[str] | None = None
+    ) -> LiveSchema:
+        """Every Delta table in one schema, as the model — read fresh.
+
+        `full` names the tables to read completely (`catalog.schema.table`);
+        the rest get a light read, without SHOW CREATE TABLE — enough to list
+        them and tell whether they are deltaplan's. None reads all of them fully.
+        """
         self._detail_cache.clear()
         self._keys_cache.clear()
         if not self._schema_exists(catalog, schema):
@@ -176,6 +195,21 @@ class Introspector:
         definitions = (
             self._view_rows(catalog, schema) if "VIEW" in formats.values() else {}
         )
+
+        def qualified(name: str) -> str:
+            return f"{catalog}.{schema}.{name}"
+
+        wanted = {name.lower() for name in full} if full is not None else None
+        delta = [n for n, kind in sorted(formats.items()) if kind == "DELTA"]
+        details = self._each(delta, lambda n: self._describe_detail(qualified(n)))
+        statements = self._each(
+            [n for n in delta if wanted is None or qualified(n).lower() in wanted],
+            lambda n: self._show_create(qualified(n)),
+        )
+        view_properties = self._each(
+            [n for n, kind in sorted(formats.items()) if kind == "VIEW"],
+            lambda n: self._view_properties(qualified(n)),
+        )
         for name, table_type in sorted(formats.items()):
             full_name = f"{catalog}.{schema}.{name}"
             if table_type == "VIEW":
@@ -184,7 +218,7 @@ class Introspector:
                         name=full_name,
                         query=definitions.get(name, ""),
                         comment=comments.get(name),
-                        properties=self._view_properties(full_name),
+                        properties=view_properties[name],
                         tags=tuple(sorted(tags.get(name, {}).items())),
                         grants=tuple(
                             Grant(principal, tuple(privileges))
@@ -198,10 +232,13 @@ class Introspector:
                 # design, and never touched.
                 skipped.append((full_name, table_type.lower().replace("_", " ")))
                 continue
-            detail = self._describe_detail(full_name)
+            detail = details[name]
             properties = _json_map(detail.get("properties"))
-            table_columns, definition_notes = self._with_definitions(
-                full_name, columns.get(name, [])
+            read = name in statements
+            table_columns, definition_notes = (
+                _with_definition(columns.get(name, []), statements[name])
+                if read
+                else (columns.get(name, []), [])
             )
             tables.append(
                 LiveTable(
@@ -237,6 +274,7 @@ class Introspector:
                         detail, [*column_features.get(name, []), *definition_notes]
                     ),
                     features=_json_list(detail.get("tableFeatures")),
+                    definition_read=read,
                 )
             )
         return LiveSchema(
@@ -254,16 +292,32 @@ class Introspector:
         return self.schema(catalog, schema).get(f"{catalog}.{schema}.{short}")
 
     def tables(self, names: Sequence[str]) -> dict[str, Relation | None]:
-        """Look up several tables or views — one schema scan per schema, not per name."""
+        """Look up several tables or views — one schema scan per schema, not per
+        name, reading only the named tables in full."""
         found: dict[str, Relation | None] = {}
         scanned: dict[tuple[str, str], LiveSchema] = {}
         for name in names:
             catalog, schema, _ = _split(name)
             key = (catalog, schema)
             if key not in scanned:
-                scanned[key] = self.schema(catalog, schema)
+                wanted = [n for n in names if _split(n)[:2] == key]
+                scanned[key] = self.schema(catalog, schema, full=wanted)
             found[name] = scanned[key].relation(name)
         return found
+
+    def complete(self, live: LiveTable) -> LiveTable:
+        """A lightly read table, with what SHOW CREATE TABLE adds."""
+        if live.definition_read:
+            return live
+        columns, notes = _with_definition(
+            list(live.table.columns), self._show_create(live.table.name)
+        )
+        return replace(
+            live,
+            table=replace(live.table, columns=tuple(columns)),
+            unmodelled=(*live.unmodelled, *notes),
+            definition_read=True,
+        )
 
     def latest_version(self, name: str) -> int | None:
         """The table's current Delta version — the restore point for a plan."""
@@ -661,39 +715,21 @@ class Introspector:
             found[name] = (f"{ref_catalog}.{ref_schema}.{ref_table}", tuple(ref_columns))
         return found
 
-    def _with_definitions(
-        self, name: str, columns: list[Column]
-    ) -> tuple[list[Column], list[str]]:
-        """Columns completed from `SHOW CREATE TABLE`: identity, generation,
-        default and the full nested type live there and nowhere else — see
-        `deltaplan.ddl`. Returns the columns and anything worth reporting."""
+    def _show_create(self, name: str) -> str | None:
         rows = self.runner.query(f"SHOW CREATE TABLE {quote_qualified(name)}")
-        statement = rows[0].get("createtab_stmt") if rows else None
-        if not statement:
-            return columns, ["a definition SHOW CREATE TABLE didn't return"]
-        try:
-            definitions = {k.casefold(): v for k, v in read_columns(statement).items()}
-        except DdlError as error:
-            return columns, [f"a definition deltaplan couldn't read ({error})"]
-        completed: list[Column] = []
-        notes: list[str] = []
-        for column in columns:
-            found = definitions.get(column.name.casefold())
-            if found is None:
-                completed.append(column)
-                continue
-            if found.collation:
-                notes.append(f"collation {found.collation} on {column.name}")
-            completed.append(
-                replace(
-                    column,
-                    type=found.type if found.type is not None else column.type,
-                    identity=found.identity or column.identity,
-                    generated=found.generated or column.generated,
-                    default=found.default or column.default,
-                )
-            )
-        return completed, notes
+        return rows[0].get("createtab_stmt") if rows else None
+
+    def _each(self, items: Sequence[str], read: Callable[[str], T]) -> dict[str, T]:
+        """`read` for every item, `parallel` at a time; the results by item.
+
+        TODO(verify): that one WorkspaceClient takes concurrent statement calls —
+        the live suite runs this way.
+        """
+        if self.parallel <= 1 or len(items) <= 1:
+            return {item: read(item) for item in items}
+        with ThreadPoolExecutor(max_workers=self.parallel) as pool:
+            futures = {item: pool.submit(read, item) for item in items}
+            return {item: future.result() for item, future in futures.items()}
 
     def _describe_detail(self, name: str) -> Row:
         if name in self._detail_cache:
@@ -846,6 +882,39 @@ def _unmodelled(detail: Row, column_features: list[str]) -> tuple[str, ...]:
         found.append(f"partitioned by ({', '.join(partitions)})")
     found.extend(column_features)
     return tuple(found)
+
+
+def _with_definition(
+    columns: list[Column], statement: str | None
+) -> tuple[list[Column], list[str]]:
+    """Columns completed from `SHOW CREATE TABLE`: identity, generation,
+    default and the full nested type live there and nowhere else — see
+    `deltaplan.ddl`. Returns the columns and anything worth reporting."""
+    if not statement:
+        return columns, ["a definition SHOW CREATE TABLE didn't return"]
+    try:
+        definitions = {k.casefold(): v for k, v in read_columns(statement).items()}
+    except DdlError as error:
+        return columns, [f"a definition deltaplan couldn't read ({error})"]
+    completed: list[Column] = []
+    notes: list[str] = []
+    for column in columns:
+        found = definitions.get(column.name.casefold())
+        if found is None:
+            completed.append(column)
+            continue
+        if found.collation:
+            notes.append(f"collation {found.collation} on {column.name}")
+        completed.append(
+            replace(
+                column,
+                type=found.type if found.type is not None else column.type,
+                identity=found.identity or column.identity,
+                generated=found.generated or column.generated,
+                default=found.default or column.default,
+            )
+        )
+    return completed, notes
 
 
 def _checks(properties: dict[str, str]) -> tuple[Check, ...]:
