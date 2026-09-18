@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import assert_never
 
 from deltaplan.differ import diff as compute_changes
 from deltaplan.model.change import Change
@@ -101,9 +102,15 @@ def build_plan(
     tool_version: str,
     spec_hash: str,
     state_fingerprint: str,
+    clone: bool = False,
 ) -> Plan:
-    """Expand changes into ordered steps, inserting prerequisites as they arise."""
-    planner = _Planner()
+    """Expand changes into ordered steps, inserting prerequisites as they arise.
+
+    `clone` adds a `SHALLOW CLONE` of each table before the first step that could
+    lose data — a restore point you can query, on top of the Delta version that is
+    always recorded.
+    """
+    planner = _Planner(clone_suffix=state_fingerprint[:8] if clone else None)
     for diff in diffs:
         planner.plan_table(diff)
     return Plan(
@@ -116,10 +123,20 @@ def build_plan(
     )
 
 
+#: Steps before which a table may be cloned: the ones that can lose data.
+CLONE_BEFORE: frozenset[Risk] = frozenset({"rewrite", "destructive"})
+
+#: Appended to a table's name for its pre-change clone.
+BACKUP_SUFFIX = "__deltaplan_backup"
+
+
 class _Planner:
     """Sequences step ids and remembers which prerequisites are already planned."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, clone_suffix: str | None = None) -> None:
+        self._clone_suffix = clone_suffix
+        self._cloned: set[str] = set()
+        self._existing: set[str] = set()
         self.steps: list[Step] = []
         self._column_mapping: set[str] = set()
         self._type_widening: set[str] = set()
@@ -141,6 +158,8 @@ class _Planner:
         warnings: tuple[str, ...] = (),
         note: str | None = None,
     ) -> None:
+        if risk in CLONE_BEFORE:
+            self._clone_first(table)
         self.steps.append(
             Step(
                 id=len(self.steps) + 1,
@@ -157,6 +176,34 @@ class _Planner:
                 warnings=warnings,
                 note=note,
             )
+        )
+
+    def _clone_first(self, table: str) -> None:
+        """Clone a live table once, just before the first step that risks it."""
+        if (
+            self._clone_suffix is None
+            or table in self._cloned
+            or table not in self._existing
+        ):
+            return
+        self._cloned.add(table)
+        backup = backup_name(table, self._clone_suffix)
+        self.emit(
+            table,
+            "CLONE backup",
+            "meta",
+            sql=(
+                f"CREATE OR REPLACE TABLE {quote_qualified(backup)} "
+                f"SHALLOW CLONE {quote_qualified(table)}"
+            ),
+            undo_hint=f"the table as it was is readable at {backup}",
+            # TODO(verify): that a shallow clone stays readable after the source
+            # is replaced, until VACUUM removes the files it points at.
+            # https://docs.databricks.com/aws/en/delta/clone
+            note=(
+                "a shallow clone copies no data: it points at the table's current "
+                "files, so it lasts until a VACUUM removes them"
+            ),
         )
 
     # -- prerequisites -----------------------------------------------------
@@ -202,6 +249,8 @@ class _Planner:
 
     # -- dispatch ----------------------------------------------------------
     def plan_table(self, table_diff: TableDiff) -> None:
+        if table_diff.facts.exists and table_diff.live is not None:
+            self._existing.add(table_diff.table)
         start = self._change + 1
         if _rewrites(table_diff):
             # The table is rebuilt whole rather than patched change by change, so
@@ -322,8 +371,43 @@ class _Planner:
                 self._add_constraint(change)
             case "drop_constraint":
                 self._drop_constraint(change)
+            case "claim_table":
+                self._claim(change)
+            case "drop_table":
+                self._drop_table(change, facts)
+            case _:
+                assert_never(change.kind)
 
     # -- table level -------------------------------------------------------
+    def _claim(self, change: Change) -> None:
+        self.emit(
+            change.table,
+            "CLAIM ownership",
+            "meta",
+            path=change.path,
+            sql=(
+                f"ALTER TABLE {quote_qualified(change.table)} SET TBLPROPERTIES "
+                f"({quote_literal(MANAGED_PROPERTY)} = 'true')"
+            ),
+            note=(
+                "a spec now describes this table, so deltaplan manages it — in a "
+                "strict schema, removing its spec later will drop it"
+            ),
+        )
+
+    def _drop_table(self, change: Change, facts: TableFacts) -> None:
+        self.emit(
+            change.table,
+            "DROP TABLE",
+            "destructive",
+            sql=f"DROP TABLE {quote_qualified(change.table)}",
+            est_bytes=facts.size_bytes,
+            # TODO(verify): UNDROP covers managed tables for a retention window
+            # (seven days at the time of writing).
+            # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-undrop-table
+            undo_hint=f"UNDROP TABLE {quote_qualified(change.table)}",
+        )
+
     def _create_table(self, change: Change, facts: TableFacts) -> None:
         table = change.after
         assert isinstance(table, Table)
@@ -743,6 +827,11 @@ def _rewrites(table_diff: TableDiff) -> bool:
         and table_diff.live is not None
         and any(needs_rewrite(change) for change in table_diff.changes)
     )
+
+
+def backup_name(table: str, suffix: str) -> str:
+    parts = table.split(".")
+    return ".".join([*parts[:-1], f"{parts[-1]}{BACKUP_SUFFIX}_{suffix}"])
 
 
 def staging_name(table: str) -> str:

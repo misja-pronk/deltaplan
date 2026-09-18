@@ -14,6 +14,8 @@ from deltaplan.model.types import DataType, Field
 
 ChangeKind: TypeAlias = Literal[
     "create_table",
+    "drop_table",
+    "claim_table",
     "set_table_comment",
     "set_cluster_by",
     "set_property",

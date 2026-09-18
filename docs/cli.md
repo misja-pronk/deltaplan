@@ -53,6 +53,9 @@ All of them render the same plan object, so the review and the artefact can't di
 `--check-order` additionally diffs column order, which is off by default because a
 reordered spec is usually an edit to the file rather than an intent to move columns.
 
+`--clone` adds a `SHALLOW CLONE` of each table before the first step that could lose
+its data — see the [safety model](safety.md#when-something-goes-wrong).
+
 Tables in the schema that no spec describes are listed at the bottom as unmanaged, and
 never touched.
 

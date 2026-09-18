@@ -65,6 +65,18 @@ def render_plan(plan: Plan, console: Console) -> None:
 
     if not printed:
         console.print(Text("No changes. Live tables match your specs.", style="green"))
+    if plan.orphaned_tables:
+        console.print()
+        console.print(
+            Text(
+                f"{len(plan.orphaned_tables)} managed "
+                f"{'table has' if len(plan.orphaned_tables) == 1 else 'tables have'} "
+                "no spec; the schema is additive, so they stay:",
+                style="yellow",
+            )
+        )
+        for name in plan.orphaned_tables:
+            console.print(Text(f"  · {name}", style="yellow"))
     if plan.unmanaged_tables:
         console.print()
         console.print(
@@ -130,11 +142,13 @@ def _render_table(plan: Plan, diff: TableDiff, console: Console, offset: int) ->
 
 
 def _table_header(diff: TableDiff) -> Text:
-    creating = any(change.kind == "create_table" for change in diff.changes)
+    kinds = {change.kind for change in diff.changes}
     if not diff.changes:
         marker, verb, style = " ", "no changes", "dim"
-    elif creating:
+    elif "create_table" in kinds:
         marker, verb, style = "+", "create", "green"
+    elif "drop_table" in kinds:
+        marker, verb, style = "-", "destroy", "red"
     else:
         marker, verb, style = "~", "update", "yellow"
     line = Text(_display_name(diff.table), style="bold")
@@ -218,6 +232,14 @@ def _describe(change: Change) -> tuple[str, Text]:
             table = change.after
             columns = len(table.columns) if isinstance(table, Table) else 0
             return "+", Text(f"{columns} columns")
+        case "drop_table":
+            table = change.before
+            columns = len(table.columns) if isinstance(table, Table) else 0
+            return "-", Text(
+                f"{columns} columns — its spec is gone and the schema is strict"
+            )
+        case "claim_table":
+            return "+", Text("ownership — deltaplan manages this table from now on")
         case "add_column":
             column = change.after
             rendered = (

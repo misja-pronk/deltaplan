@@ -402,3 +402,45 @@ columns:
         )
     )
     assert any("`using` applies to whole columns only" in m for m in messages(table))
+
+
+def test_modes_are_per_schema_and_resolve_per_target(tmp_path: Path) -> None:
+    (tmp_path / "deltaplan.yml").write_text(
+        """
+history_schema: ${catalog}.deltaplan
+targets:
+  dev:
+    vars: {catalog: dev}
+  prod:
+    vars: {catalog: prod}
+    mode: strict
+schemas:
+  ${catalog}.sales: strict
+  ${catalog}.archive: additive
+"""
+    )
+    project = load_project(tmp_path / "deltaplan.yml")
+    dev, prod = project.target("dev"), project.target("prod")
+
+    assert project.mode_for(dev, "dev.sales") == "strict"
+    assert project.mode_for(dev, "dev.other") == "additive", "the target's default"
+    assert project.mode_for(prod, "prod.archive") == "additive", "the schema wins"
+    assert project.mode_for(prod, "prod.other") == "strict"
+
+    assert project.history_schema_for(dev) == "dev.deltaplan"
+    assert project.history_schema_for(prod) == "prod.deltaplan"
+
+
+def test_a_schema_mode_must_name_catalog_and_schema(tmp_path: Path) -> None:
+    (tmp_path / "deltaplan.yml").write_text("schemas:\n  sales: strict\n")
+    with pytest.raises(SpecError, match="keyed catalog.schema"):
+        load_project(tmp_path / "deltaplan.yml")
+
+
+def test_a_history_schema_variable_the_target_lacks(tmp_path: Path) -> None:
+    (tmp_path / "deltaplan.yml").write_text(
+        "history_schema: ${catalog}.deltaplan\ntargets:\n  dev: {}\n"
+    )
+    project = load_project(tmp_path / "deltaplan.yml")
+    with pytest.raises(KeyError, match="undefined variable"):
+        project.history_schema_for(project.target("dev"))

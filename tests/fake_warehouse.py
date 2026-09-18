@@ -194,6 +194,14 @@ class FakeWarehouse:
     def _create_table(self, statement: str) -> tuple[Row, ...]:
         stripped = statement.strip()
         replacing = stripped.upper().startswith("CREATE OR REPLACE TABLE")
+        if match := re.fullmatch(
+            r"CREATE OR REPLACE TABLE (\S+) SHALLOW CLONE (\S+)", stripped
+        ):
+            source = self._table(_unquote(match.group(2)))
+            clone = replace(source, name=_unquote(match.group(1)))
+            self.tables[clone.name] = clone
+            self.versions[clone.name] = 0
+            return ()
         if re.search(r"\bAS\s+SELECT\b", stripped):
             table = self._parse_ctas(stripped)
         else:

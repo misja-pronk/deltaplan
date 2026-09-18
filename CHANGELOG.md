@@ -8,6 +8,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Ownership is claimed.** A spec for a table deltaplan didn't create plans a
+  visible `CLAIM ownership` step that marks it managed — which is how an
+  `import`ed table is handed over on its first apply.
+- **Strict schemas.** A managed table whose spec was deleted is dropped in a
+  strict schema (destructive, so `--allow-destructive` applies, with `UNDROP`
+  as the way back) and kept — but listed — in an additive one. Tables deltaplan
+  didn't create are never touched in either mode.
+- `schemas:` in `deltaplan.yml` sets the mode per schema, as the design
+  specifies; the target's `mode` is the default.
+- `history_schema` and `schemas:` keys may use target variables
+  (`${catalog}.deltaplan`), so one project file serves every catalog.
+- `deltaplan plan --clone` adds a `SHALLOW CLONE` of each table before the first
+  step that could lose its data.
+- `planning.py`: the specs-to-plan pipeline, out of the CLI, so `plan`, `drift`
+  and the GitHub Action share it.
+
+### Changed
+
+- The plan summary counts destroyed tables; it was hard-coded to zero.
+
+## [0.3.0 — milestone 3]
+
+### Added
+
 - **Milestone 3 (rewrites) is complete**: a table that can't be patched is
   rebuilt, and `apply` runs it.
 - A rewrite stages the converted data beside the table, **replaces** the table

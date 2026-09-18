@@ -130,6 +130,9 @@ class Plan:
     #: Live tables in the schemas we looked at that no spec describes. Reported
     #: so you know they are there; never touched.
     unmanaged_tables: tuple[str, ...] = ()
+    #: Tables deltaplan created whose spec has gone, in a schema that is
+    #: additive — so they stay. In a strict schema they would be dropped.
+    orphaned_tables: tuple[str, ...] = ()
 
     @property
     def changes(self) -> tuple[Change, ...]:
@@ -151,20 +154,22 @@ class Plan:
 
     @property
     def summary(self) -> Summary:
-        created = sum(
-            1
-            for diff in self.diffs
-            if any(change.kind == "create_table" for change in diff.changes)
-        )
+        def has(diff: TableDiff, kind: str) -> bool:
+            return any(change.kind == kind for change in diff.changes)
+
+        created = sum(1 for diff in self.diffs if has(diff, "create_table"))
+        destroyed = sum(1 for diff in self.diffs if has(diff, "drop_table"))
         changed = sum(
             1
             for diff in self.diffs
-            if diff.changes and not any(c.kind == "create_table" for c in diff.changes)
+            if diff.changes
+            and not has(diff, "create_table")
+            and not has(diff, "drop_table")
         )
         return Summary(
             add=created,
             change=changed,
-            destroy=0,  # v1 never drops a table; strict mode arrives with apply
+            destroy=destroyed,
             steps=len(self.steps),
             rewrites=sum(1 for step in self.steps if step.risk == "rewrite"),
             warnings=sum(len(step.warnings) for step in self.steps),

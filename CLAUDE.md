@@ -90,9 +90,17 @@ step repeatable; and `using:` is a new spec hint for conversions deltaplan won't
 invent. A rewrite cannot set NOT NULL on a nested field — it refuses rather than
 dropping the constraint.
 
-Still open from the design: `SHALLOW CLONE` as an optional extra restore point,
-and claiming ownership of imported tables on first apply. Next milestones are
-**4 (CI)**: Markdown renderer, GitHub Action, `drift`; then **5 (governance)**.
+**The rest of the design's safety model is in too**: ownership claims (a spec
+for someone else's table plans a visible `claim_table`), strict schemas (managed
+tables whose spec is gone become `drop_table`, destructive), and
+`plan --clone` for a SHALLOW CLONE before risky steps. The specs-to-plan
+pipeline lives in `planning.py` (a module the layout above doesn't list),
+because `plan`, `drift` and the Action all need it. One departure: the design
+says the mode is per schema; `deltaplan.yml` has a per-schema `schemas:` map
+*and* keeps the target's `mode` as the default for unlisted schemas.
+
+Next milestones are **4 (CI)**: Markdown renderer, GitHub Action, `drift`; then
+**5 (governance)**.
 
 1. ~~Scaffold: `pyproject.toml` (uv, src layout, Apache-2.0), ruff, ty, pytest, GitHub Actions for lint + unit tests, README stub, move `DESIGN.md` to `docs/`.~~ **Done.**
 2. `model/types.py` + `typeparser.py`: type tree and parser for Databricks type strings incl. nested struct/array/map, decimal, backticked field names, `NOT NULL` and comments inside structs. Round-trip tests.

@@ -34,19 +34,26 @@ Commands find it by walking up from the working directory, or you can point at o
 
 ```yaml
 version: 1
-specs: [tables]                  # files or directories, relative to this file
-history_schema: main.deltaplan   # where `apply` keeps its history (milestone 2)
+specs: [tables]                        # files or directories, relative to this file
+history_schema: ${catalog}.deltaplan   # where `apply` keeps its run history
 
 targets:
   dev:
     vars:
       catalog: dev
-    warehouse_id: abc123def456   # optional; falls back to $DATABRICKS_WAREHOUSE_ID
+    warehouse_id: abc123def456         # optional; falls back to $DATABRICKS_WAREHOUSE_ID
   prod:
     vars:
       catalog: prod
-    mode: additive               # additive (default) | strict
+    mode: additive                     # the default for every schema: additive | strict
+
+schemas:                               # per-schema overrides of the target's mode
+  ${catalog}.sales: strict
 ```
+
+`history_schema` and the `schemas:` keys may use the target's variables, like a spec
+can, so one project file serves every catalog. What the modes mean is in the
+[safety model](safety.md#additive-and-strict-schemas).
 
 There is a runnable example of exactly this layout in
 [`examples/`](https://github.com/misja-pronk/deltaplan/tree/main/examples).

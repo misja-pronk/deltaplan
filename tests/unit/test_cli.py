@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 from deltaplan import cli
 from deltaplan.cli import app, package_version
 from deltaplan.loader import load_table
+from deltaplan.model.table import Table
 from helpers import FakeRunner, Row, fake_runner
 
 runner = CliRunner()
@@ -225,30 +226,91 @@ def test_plan_with_no_changes(project: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert "No changes. Live tables match your specs." in result.output
 
 
+def _live_orders(*, managed: bool) -> Table:
+    from helpers import col, table
+
+    return table(
+        col("order_id", "bigint", nullable=False),
+        col("amount", "decimal(10,2)"),
+        col("cust_id", "string"),
+        name="main.sales.orders",
+        comment="Order facts",
+        properties=(("deltaplan.managed", "true"),) if managed else (),
+    )
+
+
+def _stranger(*, managed: bool) -> Table:
+    from helpers import col, table
+
+    return table(
+        col("id", "bigint"),
+        name="main.sales.someone_elses",
+        properties=(("deltaplan.managed", "true"),) if managed else (),
+    )
+
+
 def test_plan_reports_live_tables_no_spec_describes(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    extra: tuple[Row, ...] = (
-        {
-            "table_name": "someone_elses",
-            "comment": None,
-            "table_type": "MANAGED",
-            "data_source_format": "DELTA",
-        },
+    from fake_warehouse import FakeWarehouse
+
+    fake = FakeWarehouse.of(_live_orders(managed=True), _stranger(managed=False))
+    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    result = runner.invoke(
+        app, ["plan", "-t", "dev", "--config", str(project / "deltaplan.yml")]
     )
-    fake = fake_runner(
-        tables=LIVE_TABLE + extra,
-        columns=LIVE_COLUMNS,
-        detail=LIVE_DETAIL,
-        history=({"version": "17"},),
+    assert result.exit_code == 0, result.output
+    assert "1 unmanaged table in these schemas, left untouched" in result.output
+    assert "main.sales.someone_elses" in result.output
+    assert "0 destroy" in result.output
+
+
+def test_an_orphaned_table_stays_in_an_additive_schema(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fake_warehouse import FakeWarehouse
+
+    # deltaplan created it, but its spec is gone.
+    fake = FakeWarehouse.of(_live_orders(managed=True), _stranger(managed=True))
+    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    result = runner.invoke(
+        app, ["plan", "-t", "dev", "--config", str(project / "deltaplan.yml")]
+    )
+    assert result.exit_code == 0, result.output
+    assert "1 managed table has no spec; the schema is additive, so they stay" in (
+        result.output
+    )
+    assert "0 destroy" in result.output
+
+
+def test_an_orphaned_table_is_dropped_in_a_strict_schema(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fake_warehouse import FakeWarehouse
+
+    (project / "deltaplan.yml").write_text(
+        CONFIG + "schemas:\n  ${catalog}.sales: strict\n"
+    )
+    fake = FakeWarehouse.of(
+        _live_orders(managed=True), _stranger(managed=True), _stranger_unmanaged()
     )
     monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
     result = runner.invoke(
         app, ["plan", "-t", "dev", "--config", str(project / "deltaplan.yml")]
     )
     assert result.exit_code == 0, result.output
-    assert "unmanaged" in result.output
-    assert "main.sales.someone_elses" in result.output
+    assert "sales.someone_elses   - destroy" in result.output
+    assert "DROP TABLE" in result.output
+    assert "1 destroy" in result.output
+    # Strict never reaches a table deltaplan didn't create.
+    assert "main.sales.not_ours" in result.output
+    assert "sales.not_ours   - destroy" not in result.output
+
+
+def _stranger_unmanaged() -> Table:
+    from helpers import col, table
+
+    return table(col("id", "bigint"), name="main.sales.not_ours")
 
 
 def test_plan_needs_a_target_when_there_are_several(project: Path) -> None:

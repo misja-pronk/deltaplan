@@ -95,12 +95,17 @@ class Target:
 
 @dataclass(frozen=True, slots=True)
 class Project:
-    """A `deltaplan.yml` and the specs it points at."""
+    """A `deltaplan.yml` and the specs it points at.
+
+    `history_schema` and the keys of `schema_modes` are kept as written, `${var}`
+    and all, and resolved per target — the same project serves every catalog.
+    """
 
     root: Path
     spec_paths: tuple[Path, ...]
     targets: tuple[Target, ...]
     history_schema: str | None = None
+    schema_modes: tuple[tuple[str, Mode], ...] = ()
 
     def target(self, name: str) -> Target:
         for candidate in self.targets:
@@ -108,6 +113,26 @@ class Project:
                 return candidate
         known = ", ".join(t.name for t in self.targets) or "none defined"
         raise KeyError(f"unknown target {name!r} (known targets: {known})")
+
+    def history_schema_for(self, target: Target) -> str | None:
+        if self.history_schema is None:
+            return None
+        return substitute(self.history_schema, target.variables_map())
+
+    def mode_for(self, target: Target, schema: str) -> Mode:
+        """`strict` or `additive` for one `catalog.schema`, under one target.
+
+        A schema listed under `schemas:` gets its own mode; any other gets the
+        target's.
+        """
+        variables = target.variables_map()
+        for pattern, mode in self.schema_modes:
+            try:
+                if substitute(pattern, variables) == schema:
+                    return mode
+            except KeyError:
+                continue  # a pattern using a variable this target doesn't define
+        return target.mode
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,10 +148,26 @@ class LoadedSpec:
 # ---------------------------------------------------------------------------
 
 
+def substitute(text: str, variables: dict[str, str]) -> str:
+    """Replace `${name}` from `variables`. An undefined name is a KeyError."""
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name not in variables:
+            known = ", ".join(sorted(variables)) or "none defined"
+            raise KeyError(f"undefined variable ${{{name}}} (known: {known})")
+        return variables[name]
+
+    return VARIABLE.sub(replace, text)
+
+
 @dataclass(frozen=True, slots=True)
 class _Ctx:
     file: Path
     variables: tuple[tuple[str, str], ...] = ()
+    #: Leave `${var}` alone. The project file is read before any target is
+    #: chosen, so its variables can only be resolved later.
+    raw: bool = False
 
     def loc(self, node: Node) -> Loc:
         mark = node.start_mark
@@ -204,16 +245,15 @@ def _scalar(ctx: _Ctx, node: Node, what: str) -> ScalarNode:
 
 
 def _substitute(ctx: _Ctx, text: str, loc: Loc) -> str:
-    variables = ctx.variables_map()
-
-    def replace(match: re.Match[str]) -> str:
-        name = match.group(1)
-        if name not in variables:
-            known = ", ".join(sorted(variables)) or "none defined for this target"
-            raise SpecError(f"undefined variable ${{{name}}} (known: {known})", loc)
-        return variables[name]
-
-    return VARIABLE.sub(replace, text)
+    if ctx.raw:
+        return text
+    try:
+        return substitute(text, ctx.variables_map())
+    except KeyError as error:
+        message = str(error.args[0])
+        if not ctx.variables:
+            message = message.replace("none defined", "none defined for this target")
+        raise SpecError(message, loc) from error
 
 
 def _string(ctx: _Ctx, node: Node, what: str) -> str:
@@ -442,7 +482,7 @@ def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
 # project config
 # ---------------------------------------------------------------------------
 
-CONFIG_KEYS = {"version", "specs", "targets", "history_schema"}
+CONFIG_KEYS = {"version", "specs", "targets", "history_schema", "schemas"}
 TARGET_KEYS = {"vars", "warehouse_id", "mode"}
 
 
@@ -460,7 +500,7 @@ def find_project_file(start: Path) -> Path:
 
 def load_project(path: Path) -> Project:
     """Read a `deltaplan.yml`."""
-    ctx = _Ctx(path)
+    ctx = _Ctx(path, raw=True)
     node = _compose(path)
     if node is None:
         raise SpecError("config file is empty", Loc(path, 1, 1))
@@ -484,12 +524,35 @@ def load_project(path: Path) -> Project:
         ).items():
             targets.append(_read_target(ctx, name, target_node))
 
+    schema_modes: list[tuple[str, Mode]] = []
+    if "schemas" in items:
+        for schema, (mode_node, key_loc) in _mapping(
+            ctx, items["schemas"][0], "schemas"
+        ).items():
+            if len(schema.split(".")) != 2:
+                raise SpecError(
+                    f"schemas are keyed catalog.schema, e.g. ${{catalog}}.sales — "
+                    f"not {schema!r}",
+                    key_loc,
+                )
+            schema_modes.append((schema, _read_mode(ctx, mode_node)))
+
     return Project(
         root=root,
         spec_paths=spec_paths,
         targets=tuple(targets),
         history_schema=history_schema,
+        schema_modes=tuple(schema_modes),
     )
+
+
+def _read_mode(ctx: _Ctx, node: Node) -> Mode:
+    raw = _string(ctx, node, "mode")
+    if raw not in {"additive", "strict"}:
+        raise SpecError(
+            f"mode must be 'additive' or 'strict', not {raw!r}", ctx.loc(node)
+        )
+    return "additive" if raw == "additive" else "strict"
 
 
 def _read_target(ctx: _Ctx, name: str, node: Node) -> Target:
@@ -503,13 +566,7 @@ def _read_target(ctx: _Ctx, name: str, node: Node) -> Target:
         warehouse_id = _string(ctx, items["warehouse_id"][0], "warehouse_id")
     mode: Mode = "additive"
     if "mode" in items:
-        raw = _string(ctx, items["mode"][0], "mode")
-        if raw not in {"additive", "strict"}:
-            raise SpecError(
-                f"mode must be 'additive' or 'strict', not {raw!r}",
-                ctx.loc(items["mode"][0]),
-            )
-        mode = "additive" if raw == "additive" else "strict"
+        mode = _read_mode(ctx, items["mode"][0])
     return Target(name, variables, warehouse_id, mode)
 
 

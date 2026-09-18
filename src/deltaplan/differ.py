@@ -37,10 +37,9 @@ _BOOKKEEPING_PROPERTIES = frozenset(
         "delta.columnMapping.maxColumnId",
         "delta.minReaderVersion",
         "delta.minWriterVersion",
-        # deltaplan's own ownership marker. A spec never writes it, and reporting
-        # it as unmanaged would be reporting ourselves.
-        # TODO(milestone 3): `apply` claims ownership by setting it on tables
-        # that came from `import`.
+        # deltaplan's own ownership marker. A spec never writes it — see
+        # `ownership()` for how it gets there — and reporting it as unmanaged
+        # would be reporting ourselves.
         MANAGED_PROPERTY,
         # Likewise the table features `apply` turns on as prerequisites: after a
         # rename, columnMapping is on because deltaplan put it there.
@@ -69,6 +68,20 @@ def diff(
     changes.extend(_diff_columns(desired, actual, compare_order=compare_order))
     changes.extend(_diff_constraints(desired, actual))
     return tuple(changes)
+
+
+def ownership(desired: Table, actual: Table | None) -> tuple[Change, ...]:
+    """Claim a live table that a spec now describes but deltaplan didn't create.
+
+    Writing a spec for a table is the decision to manage it, so the first apply
+    marks it — which is how `import` hands a table over. It is a change of its
+    own rather than something folded into the diff, because it is the one change
+    that alters what deltaplan is later *allowed* to do: a managed table can
+    become a drop candidate, an unmanaged one never can.
+    """
+    if actual is None or actual.managed:
+        return ()
+    return (Change(desired.name, "claim_table", path=MANAGED_PROPERTY, after="true"),)
 
 
 def unmanaged(desired: Table, actual: Table) -> tuple[str, ...]:
@@ -362,10 +375,14 @@ def is_applied(change: Change, live: Table | None) -> bool:
     """
     if change.kind == "create_table":
         return live is not None
+    if change.kind == "drop_table":
+        return live is None
     if live is None:
         return False
 
     match change.kind:
+        case "claim_table":
+            return live.managed
         case "set_table_comment":
             return live.comment == change.after
         case "set_cluster_by":
@@ -399,6 +416,8 @@ def is_applied(change: Change, live: Table | None) -> bool:
             return _has_constraint(live, change.after)
         case "drop_constraint":
             return not _has_constraint(live, change.before)
+        case "create_table" | "drop_table":  # answered above
+            return False
 
 
 def _sibling_path(path: str, name: str) -> str:

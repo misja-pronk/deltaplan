@@ -98,8 +98,10 @@ def test_plan_then_apply(project: Path, warehouse: FakeWarehouse, tmp_path: Path
         app, ["apply", str(plan_file), "--config", str(project / "deltaplan.yml")]
     )
     assert result.exit_code == 0, result.output
+    # The table was created by someone else; writing its spec claims it first.
+    assert "CLAIM ownership" in result.output
     assert "enable typeWidening" in result.output
-    assert "Applied 4 step(s)" in result.output
+    assert "Applied 5 step(s)" in result.output
 
     live = Introspector(warehouse).table(NAME)
     assert live is not None
@@ -161,14 +163,14 @@ def test_a_failed_step_is_reported_and_resumes(
     warehouse.failures["RENAME COLUMN"] = "connection reset"
     result = runner.invoke(app, arguments)
     assert result.exit_code == 1
-    assert "Failed at step 4 of 4" in result.output
+    assert "Failed at step 5 of 5" in result.output
     assert "connection reset" in result.output
     assert "resumes" in result.output
 
     del warehouse.failures["RENAME COLUMN"]
     again = runner.invoke(app, arguments)
     assert again.exit_code == 0, again.output
-    assert "Applied 1 step(s), skipped 3" in again.output
+    assert "Applied 1 step(s), skipped 4" in again.output
 
 
 def test_a_destructive_plan_needs_the_flag(

@@ -11,10 +11,36 @@ tables themselves.
 - Tables deltaplan creates get the property `deltaplan.managed = true`.
 - **Only managed tables can ever become drop candidates.**
 - Anything else in the schema is reported as **unmanaged** and left untouched.
-- `import` adopts existing tables deliberately: it generates specs, and marks them
-  managed on the first apply.
+- Writing a spec for a table someone else created is the decision to manage it, so
+  the plan **claims** it — a visible `CLAIM ownership` step that sets the marker. This
+  is how `import` hands a table over: import writes the specs, and the first apply
+  claims the tables.
 
-Per schema you choose a mode: `additive` (never drop — the default) or `strict`.
+```
+sales.orders   ~ update
+  + ownership — deltaplan manages this table from now on
+    1. CLAIM ownership              [meta]
+```
+
+### Additive and strict schemas
+
+A table deltaplan created whose spec has since been deleted is **orphaned**. What
+happens to it is up to the schema's mode:
+
+- **`additive`** (the default) — it stays. The plan lists it, so a deleted spec is never
+  silent, but nothing is dropped.
+- **`strict`** — it is dropped. That is a `destructive` step, so `apply` refuses it
+  without `--allow-destructive`, and the plan carries `UNDROP TABLE` as the way back.
+
+```
+sales.retired   - destroy  (12 GB)
+  - 4 columns — its spec is gone and the schema is strict
+    1. DROP TABLE                   [destructive]
+```
+
+The mode is per schema, with the target's `mode` as the default — see
+[the project file](spec.md#the-project-file). Strict never reaches a table deltaplan
+didn't create: an unmanaged table is left alone in every mode.
 
 The same rule applies within a table. A table feature or property deltaplan doesn't
 model is shown as *"unmanaged feature, left untouched"* — never diffed away just
@@ -80,7 +106,12 @@ makes narrower ones instead:
 - **Resume, don't restart.** Every step's outcome goes to the history table, and the next
   `apply` of the same plan continues from where it stopped.
 - **A restore point before every rewrite.** The Delta version is recorded first
-  (`delta_version_before`), so `RESTORE` is one command. A `SHALLOW CLONE` is optional.
+  (`delta_version_before`), so `RESTORE` is one command.
+- **A clone, if you want one.** `deltaplan plan --clone` adds a `SHALLOW CLONE` of each
+  table just before the first step that could lose its data — a copy of the table as
+  it was that you can query side by side with the new one. A shallow clone copies no
+  data; it points at the table's current files, so it lasts until a `VACUUM` removes
+  them.
 - **No stale applies.** The state fingerprint is recomputed at apply time; if the world
   moved since the plan was made, deltaplan stops.
 - **One run at a time.** A lock table (with a TTL, and `force-unlock` if a run dies)

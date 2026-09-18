@@ -6,7 +6,6 @@ Nothing here writes to a workspace — `apply` arrives with milestone 2.
 """
 
 import os
-from dataclasses import replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -14,7 +13,6 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from deltaplan.differ import diff, unmanaged
 from deltaplan.executor import ExecutionError, ExecutionResult, Executor
 from deltaplan.history import DeltaHistory, HistoryStore, Status
 from deltaplan.introspect import (
@@ -37,9 +35,8 @@ from deltaplan.loader import (
     spec_files,
     validate_table,
 )
-from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts, fingerprint
-from deltaplan.model.table import Table
-from deltaplan.planner import build_plan
+from deltaplan.model.plan import Plan, Step
+from deltaplan.planning import PlanningError, plan_tables
 from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_json
 from deltaplan.render.json import loads as plan_loads
@@ -229,6 +226,12 @@ def plan(
     check_order: Annotated[
         bool, typer.Option("--check-order", help="Also diff column order.")
     ] = False,
+    clone: Annotated[
+        bool,
+        typer.Option(
+            "--clone", help="SHALLOW CLONE each table before a step that risks its data."
+        ),
+    ] = False,
     warehouse_id: Annotated[
         str | None, typer.Option("--warehouse-id", help="SQL warehouse to read through.")
     ] = None,
@@ -247,7 +250,7 @@ def plan(
     _abort_on_lint_errors(specs)
 
     runner = _warehouse(warehouse_id, chosen)
-    built = _plan(specs, runner, chosen, check_order=check_order)
+    built = _plan(project, chosen, specs, runner, check_order=check_order, clone=clone)
 
     if output_format is Format.json:
         text = plan_json(built)
@@ -265,75 +268,27 @@ def plan(
 
 
 def _plan(
+    project: Project,
+    target: Target,
     specs: tuple[LoadedSpec, ...],
     runner: WarehouseRunner,
-    target: Target,
     *,
-    check_order: bool,
+    check_order: bool = False,
+    clone: bool = False,
 ) -> Plan:
-    """Introspect once per schema, diff every spec, then plan."""
-    introspector = Introspector(runner)
-    schemas: dict[tuple[str, str], LiveSchema] = {}
-    for spec in specs:
-        parts = spec.table.parts
-        if len(parts) != 3:
-            err.print(
-                f"[red]{spec.path}: table name {spec.table.name!r} must be "
-                "catalog.schema.table[/]"
-            )
-            raise typer.Exit(1)
-        key = (parts[0], parts[1])
-        if key not in schemas:
-            schemas[key] = _introspect(runner, *key)
-
-    diffs: list[TableDiff] = []
-    live_tables: list[Table | None] = []
-    for spec in specs:
-        parts = spec.table.parts
-        live = schemas[(parts[0], parts[1])].get(spec.table.name)
-        live_table = live.table if live else None
-        live_tables.append(live_table)
-        changes = diff(spec.table, live_table, compare_order=check_order)
-        facts = TableFacts(
-            spec.table.name,
-            exists=live is not None,
-            properties=live_table.properties if live_table else (),
-            size_bytes=live.size_bytes if live else None,
-            # Only worth a query for tables that are actually changing.
-            delta_version=(
-                introspector.latest_version(spec.table.name)
-                if live_table is not None and changes
-                else None
-            ),
+    try:
+        return plan_tables(
+            [spec.table for spec in specs],
+            Introspector(runner),
+            target=target.name,
+            tool_version=package_version(),
+            mode_for=lambda schema: project.mode_for(target, schema),
+            check_order=check_order,
+            clone=clone,
         )
-        diffs.append(
-            TableDiff(
-                spec.table.name,
-                changes,
-                facts,
-                unmanaged(spec.table, live_table) if live_table else (),
-                desired=spec.table,
-                live=live_table,
-            )
-        )
-
-    planned = {spec.table.name for spec in specs}
-    live_only = tuple(
-        sorted(
-            name
-            for schema in schemas.values()
-            for name in schema.names
-            if name not in planned
-        )
-    )
-    built = build_plan(
-        diffs,
-        target=target.name,
-        tool_version=package_version(),
-        spec_hash=fingerprint(spec.table for spec in specs),
-        state_fingerprint=fingerprint(live_tables),
-    )
-    return replace(built, unmanaged_tables=live_only)
+    except (PlanningError, IntrospectionError) as error:
+        err.print(f"[red]{error}[/]")
+        raise typer.Exit(1) from error
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +317,7 @@ def apply(
     project = _project(config)
     target = _target(project, built.target)
     runner = _warehouse(warehouse_id, target)
-    history = _history(project, runner)
+    history = _history(project, target, runner)
 
     out.print(
         f"[bold]{built.target}[/] · {len(built.steps)} step(s) · "
@@ -437,7 +392,7 @@ def force_unlock(
     project = _project(config)
     chosen = _target(project, target)
     runner = _warehouse(warehouse_id, chosen)
-    holder = _history(project, runner).force_unlock(chosen.name)
+    holder = _history(project, chosen, runner).force_unlock(chosen.name)
     if holder is None:
         out.print(f"[green]{chosen.name} was not locked.[/]")
         return
@@ -455,15 +410,20 @@ def _read_plan(path: Path) -> Plan:
         raise typer.Exit(1) from error
 
 
-def _history(project: Project, runner: WarehouseRunner) -> HistoryStore:
-    if not project.history_schema:
+def _history(project: Project, target: Target, runner: WarehouseRunner) -> HistoryStore:
+    try:
+        schema = project.history_schema_for(target)
+    except KeyError as error:
+        err.print(f"[red]history_schema: {error.args[0]}[/]")
+        raise typer.Exit(1) from error
+    if not schema:
         err.print(
             "[red]No history_schema in deltaplan.yml. `apply` records every run "
             "in Delta tables; tell it which schema to keep them in, e.g.\n"
-            "  history_schema: main.deltaplan[/]"
+            "  history_schema: ${catalog}.deltaplan[/]"
         )
         raise typer.Exit(1)
-    return DeltaHistory(runner, project.history_schema)
+    return DeltaHistory(runner, schema)
 
 
 # ---------------------------------------------------------------------------

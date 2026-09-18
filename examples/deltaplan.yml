@@ -8,7 +8,7 @@ specs: [tables]
 
 # Where `apply` keeps its run history and lock. The schema must exist;
 # deltaplan creates the three tables inside it on first use.
-history_schema: main.deltaplan
+history_schema: ${catalog}.deltaplan
 
 targets:
   dev:
@@ -20,6 +20,11 @@ targets:
   prod:
     vars:
       catalog: prod
-    # `additive` (the default) never drops anything. `strict` will let deltaplan
-    # drop tables it created.
+    # The default for every schema. `additive` never drops a table; `strict`
+    # drops tables deltaplan created once their spec is deleted. Tables it didn't
+    # create are left alone in both.
     mode: additive
+
+# Per-schema overrides of the target's mode.
+schemas:
+  ${catalog}.sales: additive

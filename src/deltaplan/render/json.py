@@ -42,6 +42,7 @@ def plan_to_dict(plan: Plan) -> dict[str, Any]:
             "highest_risk": plan.highest_risk,
         },
         "unmanaged_tables": list(plan.unmanaged_tables),
+        "orphaned_tables": list(plan.orphaned_tables),
         "tables": [_diff_to_dict(diff) for diff in plan.diffs],
         "steps": [_step_to_dict(step) for step in plan.steps],
     }
@@ -187,6 +188,7 @@ def plan_from_dict(document: dict[str, Any]) -> Plan:
             diffs=tuple(_diff_from_dict(entry) for entry in document["tables"]),
             steps=tuple(_step_from_dict(entry) for entry in document["steps"]),
             unmanaged_tables=tuple(document.get("unmanaged_tables", ())),
+            orphaned_tables=tuple(document.get("orphaned_tables", ())),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise PlanFileError(f"malformed plan file: {error}") from error
@@ -245,7 +247,7 @@ def _value_from(kind: str, raw: Any) -> Any:
     if raw is None:
         return None
     match kind:
-        case "create_table":
+        case "create_table" | "drop_table":
             return _table_from_dict(raw)
         case "add_column" | "drop_column":
             return _field_from_dict(raw)
