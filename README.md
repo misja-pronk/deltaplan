@@ -12,9 +12,8 @@ then apply it.
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 > **Status: pre-alpha.** `validate`, `import`, `plan`, `apply` and `force-unlock`
-> work. `apply` runs metadata and table-feature steps, resumes an interrupted run, and
-> refuses a stale plan; rewrites are classified but not generated yet. `drift` is still
-> to come.
+> work, including rewrites. `apply` resumes an interrupted run and refuses a stale one.
+> `drift` is still to come.
 
 **[Read the docs →](https://misja-pronk.github.io/deltaplan/)** — the spec format, the
 commands, and the safety model. [`docs/DESIGN.md`](docs/DESIGN.md) is the source of truth.

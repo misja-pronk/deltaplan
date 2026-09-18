@@ -20,7 +20,9 @@ References:
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
+from deltaplan.differ import diff as compute_changes
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Risk, Step, TableDiff, TableFacts
 from deltaplan.model.table import (
@@ -33,11 +35,18 @@ from deltaplan.model.table import (
     default_primary_key_name,
 )
 from deltaplan.model.types import (
+    Array,
+    Char,
+    DataType,
     Decimal,
     Field,
+    Map,
     Primitive,
+    Struct,
+    Varchar,
     as_data_type,
     render_type,
+    type_kind,
 )
 from deltaplan.sql import quote_ident, quote_literal, quote_qualified
 
@@ -192,10 +201,96 @@ class _Planner:
         )
 
     # -- dispatch ----------------------------------------------------------
-    def plan_table(self, diff: TableDiff) -> None:
-        for change in diff.changes:
+    def plan_table(self, table_diff: TableDiff) -> None:
+        start = self._change + 1
+        if _rewrites(table_diff):
+            # The table is rebuilt whole rather than patched change by change, so
+            # its steps belong to the table rather than to any one change.
+            self._change = -1
+            self._rewrite(table_diff)
+            self._change = start + len(table_diff.changes) - 1
+            return
+        for change in table_diff.changes:
             self._change += 1
-            self.plan_change(change, diff.facts)
+            self.plan_change(change, table_diff.facts)
+
+    def _rewrite(self, table_diff: TableDiff) -> None:
+        desired, live = table_diff.desired, table_diff.live
+        assert desired is not None and live is not None  # `_rewrites` checked
+        facts = table_diff.facts
+        staging = staging_name(table_diff.table)
+        projection = build_projection(desired, live)
+
+        if not projection.complete:
+            columns = ", ".join(projection.problems)
+            self.emit(
+                table_diff.table,
+                "REWRITE",
+                "rewrite",
+                sql=None,
+                est_bytes=facts.size_bytes,
+                undo_hint=_restore_hint(facts),
+                note=(
+                    f"cannot work out how to fill {columns} from the live table. "
+                    "Give those columns a `using:` expression, or make this change "
+                    "by hand"
+                ),
+            )
+            return
+
+        select = ",\n  ".join(projection.expressions)
+        self.emit(
+            table_diff.table,
+            "STAGE rewritten data",
+            "rewrite",
+            sql=(
+                f"CREATE OR REPLACE TABLE {quote_qualified(staging)} AS\nSELECT\n"
+                f"  {select}\nFROM {quote_qualified(table_diff.table)}"
+            ),
+            est_bytes=facts.size_bytes,
+            note="a full copy is written alongside the table, then dropped again",
+        )
+        self.emit(
+            table_diff.table,
+            "REPLACE TABLE",
+            "rewrite",
+            sql=replace_table_sql(desired, source=staging),
+            est_bytes=facts.size_bytes,
+            undo_hint=_restore_hint(facts),
+        )
+        # A query result has names, types and an order and nothing else, so the
+        # rest of the shape is put back with ordinary ALTERs — worked out by the
+        # differ rather than by a second hand-rolled list.
+        finishing = compute_changes(desired, ctas_result(desired))
+        unreachable = [change for change in finishing if needs_rewrite(change)]
+        for change in finishing:
+            if change not in unreachable:
+                self.plan_change(change, facts)
+        if unreachable:
+            # A rewrite builds the new table out of a query, and a query result
+            # has no required fields inside a struct. There is no ALTER for it
+            # either, so say so rather than planning something that can't work.
+            # TODO(verify): whether any runtime can set NOT NULL on a nested
+            # field after the fact.
+            paths = ", ".join(change.path for change in unreachable)
+            self.emit(
+                table_diff.table,
+                "UNREACHABLE",
+                "rewrite",
+                sql=None,
+                note=(
+                    f"a rewrite cannot make {paths} NOT NULL: the new table is "
+                    "built from a query, and a query result has no required "
+                    "fields inside a struct. Drop `nullable: false` there, or "
+                    "rewrite the table by hand"
+                ),
+            )
+        self.emit(
+            table_diff.table,
+            "DROP staging",
+            "meta",
+            sql=f"DROP TABLE IF EXISTS {quote_qualified(staging)}",
+        )
 
     def plan_change(self, change: Change, facts: TableFacts) -> None:
         match change.kind:
@@ -354,17 +449,17 @@ class _Planner:
         )
 
     def _change_type(self, change: Change, facts: TableFacts) -> None:
-        before, after = change.before, change.after
-        # A map key cannot be altered in place, whatever the types involved.
-        is_map_key = change.path.endswith(".key")
-        if is_map_key or not widens(before, after):
+        after = change.after
+        if needs_rewrite(change):
+            # Only reached when the caller gave no desired/live tables to rewrite
+            # towards; otherwise `plan_table` handled the whole table already.
             self._emit_rewrite(
                 change,
                 facts,
                 title="REWRITE",
                 note=(
                     "a map key cannot be altered in place"
-                    if is_map_key
+                    if change.path.endswith(".key")
                     else "not a supported widening, so the data has to be rewritten"
                 ),
             )
@@ -384,9 +479,7 @@ class _Planner:
         )
 
     def _set_nullable(self, change: Change, facts: TableFacts) -> None:
-        if change.nested:
-            # TODO(verify): nested fields cannot be made NOT NULL in place on any
-            # runtime we know of; plan it as a rewrite rather than a failing step.
+        if needs_rewrite(change):
             self._emit_rewrite(
                 change,
                 facts,
@@ -610,3 +703,235 @@ def _restore_hint(facts: TableFacts) -> str | None:
         f"RESTORE TABLE {quote_qualified(facts.name)} "
         f"TO VERSION AS OF {facts.delta_version}"
     )
+
+
+# ---------------------------------------------------------------------------
+# rewrites
+# ---------------------------------------------------------------------------
+
+#: Appended to a table's name for the table a rewrite stages its data in.
+STAGING_SUFFIX = "__deltaplan_rewrite"
+
+
+def needs_rewrite(change: Change) -> bool:
+    """Can this change only be made by rewriting the data?
+
+    The one place that decides. `plan_table` asks it up front, because a table
+    that needs a rewrite is rebuilt whole rather than patched change by change.
+    """
+    match change.kind:
+        case "change_type":
+            # A map key can't be altered in place whatever the types involved.
+            return change.path.endswith(".key") or not widens(change.before, change.after)
+        case "set_nullable":
+            # TODO(verify): no runtime we know of can alter a nested field's
+            # nullability in place.
+            return change.nested
+        case _:
+            return False
+
+
+def _rewrites(table_diff: TableDiff) -> bool:
+    """Is this a table to rebuild rather than patch?
+
+    It takes both sides to rewrite: the shape to build, and the table to read the
+    data out of. Without them the planner falls back to classifying the change and
+    saying it can't generate the SQL.
+    """
+    return (
+        table_diff.desired is not None
+        and table_diff.live is not None
+        and any(needs_rewrite(change) for change in table_diff.changes)
+    )
+
+
+def staging_name(table: str) -> str:
+    parts = table.split(".")
+    return ".".join([*parts[:-1], f"{parts[-1]}{STAGING_SUFFIX}"])
+
+
+@dataclass(frozen=True, slots=True)
+class Projection:
+    """How to read each desired column out of the live table.
+
+    `problems` names the columns deltaplan couldn't work out an expression for.
+    A projection with problems is not used: the plan says what is missing and
+    asks for a `using:` expression instead of generating something wrong.
+    """
+
+    expressions: tuple[str, ...] = ()
+    problems: tuple[str, ...] = ()
+
+    @property
+    def complete(self) -> bool:
+        return not self.problems
+
+
+def build_projection(desired: Table, live: Table) -> Projection:
+    """The SELECT list that turns the live table into the desired one."""
+    expressions: list[str] = []
+    problems: list[str] = []
+    for column in desired.columns:
+        source = _live_counterpart(column, live)
+        expression = (
+            column.using
+            if column.using is not None
+            else _value_expression(column, source)
+        )
+        if expression is None:
+            problems.append(column.name)
+            continue
+        expressions.append(f"{expression} AS {quote_ident(column.name)}")
+    return Projection(tuple(expressions), tuple(problems))
+
+
+def _live_counterpart(column: Field, live: Table) -> Field | None:
+    """The live column this one comes from, following a declared rename."""
+    if column.renamed_from is not None and live.column(column.name) is None:
+        renamed = live.column(column.renamed_from)
+        if renamed is not None:
+            return renamed
+    return live.column(column.name)
+
+
+def _value_expression(column: Field, source: Field | None) -> str | None:
+    if source is None:
+        # A column that isn't there yet starts out empty.
+        return f"CAST(NULL AS {render_type(column.type, upper=True)})"
+    return _convert(column.type, source.type, quote_ident(source.name))
+
+
+def _convert(desired: DataType, live: DataType, reference: str) -> str | None:
+    """An expression converting `reference` from one type to the other.
+
+    Returns None when deltaplan has no honest answer — a struct becoming an
+    array, a map whose shape moved — rather than emitting a cast that would
+    either fail or, worse, silently line fields up by position.
+    """
+    if desired == live:
+        return reference
+    if _is_scalar(desired) and _is_scalar(live):
+        # Any scalar to any other scalar is a cast. Whether it is a *sensible*
+        # cast is Databricks' call — and `using:` is there for when it isn't.
+        return f"CAST({reference} AS {render_type(desired, upper=True)})"
+    if type_kind(desired) != type_kind(live):
+        # A struct becoming an array, or a scalar becoming a struct: there is no
+        # conversion to guess at.
+        return None
+
+    match (desired, live):
+        case (Struct(), Struct()):
+            return _struct_expression(desired, live, reference)
+        case (Array(desired_element, _), Array(live_element, _)):
+            if desired_element == live_element:
+                return reference
+            inner = _convert(desired_element, live_element, _LAMBDA_VARIABLE)
+            if inner is None:
+                return None
+            # https://docs.databricks.com/aws/en/sql/language-manual/functions/transform
+            return f"transform({reference}, {_LAMBDA_VARIABLE} -> {inner})"
+        case _:
+            # Maps: transform_keys / transform_values would do it, but a map whose
+            # key type moved needs a decision about collisions that only you can
+            # make.
+            return None
+
+
+_LAMBDA_VARIABLE = "dp_item"
+
+
+def _is_scalar(data_type: DataType) -> bool:
+    return isinstance(data_type, Primitive | Decimal | Char | Varchar)
+
+
+def _struct_expression(desired: Struct, live: Struct, reference: str) -> str | None:
+    """`named_struct(...)`, built by name — never by position."""
+    parts: list[str] = []
+    for member in desired.fields:
+        source = _live_member(member, live)
+        child = f"{reference}.{quote_ident(source.name)}" if source else None
+        expression = (
+            _convert(member.type, source.type, child)
+            if source is not None and child is not None
+            else f"CAST(NULL AS {render_type(member.type, upper=True)})"
+        )
+        if expression is None:
+            return None
+        parts.append(f"{quote_literal(member.name)}, {expression}")
+    return f"named_struct({', '.join(parts)})"
+
+
+def _live_member(member: Field, live: Struct) -> Field | None:
+    if member.renamed_from is not None and live.field(member.name) is None:
+        renamed = live.field(member.renamed_from)
+        if renamed is not None:
+            return renamed
+    return live.field(member.name)
+
+
+def replace_table_sql(
+    table: Table,
+    *,
+    source: str | None = None,
+) -> str:
+    """`CREATE OR REPLACE TABLE`, either with an explicit schema or from a query.
+
+    Replacing rather than dropping and recreating is what keeps the table's
+    identity and its Delta history — which is what makes the recorded restore
+    point mean anything.
+    TODO(verify): that REPLACE preserves history far enough back to RESTORE.
+    """
+    if source is None:
+        return create_table_sql(table).replace(
+            "CREATE TABLE IF NOT EXISTS", "CREATE OR REPLACE TABLE", 1
+        )
+    clauses = [f"CREATE OR REPLACE TABLE {quote_qualified(table.name)}"]
+    if table.cluster_by:
+        clustering = ", ".join(quote_ident(name) for name in table.cluster_by)
+        clauses.append(f"CLUSTER BY ({clustering})")
+    if table.comment is not None:
+        clauses.append(f"COMMENT {quote_literal(table.comment)}")
+    properties = dict(table.properties)
+    properties[MANAGED_PROPERTY] = "true"
+    rendered = ",\n".join(
+        f"  {quote_literal(key)} = {quote_literal(value)}"
+        for key, value in sorted(properties.items())
+    )
+    clauses.append(f"TBLPROPERTIES (\n{rendered}\n)")
+    clauses.append(f"AS SELECT * FROM {quote_qualified(source)}")
+    return "\n".join(clauses)
+
+
+def ctas_result(desired: Table) -> Table:
+    """What `CREATE OR REPLACE TABLE … AS SELECT` leaves behind.
+
+    A query result has names, types and an order; it has no nullability,
+    comments, tags or constraints. Diffing this against the desired table is how
+    the planner works out which ordinary `ALTER`s finish the job — reusing the
+    differ rather than hand-rolling a second list of them.
+    """
+    return Table(
+        name=desired.name,
+        columns=tuple(Field(c.name, _bare(c.type)) for c in desired.columns),
+        comment=desired.comment,
+        cluster_by=desired.cluster_by,
+        properties=(*desired.properties, (MANAGED_PROPERTY, "true")),
+    )
+
+
+def _bare(data_type: DataType) -> DataType:
+    """The same type with every nested comment and NOT NULL stripped.
+
+    `named_struct` builds a struct out of values; it carries no field comments and
+    marks nothing as required. Saying so here is what makes the planner emit the
+    `ALTER`s that put them back, instead of quietly dropping them.
+    """
+    match data_type:
+        case Struct(fields):
+            return Struct(tuple(Field(f.name, _bare(f.type)) for f in fields))
+        case Array(element, contains_null):
+            return Array(_bare(element), contains_null)
+        case Map(key, value):
+            return Map(_bare(key), _bare(value))
+        case _:
+            return data_type

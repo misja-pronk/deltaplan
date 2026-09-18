@@ -33,7 +33,7 @@ RISK_STYLE: dict[Risk, str] = {
     "destructive": "red",
 }
 
-MARKER_STYLE = {"+": "green", "-": "red", "~": "yellow", "→": "cyan"}
+MARKER_STYLE = {"+": "green", "-": "red", "~": "yellow", "→": "cyan", "↻": "magenta"}
 
 TITLE_WIDTH = 28
 
@@ -98,17 +98,32 @@ def _render_table(plan: Plan, diff: TableDiff, console: Console, offset: int) ->
     console.print(_table_header(diff))
 
     numbered = list(enumerate(diff.changes, start=offset))
+    shown: set[int] = set()
     for column, changes in _group_by_column(numbered).items():
+        if not column:
+            # Table-level changes — comment, clustering, properties, tags,
+            # constraints — sit directly under the table, not inside a column.
+            for index, change in changes:
+                shown |= _render_change(plan, index, change, console, indent=1)
+            continue
         direct = [(index, c) for index, c in changes if c.path == column]
         nested = [(index, c) for index, c in changes if c.path != column]
-        if column and nested and not direct:
+        if nested and not direct:
             # The column itself is unchanged; it is only a container for what is
             # nested below it.
             console.print(_line(1, "~", Text(column)))
         for index, change in direct:
-            _render_change(plan, index, change, console, indent=1)
+            shown |= _render_change(plan, index, change, console, indent=1)
         for index, change in nested:
-            _render_change(plan, index, change, console, indent=2)
+            shown |= _render_change(plan, index, change, console, indent=2)
+
+    # A rewrite rebuilds the table rather than patching it, so its steps belong to
+    # the table rather than to any one change above.
+    rest = [step for step in plan.steps_for(diff.table) if step.id not in shown]
+    if rest:
+        console.print(_line(1, "↻", Text("rewrite")))
+        for step in rest:
+            _render_step(step, console, indent=2)
 
     for item in diff.unmanaged:
         console.print(Text(f"  · {item} — unmanaged, left untouched", style="dim"))
@@ -153,13 +168,17 @@ def _render_change(
     console: Console,
     *,
     indent: int,
-) -> None:
+) -> set[int]:
+    """Print one change and its steps. Returns the step ids it printed."""
     marker, label = _describe(change)
     console.print(_line(indent, marker, label))
     # Steps always sit one level in from the column, whether the change they
     # implement is the column itself or something nested inside it.
+    printed: set[int] = set()
     for step in plan.steps_for_change(index):
         _render_step(step, console, indent=2)
+        printed.add(step.id)
+    return printed
 
 
 def _line(indent: int, marker: str, label: Text) -> Text:

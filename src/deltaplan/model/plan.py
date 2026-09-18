@@ -80,12 +80,21 @@ class TableFacts:
 
 @dataclass(frozen=True, slots=True)
 class TableDiff:
-    """One table's changes, with the live facts they were computed against."""
+    """One table's changes, with the live facts they were computed against.
+
+    `desired` and `live` are the two sides the changes were computed from.
+    Step-by-step edits don't need them, but a rewrite does: it rebuilds the table
+    wholesale rather than patching it, so it has to know both what it is
+    rebuilding into and what it is reading from. Carrying them also makes a plan
+    file a complete record of what was compared.
+    """
 
     table: str
     changes: tuple[Change, ...] = ()
     facts: TableFacts = field(default_factory=lambda: TableFacts("unknown"))
     unmanaged: tuple[str, ...] = ()
+    desired: Table | None = None
+    live: Table | None = None
 
 
 @dataclass(frozen=True, slots=True)

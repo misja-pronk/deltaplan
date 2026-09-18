@@ -31,6 +31,10 @@ columns:
 
   - name: amount
     type: decimal(18, 2)
+    # If a change to this column ever needs the table rewritten, `using:` says how
+    # to fill it from the old one. deltaplan writes the obvious cast itself, so
+    # this is only for conversions it shouldn't guess at:
+    #   using: "format_number(amount, 2)"
 
   # A type can be a string (`struct<street:string,zip:string>`) or nested YAML.
   # The nested form is the one that allows per-field comments and renames.

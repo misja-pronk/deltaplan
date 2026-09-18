@@ -288,3 +288,137 @@ def test_running_a_plan_twice_changes_nothing_more() -> None:
     # first, and it is exactly what the next test asserts.
     for change in plan.changes:
         assert is_applied(change, after_once)
+
+
+# ---------------------------------------------------------------------------
+# rewrites
+# ---------------------------------------------------------------------------
+#
+# A rewrite rebuilds the table out of a query rather than patching it, so
+# convergence is the only thing that says the query was right: the fake types
+# the projection, so a column that comes out the wrong shape fails here.
+
+
+def test_rewrite_of_a_scalar_type() -> None:
+    fake = converge(
+        table(
+            *[c for c in LIVE.columns if c.name != "amount"],
+            col("amount", "string"),  # decimal -> string is no widening
+            name=NAME,
+            comment=LIVE.comment,
+        ),
+        LIVE,
+    )
+    assert f"{NAME}__deltaplan_rewrite" not in fake.tables, "staging is cleaned up"
+
+
+def test_rewrite_restructures_a_struct() -> None:
+    from deltaplan.model.types import Field, Primitive, Struct
+
+    desired = table(
+        *[c for c in LIVE.columns if c.name not in {"address", "amount"}],
+        col("amount", "string"),  # forces the rewrite
+        Field(
+            "address",
+            Struct(
+                (
+                    Field("street", Primitive("string")),
+                    # renamed, and the type changes under it
+                    Field("zip", Primitive("int"), renamed_from="old_zip"),
+                    Field("country", Primitive("string"), comment="ISO 3166"),
+                )
+            ),
+        ),
+        name=NAME,
+        comment=LIVE.comment,
+    )
+    converge(desired, LIVE)
+
+
+def test_rewrite_changes_an_array_element() -> None:
+    converge(
+        table(
+            *[c for c in LIVE.columns if c.name != "lines"],
+            col("lines", "array<struct<sku:string,qty:string>>"),
+            name=NAME,
+            comment=LIVE.comment,
+        ),
+        LIVE,
+    )
+
+
+def test_rewrite_carries_renames_adds_and_drops_at_once() -> None:
+    converge(
+        table(
+            col("order_id", "bigint", nullable=False, comment="Surrogate key"),
+            col("amount", "string"),  # rewrite
+            col("customer_ref", "string", renamed_from="cust_id"),
+            col("address", "struct<street:string>"),
+            col("lines", "array<struct<sku:string,qty:int>>"),
+            col("by_code", "map<string,struct<n:int>>"),
+            col("shipped_at", "timestamp"),  # new column
+            name=NAME,
+            comment="Order facts, one row per order",
+            cluster_by=("order_id",),
+            tags=(("domain", "sales"),),
+            constraints=(PrimaryKey(("order_id",), "orders_pk"),),
+        ),
+        LIVE,
+    )
+
+
+def test_a_using_expression_is_taken_as_written() -> None:
+    from deltaplan.model.types import Field, Primitive
+
+    desired = table(
+        *[c for c in LIVE.columns if c.name != "address"],
+        # A struct becoming a string: deltaplan has no conversion for that, so the
+        # spec supplies one.
+        Field("address", Primitive("string"), using="CAST(address.street AS STRING)"),
+        name=NAME,
+        comment=LIVE.comment,
+    )
+    fake, plan = plan_against(desired, LIVE)
+    assert all(step.sql for step in plan.steps), "nothing should be unrunnable"
+    assert "CAST(address.street AS STRING) AS `address`" in (plan.steps[0].sql or "")
+    converge(desired, LIVE)
+
+
+@pytest.mark.parametrize(
+    ("column", "type_text", "reason"),
+    [
+        # A struct becoming an array: no conversion to guess at.
+        ("address", "array<string>", "address"),
+        # A map's value type moving: transform_values would do it, but not
+        # without a decision deltaplan can't make for you.
+        ("by_code", "map<string,struct<n:string>>", "by_code"),
+    ],
+)
+def test_what_deltaplan_refuses_to_invent(
+    column: str, type_text: str, reason: str
+) -> None:
+    desired = table(
+        *[c for c in LIVE.columns if c.name != column],
+        col(column, type_text),
+        name=NAME,
+        comment=LIVE.comment,
+    )
+    _, plan = plan_against(desired, LIVE)
+    unrunnable = [step for step in plan.steps if step.sql is None]
+    assert len(unrunnable) == 1
+    assert reason in (unrunnable[0].note or "")
+    assert "using:" in (unrunnable[0].note or "")
+
+
+def test_a_nested_not_null_cannot_be_reached_by_a_rewrite() -> None:
+    desired = table(
+        *[c for c in LIVE.columns if c.name not in {"amount", "address"}],
+        col("amount", "string"),  # forces the rewrite
+        col("address", "struct<street:string not null,old_zip:string>"),
+        name=NAME,
+        comment=LIVE.comment,
+    )
+    _, plan = plan_against(desired, LIVE)
+    unreachable = [step for step in plan.steps if step.title == "UNREACHABLE"]
+    assert len(unreachable) == 1
+    assert "address.street" in (unreachable[0].note or "")

@@ -14,6 +14,7 @@
             type=Primitive(
               name='bigint',
             ),
+            using=None,
           ),
         ),
         comment=None,
@@ -43,6 +44,7 @@
         type=Primitive(
           name='string',
         ),
+        using=None,
       ),
       before=None,
       kind='add_column',
@@ -104,6 +106,7 @@
         type=Primitive(
           name='string',
         ),
+        using=None,
       ),
       before=None,
       kind='add_column',
@@ -119,6 +122,7 @@
         type=Primitive(
           name='string',
         ),
+        using=None,
       ),
       before=None,
       kind='add_column',
@@ -135,6 +139,7 @@
         type=Primitive(
           name='string',
         ),
+        using=None,
       ),
       kind='drop_column',
       path='address.old_zip',
@@ -150,6 +155,7 @@
         type=Primitive(
           name='int',
         ),
+        using=None,
       ),
       kind='drop_column',
       path='address.gone',

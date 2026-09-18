@@ -8,6 +8,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Milestone 3 (rewrites) is complete**: a table that can't be patched is
+  rebuilt, and `apply` runs it.
+- A rewrite stages the converted data beside the table, **replaces** the table
+  from that staging table (keeping its identity and Delta history, so the
+  recorded restore point means something, and with no window where the table is
+  empty), puts back what a query result can't carry — `NOT NULL`, comments, tags,
+  constraints — with ordinary `ALTER`s, and drops the staging table.
+- deltaplan writes the conversion where it honestly can: a cast between scalars,
+  `named_struct` matched **by name** rather than by position, `transform` over an
+  array of structs, and `CAST(NULL AS …)` for a column that didn't exist.
+- `using:` on a column — a SQL expression over the live table — for conversions
+  deltaplan won't invent: a struct becoming an array, a map whose shape moved, or
+  any change that needs a decision rather than a cast.
+- The plan file now carries both sides of each diff, so it records what was
+  compared and a rewrite knows what it is rebuilding into.
+
+### Changed
+
+- `apply` no longer refuses plans containing rewrites. It still refuses any plan
+  with a step deltaplan couldn't generate, naming the step and what it needs.
+
+### Fixed
+
+- Table-level changes (properties, tags) were rendered one level too deep, as
+  though they were nested inside a column.
+
+## [0.2.0 — milestone 2]
+
+### Added
+
 - **Milestone 2 (apply) is complete**: `deltaplan apply plan.json` and
   `deltaplan force-unlock`.
 - Executor with the design's four promises: a fresh run refuses a stale plan

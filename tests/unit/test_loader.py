@@ -363,3 +363,42 @@ def test_bad_mode_is_rejected(tmp_path: Path) -> None:
     (tmp_path / "deltaplan.yml").write_text("targets:\n  dev:\n    mode: yolo\n")
     with pytest.raises(SpecError, match="mode must be 'additive' or 'strict'"):
         load_project(tmp_path / "deltaplan.yml")
+
+
+def test_using_is_read_as_a_hint(tmp_path: Path) -> None:
+    table = load_table(
+        write(
+            tmp_path,
+            """
+table: c.s.t
+columns:
+  - name: amount
+    type: string
+    using: "format_number(amount, 2)"
+""",
+        )
+    )
+    amount = table.column("amount")
+    assert amount is not None
+    assert amount.using == "format_number(amount, 2)"
+    # It is a hint about how to get there, not part of the state, so it doesn't
+    # make the column look different from the one it describes.
+    assert amount == Field("amount", Primitive("string"))
+    assert validate_table(table, "spec.yml") == ()
+
+
+def test_using_on_a_nested_field_is_an_error(tmp_path: Path) -> None:
+    table = load_table(
+        write(
+            tmp_path,
+            """
+table: c.s.t
+columns:
+  - name: a
+    type:
+      struct:
+        - {name: b, type: string, using: "1"}
+""",
+        )
+    )
+    assert any("`using` applies to whole columns only" in m for m in messages(table))

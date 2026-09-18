@@ -79,9 +79,20 @@ offline for every change kind. It proves our SQL matches our intent; only
 adding a test, and keep the fake's `FakeSqlError` loud — a statement shape it
 doesn't know must fail, not pass.
 
-Next up is **milestone 3 (feature + rewrite)**: rewrites (`CREATE OR REPLACE
-TABLE … AS SELECT`), restore points, `SHALLOW CLONE`, and claiming ownership of
-imported tables on first apply.
+**Milestone 3 (rewrites) is done.** A table with a rewrite-class change is
+rebuilt whole rather than patched: stage the converted data, REPLACE the table
+from the staging table (identity and history kept, no empty window), put back
+what a query result can't carry with ordinary ALTERs, drop the staging table.
+Two departures worth knowing: the design's single `CREATE OR REPLACE TABLE …
+AS SELECT` is staged in two statements, because a self-referencing RTAS is
+unverified (TODO(verify) in `replace_table_sql`) and staging makes the expensive
+step repeatable; and `using:` is a new spec hint for conversions deltaplan won't
+invent. A rewrite cannot set NOT NULL on a nested field — it refuses rather than
+dropping the constraint.
+
+Still open from the design: `SHALLOW CLONE` as an optional extra restore point,
+and claiming ownership of imported tables on first apply. Next milestones are
+**4 (CI)**: Markdown renderer, GitHub Action, `drift`; then **5 (governance)**.
 
 1. ~~Scaffold: `pyproject.toml` (uv, src layout, Apache-2.0), ruff, ty, pytest, GitHub Actions for lint + unit tests, README stub, move `DESIGN.md` to `docs/`.~~ **Done.**
 2. `model/types.py` + `typeparser.py`: type tree and parser for Databricks type strings incl. nested struct/array/map, decimal, backticked field names, `NOT NULL` and comments inside structs. Round-trip tests.

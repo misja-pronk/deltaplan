@@ -59,6 +59,10 @@ def _diff_to_dict(diff: TableDiff) -> dict[str, Any]:
         "table": diff.table,
         "facts": _facts_to_dict(diff.facts),
         "unmanaged": list(diff.unmanaged),
+        # Both sides are kept: a rewrite needs the shape it builds towards, and a
+        # plan file that records what was compared is one you can audit later.
+        "desired": _table_to_dict(diff.desired) if diff.desired else None,
+        "live": _table_to_dict(diff.live) if diff.live else None,
         "changes": [_change_to_dict(change) for change in diff.changes],
     }
 
@@ -127,6 +131,12 @@ def _field_to_dict(field: Field) -> dict[str, Any]:
     }
     if field.comment is not None:
         rendered["comment"] = field.comment
+    # Hints take no part in equality, but a plan file should still say what the
+    # spec said.
+    if field.renamed_from is not None:
+        rendered["renamed_from"] = field.renamed_from
+    if field.using is not None:
+        rendered["using"] = field.using
     return rendered
 
 
@@ -196,6 +206,8 @@ def _diff_from_dict(entry: dict[str, Any]) -> TableDiff:
             delta_version=facts.get("delta_version"),
         ),
         unmanaged=tuple(entry.get("unmanaged", ())),
+        desired=_table_from_dict(entry["desired"]) if entry.get("desired") else None,
+        live=_table_from_dict(entry["live"]) if entry.get("live") else None,
     )
 
 
@@ -253,6 +265,8 @@ def _field_from_dict(entry: dict[str, Any]) -> Field:
         parse_type(str(entry["type"])),
         nullable=bool(entry.get("nullable", True)),
         comment=entry.get("comment"),
+        renamed_from=entry.get("renamed_from"),
+        using=entry.get("using"),
     )
 
 

@@ -131,6 +131,45 @@ have it). Once the old name is gone and the new one exists, the hint is inert;
     Enabling `columnMapping` on a table breaks existing streaming readers. The plan
     labels that step `[feature]` and warns before you apply it.
 
+## Rewrites and `using`
+
+Some changes can't be made in place: a column whose type can't be widened, a struct that
+becomes an array, a map whose shape moves. deltaplan plans those as a
+[rewrite](safety.md#what-a-rewrite-actually-does) — the table is rebuilt from a query
+over itself — and writes the conversion where it honestly can:
+
+| Change | What deltaplan writes |
+|---|---|
+| Between scalars | `CAST(amount AS STRING)` |
+| Inside a struct | `named_struct('street', address.street, …)`, matched **by name** |
+| Inside an array of structs | `transform(lines, x -> named_struct(…))` |
+| A column that didn't exist | `CAST(NULL AS TIMESTAMP)` |
+| A renamed column or field | read from the old name, written to the new one |
+
+Where it can't — a struct becoming an array, a map's key or value type moving, or any
+conversion that needs a decision rather than a cast — it refuses and names the column.
+Tell it what to do with `using:`, a SQL expression evaluated against the *live* table:
+
+```yaml
+- name: amount
+  type: string
+  using: "format_number(amount, 2)"
+
+- name: address
+  type: string
+  using: "concat_ws(' ', address.street, address.zip)"
+```
+
+`using` is a hint, like `renamed_from`: it describes how to get from the old table to the
+new one, so it takes no part in comparisons and is only read when a rewrite actually
+happens. It applies to whole columns — build nested values inside the expression rather
+than putting `using` on a nested field.
+
+!!! tip "A cast is not always what you mean"
+    deltaplan writes the obvious cast. If you want different semantics — a date parsed
+    with a format, a rounding rule, a default instead of NULL — write it with `using`
+    and the plan will show exactly what will run.
+
 ## Constraints
 
 ```yaml

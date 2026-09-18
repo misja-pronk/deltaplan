@@ -251,7 +251,7 @@ def _string_list(ctx: _Ctx, node: Node, what: str) -> tuple[str, ...]:
 # types
 # ---------------------------------------------------------------------------
 
-FIELD_KEYS = {"name", "type", "nullable", "comment", "renamed_from"}
+FIELD_KEYS = {"name", "type", "nullable", "comment", "renamed_from", "using"}
 
 
 def _read_type(ctx: _Ctx, node: Node, what: str) -> DataType:
@@ -322,12 +322,16 @@ def _read_field(ctx: _Ctx, node: Node) -> Field:
     renamed_from = None
     if "renamed_from" in items:
         renamed_from = _string(ctx, items["renamed_from"][0], f"renamed_from of {name!r}")
+    using = None
+    if "using" in items:
+        using = _string(ctx, items["using"][0], f"using of {name!r}")
     return Field(
         name,
         field_type,
         nullable=nullable,
         comment=comment,
         renamed_from=renamed_from,
+        using=using,
     )
 
 
@@ -602,6 +606,12 @@ def _lint_field(
     error: Callable[[str], None],
     warn: Callable[[str], None],
 ) -> None:
+    if field.using is not None and "." in path:
+        error(
+            f"{path}: `using` applies to whole columns only — put the expression on "
+            f"{path.split('.')[0]!r} and build the value there"
+        )
+
     if field.renamed_from is not None:
         if field.renamed_from == field.name:
             error(f"{path}: renamed_from is the same as the column name")

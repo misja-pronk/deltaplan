@@ -132,8 +132,9 @@ class Struct:
 class Field:
     """A named member of a struct — and, at the top level, a column.
 
-    `renamed_from` is a planning *hint*, not state: it says how the live table got
-    to look the way it does. It takes no part in equality, so a spec that still
+    `renamed_from` and `using` are planning *hints*, not state: they say how the
+    live table got here, and how to get the new value out of the old one when a
+    rewrite is needed. Neither takes part in equality, so a spec that still
     carries a spent hint compares equal to the table it describes.
     """
 
@@ -142,6 +143,9 @@ class Field:
     nullable: bool = True
     comment: str | None = None
     renamed_from: str | None = field(default=None, compare=False)
+    #: A SQL expression over the *live* table, used only when this table has to
+    #: be rewritten and deltaplan can't work out the conversion itself.
+    using: str | None = field(default=None, compare=False)
 
 
 #: A column is a top-level field.

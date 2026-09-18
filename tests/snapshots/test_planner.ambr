@@ -16,6 +16,31 @@
   )
   '''
 # ---
+# name: test_replace_table_sql
+  '''
+  CREATE OR REPLACE TABLE `main`.`sales`.`orders` (
+    `order_id` BIGINT NOT NULL COMMENT 'Surrogate key',
+    `amount` STRING,
+    CONSTRAINT `orders_pk` PRIMARY KEY (`order_id`)
+  )
+  USING DELTA
+  CLUSTER BY (`order_id`)
+  COMMENT 'Order facts'
+  TBLPROPERTIES (
+    'delta.enableChangeDataFeed' = 'true',
+    'deltaplan.managed' = 'true'
+  )
+  
+  CREATE OR REPLACE TABLE `main`.`sales`.`orders`
+  CLUSTER BY (`order_id`)
+  COMMENT 'Order facts'
+  TBLPROPERTIES (
+    'delta.enableChangeDataFeed' = 'true',
+    'deltaplan.managed' = 'true'
+  )
+  AS SELECT * FROM `main`.`sales`.`orders__deltaplan_rewrite`
+  '''
+# ---
 # name: test_the_design_documents_example_plan
   tuple(
     Step(
@@ -121,4 +146,14 @@
       ),
     ),
   )
+# ---
+# name: test_the_projection
+  '''
+  `order_id` AS `order_id`,
+  CAST(`amount` AS STRING) AS `amount`,
+  `cust_id` AS `customer_ref`,
+  named_struct('street', `address`.`street`, 'zip', CAST(NULL AS STRING), 'country', CAST(NULL AS STRING)) AS `address`,
+  transform(`lines`, dp_item -> named_struct('sku', dp_item.`sku`, 'qty', CAST(dp_item.`qty` AS STRING))) AS `lines`,
+  CAST(NULL AS TIMESTAMP) AS `shipped_at`
+  '''
 # ---

@@ -13,7 +13,16 @@ from syrupy.assertion import SnapshotAssertion
 from deltaplan.differ import diff
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
 from deltaplan.model.table import Check, PrimaryKey, Table
-from deltaplan.planner import build_plan, widens
+from deltaplan.model.types import Field, Primitive, Struct, render_type
+from deltaplan.planner import (
+    build_plan,
+    build_projection,
+    ctas_result,
+    needs_rewrite,
+    replace_table_sql,
+    staging_name,
+    widens,
+)
 from deltaplan.typeparser import parse_type
 from helpers import col, table
 
@@ -375,3 +384,138 @@ def test_an_empty_diff_plans_nothing() -> None:
     assert str(plan.summary) == (
         "Plan: 0 add, 0 change, 0 destroy · 0 steps · 0 rewrites · 0 warnings"
     )
+
+
+# ---------------------------------------------------------------------------
+# rewrites
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "expected"),
+    [
+        ("int", "bigint", False),  # a widening is metadata
+        ("string", "bigint", True),
+        ("struct<a:int>", "array<int>", True),
+        ("decimal(18,2)", "decimal(10,2)", True),
+    ],
+)
+def test_needs_rewrite_for_type_changes(before: str, after: str, expected: bool) -> None:
+    live = table(col("c", before))
+    desired = table(col("c", after))
+    changes = diff(desired, live)
+    assert [needs_rewrite(change) for change in changes] == [expected]
+
+
+def test_needs_rewrite_for_nested_nullability() -> None:
+    live = table(col("a", "struct<b:string>"))
+    desired = table(col("a", "struct<b:string not null>"))
+    assert [needs_rewrite(c) for c in diff(desired, live)] == [True]
+    # Top-level nullability is an ordinary ALTER.
+    assert [
+        needs_rewrite(c)
+        for c in diff(table(col("a", "int", nullable=False)), table(col("a", "int")))
+    ] == [False]
+
+
+def test_staging_name() -> None:
+    assert staging_name("main.sales.orders") == "main.sales.orders__deltaplan_rewrite"
+
+
+def test_the_projection(snapshot: SnapshotAssertion) -> None:
+    live = table(
+        col("order_id", "bigint"),
+        col("amount", "decimal(10,2)"),
+        col("cust_id", "string"),
+        col("address", "struct<street:string,old_zip:string>"),
+        col("lines", "array<struct<sku:string,qty:int>>"),
+    )
+    desired = table(
+        col("order_id", "bigint"),  # unchanged: read as-is
+        col("amount", "string"),  # a cast
+        col("customer_ref", "string", renamed_from="cust_id"),  # read the old name
+        col("address", "struct<street:string,zip:string,country:string>"),
+        col("lines", "array<struct<sku:string,qty:string>>"),
+        col("shipped_at", "timestamp"),  # no source: starts empty
+    )
+    projection = build_projection(desired, live)
+    assert projection.complete
+    assert ",\n".join(projection.expressions) == snapshot
+
+
+def test_struct_fields_are_matched_by_name_never_by_position() -> None:
+    # Casting a struct positionally would quietly move `b`'s values into `c`.
+    live = table(col("a", "struct<b:string,c:int>"))
+    desired = table(col("a", "struct<c:bigint,b:string>"))
+    expressions = build_projection(desired, live).expressions
+    assert expressions == (
+        "named_struct('c', CAST(`a`.`c` AS BIGINT), 'b', `a`.`b`) AS `a`",
+    )
+
+
+def test_a_renamed_nested_field_is_read_from_its_old_name() -> None:
+    live = table(col("a", "struct<old:string>"))
+    desired = table(
+        Field("a", Struct((Field("new", Primitive("string"), renamed_from="old"),)))
+    )
+    assert build_projection(desired, live).expressions == (
+        "named_struct('new', `a`.`old`) AS `a`",
+    )
+
+
+def test_using_wins_over_anything_deltaplan_would_have_written() -> None:
+    live = table(col("amount", "decimal(10,2)"))
+    desired = table(
+        Field("amount", Primitive("string"), using="format_number(amount, 2)")
+    )
+    assert build_projection(desired, live).expressions == (
+        "format_number(amount, 2) AS `amount`",
+    )
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("struct<a:int>", "array<int>"),  # no conversion to guess at
+        ("array<int>", "map<string,int>"),
+        ("map<string,int>", "map<string,bigint>"),  # needs a collision decision
+        ("string", "struct<a:int>"),
+    ],
+)
+def test_the_projection_refuses_rather_than_inventing(before: str, after: str) -> None:
+    projection = build_projection(table(col("c", after)), table(col("c", before)))
+    assert not projection.complete
+    assert projection.problems == ("c",)
+
+
+def test_replace_table_sql(snapshot: SnapshotAssertion) -> None:
+    desired = table(
+        col("order_id", "bigint", nullable=False, comment="Surrogate key"),
+        col("amount", "string"),
+        comment="Order facts",
+        cluster_by=("order_id",),
+        properties=(("delta.enableChangeDataFeed", "true"),),
+        constraints=(PrimaryKey(("order_id",), "orders_pk"),),
+    )
+    with_schema = replace_table_sql(desired)
+    assert with_schema.startswith("CREATE OR REPLACE TABLE `main`.`sales`.`orders` (")
+    from_query = replace_table_sql(desired, source="main.sales.orders__deltaplan_rewrite")
+    assert f"{with_schema}\n\n{from_query}" == snapshot
+
+
+def test_ctas_result_admits_what_a_query_cannot_carry() -> None:
+    desired = table(
+        col("id", "bigint", nullable=False, comment="key"),
+        col("a", "struct<b:string not null comment 'x'>"),
+        tags=(("domain", "sales"),),
+        constraints=(PrimaryKey(("id",), "pk"),),
+    )
+    produced = ctas_result(desired)
+    # Names, types and order survive a query; nothing else does.
+    assert produced.column_names == ("id", "a")
+    assert produced.column("id") == Field("id", Primitive("bigint"))
+    nested = produced.column("a")
+    assert nested is not None
+    assert render_type(nested.type) == "struct<b:string>"
+    assert produced.tags == () and produced.constraints == ()
+    assert produced.properties_map()["deltaplan.managed"] == "true"

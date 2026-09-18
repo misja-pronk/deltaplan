@@ -116,7 +116,8 @@ def test_a_destructive_plan_needs_the_flag() -> None:
     assert live is not None and "legacy_flag" not in live.table.column_names
 
 
-def test_a_rewrite_plan_is_refused_for_now() -> None:
+def test_a_rewrite_runs_and_converges() -> None:
+    """A rewrite is four steps and a new table, not a refusal."""
     desired = table(
         col("order_id", "bigint", nullable=False),
         col("amount", "string"),  # decimal -> string is no widening
@@ -126,8 +127,52 @@ def test_a_rewrite_plan_is_refused_for_now() -> None:
         comment=LIVE.comment,
     )
     fake, plan = planned(desired)
-    with pytest.raises(ExecutionError, match="rewrite"):
+    assert [step.risk for step in plan.steps] == ["rewrite", "rewrite", "meta", "meta"]
+
+    result = executor(fake).apply(plan)
+    assert result.ok, result.error
+
+    from deltaplan.differ import diff
+
+    live = Introspector(fake).table(NAME)
+    assert live is not None and diff(desired, live.table) == ()
+    # The staging table is cleaned up after itself.
+    assert f"{NAME}__deltaplan_rewrite" not in fake.tables
+
+
+def test_a_rewrite_records_a_restore_point() -> None:
+    desired = table(
+        col("order_id", "bigint", nullable=False),
+        col("amount", "string"),
+        col("cust_id", "string"),
+        col("legacy_flag", "boolean"),
+        name=NAME,
+        comment=LIVE.comment,
+    )
+    fake, plan = planned(desired)
+    history = MemoryHistory()
+    executor(fake, history).apply(plan)
+
+    replace = next(o for o in history.steps["run1"] if o.sql and "AS SELECT *" in o.sql)
+    assert replace.delta_version_before is not None
+
+
+def test_a_step_deltaplan_cannot_generate_is_refused() -> None:
+    # A struct becoming an array: there is no conversion to guess at, so the plan
+    # says what it needs instead of emitting something that would fail.
+    desired = table(
+        col("order_id", "bigint", nullable=False),
+        col("amount", "decimal(10,2)"),
+        col("cust_id", "array<string>"),
+        col("legacy_flag", "boolean"),
+        name=NAME,
+        comment=LIVE.comment,
+    )
+    fake, plan = planned(desired)
+    with pytest.raises(ExecutionError, match="can't run"):
         executor(fake).apply(plan)
+    assert "using:" in (plan.steps[0].note or "")
+    assert fake.ddl == []
 
 
 def test_a_stale_plan_is_refused() -> None:

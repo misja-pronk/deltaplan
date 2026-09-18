@@ -90,8 +90,16 @@ class FakeWarehouse:
             return self._describe_history(flat)
         if upper.startswith("DESCRIBE TABLE"):
             return ()
-        if upper.startswith("CREATE TABLE"):
+        if upper.startswith("CREATE TABLE") or upper.startswith(
+            "CREATE OR REPLACE TABLE"
+        ):
             return self._create_table(original)
+        if upper.startswith("DROP TABLE"):
+            return self._drop_table(flat)
+        if upper.startswith("INSERT OVERWRITE") or upper.startswith("INSERT INTO"):
+            # The fake models schemas, not rows: moving data is a no-op here, and
+            # whether it is *valid* is a question only a warehouse can answer.
+            return ()
         if upper.startswith("CREATE SCHEMA") or upper.startswith("DROP SCHEMA"):
             return ()
         if upper.startswith("COMMENT ON TABLE"):
@@ -184,11 +192,49 @@ class FakeWarehouse:
 
     # -- writes ------------------------------------------------------------
     def _create_table(self, statement: str) -> tuple[Row, ...]:
-        table = _parse_create_table(statement)
-        if table.name in self.tables:
+        stripped = statement.strip()
+        replacing = stripped.upper().startswith("CREATE OR REPLACE TABLE")
+        if re.search(r"\bAS\s+SELECT\b", stripped):
+            table = self._parse_ctas(stripped)
+        else:
+            table = _parse_create_table(stripped)
+        if table.name in self.tables and not replacing:
             return ()  # IF NOT EXISTS
         self.tables[table.name] = table
-        self.versions[table.name] = 0
+        self.versions[table.name] = self.versions.get(table.name, -1) + 1
+        return ()
+
+    def _parse_ctas(self, statement: str) -> Table:
+        """`CREATE OR REPLACE TABLE x [clauses] AS SELECT … FROM y`.
+
+        The columns are worked out from the SELECT list, which is the point: if a
+        projection produces the wrong type, the table it builds has the wrong type
+        and the convergence test says so.
+        """
+        match = _CTAS.fullmatch(statement)
+        if match is None:
+            raise FakeSqlError(f"cannot read CREATE … AS SELECT:\n{statement}")
+        source = self._table(_unquote(match.group("source")))
+        select = match.group("select").strip()
+        columns = source.columns if select == "*" else _project(select, source)
+        properties = (
+            tuple(_pairs(match.group("properties")).items())
+            if match.group("properties")
+            else ()
+        )
+        return Table(
+            name=_unquote(match.group("name")),
+            columns=columns,
+            comment=_unliteral(match.group("comment"))
+            if match.group("comment")
+            else None,
+            cluster_by=tuple(_idents(match.group("cluster") or "")),
+            properties=properties,
+        )
+
+    def _drop_table(self, flat: str) -> tuple[Row, ...]:
+        name = _unquote(flat[len("DROP TABLE ") :].removeprefix("IF EXISTS ").strip())
+        self.tables.pop(name, None)
         return ()
 
     def _comment_on_table(self, flat: str) -> tuple[Row, ...]:
@@ -484,8 +530,18 @@ def _literal_after(text: str, marker: str) -> str | None:
     return _unliteral(match.group(0)) if match else None
 
 
+_CTAS = re.compile(
+    r"CREATE OR REPLACE TABLE (?P<name>\S+)"
+    r"(?:\nCLUSTER BY \((?P<cluster>[^)]*)\))?"
+    r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
+    r"(?:\nTBLPROPERTIES \((?P<properties>.*?)\n\))?"
+    r"\s+AS\s+SELECT\s+(?P<select>.*?)\s+FROM (?P<source>\S+)",
+    re.DOTALL,
+)
+
 _CREATE = re.compile(
-    r"CREATE TABLE IF NOT EXISTS (?P<name>\S+) \((?P<body>.*?)\n\)\nUSING DELTA"
+    r"CREATE (?:TABLE IF NOT EXISTS|OR REPLACE TABLE) (?P<name>\S+) "
+    r"\((?P<body>.*?)\n\)\nUSING DELTA"
     r"(?:\nCLUSTER BY \((?P<cluster>[^)]*)\))?"
     r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
     r"(?:\nTBLPROPERTIES \((?P<properties>.*?)\n\))?",
@@ -538,3 +594,107 @@ def _parse_inline_constraint(entry: str) -> Constraint:
     if match := re.fullmatch(r"CONSTRAINT (\S+) CHECK \((.+)\)", entry):
         return Check(_unquote(match.group(1)), match.group(2))
     raise FakeSqlError(f"cannot read constraint: {entry}")
+
+
+# ---------------------------------------------------------------------------
+# typing a projection
+# ---------------------------------------------------------------------------
+#
+# Enough of an expression typer for the shapes the planner generates. Anything
+# else — a hand-written `using:` expression, say — raises, because guessing its
+# type would make the convergence test lie.
+
+
+def _project(select: str, source: Table) -> Fields:
+    fields: list[Field] = []
+    for item in _split_args(select):
+        expression, _, alias = item.strip().rpartition(" AS ")
+        if not expression:
+            raise FakeSqlError(f"projection item has no alias: {item}")
+        fields.append(Field(_unquote(alias), _infer(expression.strip(), source, {})))
+    return tuple(fields)
+
+
+def _infer(expression: str, source: Table, env: dict[str, DataType]) -> DataType:
+    text = expression.strip()
+    if match := re.fullmatch(r"CAST\((.*) AS ([A-Za-z0-9_<>(), ]+)\)", text, re.DOTALL):
+        return parse_type(match.group(2))
+    if text.startswith("named_struct(") and text.endswith(")"):
+        arguments = _split_args(text[len("named_struct(") : -1])
+        if len(arguments) % 2:
+            raise FakeSqlError(f"named_struct takes pairs: {text}")
+        pairs = zip(arguments[::2], arguments[1::2], strict=True)
+        return Struct(
+            tuple(
+                Field(_unliteral(name), _infer(value, source, env))
+                for name, value in pairs
+            )
+        )
+    if text.startswith("transform(") and text.endswith(")"):
+        collection, body = _split_args(text[len("transform(") : -1])
+        element = _infer(collection, source, env)
+        if not isinstance(element, Array):
+            raise FakeSqlError(f"transform over something that isn't an array: {text}")
+        variable, _, inner = body.partition(" -> ")
+        bound = {**env, variable.strip(): element.element}
+        return Array(_infer(inner, source, bound))
+    return _reference_type(text, source, env)
+
+
+def _reference_type(text: str, source: Table, env: dict[str, DataType]) -> DataType:
+    parts = _unquote(text).split(".")
+    head, rest = parts[0], parts[1:]
+    if head in env:
+        current: DataType = env[head]
+    else:
+        column = source.column(head)
+        if column is None:
+            raise FakeSqlError(f"no such column: {head} (in {text!r})")
+        current = column.type
+    for part in rest:
+        match current:
+            case Struct():
+                member = current.field(part)
+                if member is None:
+                    raise FakeSqlError(f"no such field: {part} (in {text!r})")
+                current = member.type
+            case _:
+                raise FakeSqlError(f"cannot read {part} out of {_render(current)}")
+    return current
+
+
+def _split_args(text: str) -> list[str]:
+    """Split on commas that aren't inside brackets, quotes or backticks."""
+    parts: list[str] = []
+    depth = 0
+    quote: str | None = None
+    current: list[str] = []
+    previous = ""
+    for char in text:
+        if quote is not None:
+            current.append(char)
+            if char == quote:
+                quote = None
+            previous = char
+            continue
+        if char in "'`":
+            quote = char
+            current.append(char)
+        elif char in "(<":
+            depth += 1
+            current.append(char)
+        elif char == ">" and previous == "-":
+            # The arrow of a lambda, not the end of a type.
+            current.append(char)
+        elif char in ")>":
+            depth -= 1
+            current.append(char)
+        elif char == "," and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+        previous = char
+    if current:
+        parts.append("".join(current).strip())
+    return [part for part in parts if part]

@@ -212,18 +212,16 @@ class Executor:
             return None
 
     def _refuse_unrunnable(self, plan: Plan, *, allow_destructive: bool) -> None:
-        rewrites = [step for step in plan.steps if step.risk == "rewrite"]
-        if rewrites:
-            ids = ", ".join(str(step.id) for step in rewrites)
-            raise ExecutionError(
-                f"this plan needs {len(rewrites)} rewrite(s) (step {ids}), which "
-                "deltaplan does not generate yet. Make that change by hand, or wait "
-                "for the rewrite milestone."
-            )
         missing = [step for step in plan.steps if step.sql is None]
         if missing:
-            ids = ", ".join(str(step.id) for step in missing)
-            raise ExecutionError(f"step {ids} has no SQL to run")
+            described = "\n".join(
+                f"  {step.id}. {step.title} on {step.table}"
+                + (f" — {step.note}" if step.note else "")
+                for step in missing
+            )
+            raise ExecutionError(
+                f"this plan has {len(missing)} step(s) deltaplan can't run:\n{described}"
+            )
         destructive = [step for step in plan.steps if step.risk == "destructive"]
         if destructive and not allow_destructive:
             titles = ", ".join(

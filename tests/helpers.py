@@ -118,6 +118,8 @@ def plan_against(
                     size_bytes=found.size_bytes if found else None,
                 ),
                 unmanaged(desired, live_now) if live_now else (),
+                desired=desired,
+                live=live_now,
             )
         ],
         target="test",

@@ -312,6 +312,8 @@ def _plan(
                 changes,
                 facts,
                 unmanaged(spec.table, live_table) if live_table else (),
+                desired=spec.table,
+                live=live_table,
             )
         )
 

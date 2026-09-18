@@ -32,7 +32,7 @@
     ~ cluster_by [id]
       2. CLUSTER BY                   [meta]
          · applies to new data; run OPTIMIZE to recluster what is there
-      ~ property delta.enableChangeDataFeed = 'true'
+    ~ property delta.enableChangeDataFeed = 'true'
       3. SET TBLPROPERTIES            [meta]
     · property delta.enableDeletionVectors — unmanaged, left untouched
     · tag owner — unmanaged, left untouched
