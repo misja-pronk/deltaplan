@@ -24,6 +24,31 @@ COLUMN_MAPPING_PROPERTY = "delta.columnMapping.mode"
 TYPE_WIDENING_PROPERTY = "delta.enableTypeWidening"
 PREREQUISITE_PROPERTIES = frozenset({COLUMN_MAPPING_PROPERTY, TYPE_WIDENING_PROPERTY})
 
+#: Properties Delta maintains itself. Declaring one in a spec would have deltaplan
+#: fight Delta for it — setting `maxColumnId` back after columns were added
+#: corrupts column mapping — so a spec may not, and `import` never writes them.
+MAINTAINED_PROPERTIES = frozenset(
+    {
+        "delta.columnMapping.maxColumnId",
+        "delta.minReaderVersion",
+        "delta.minWriterVersion",
+    }
+)
+
+#: `delta.feature.<name>` records that a table feature is supported. Delta sets it
+#: when the feature is enabled another way; it isn't anyone's intent to report.
+FEATURE_FLAG_PREFIX = "delta.feature."
+
+
+def is_bookkeeping(key: str) -> bool:
+    """Is this property Delta's or deltaplan's own, rather than anyone's intent?"""
+    return (
+        key in MAINTAINED_PROPERTIES
+        or key.startswith(FEATURE_FLAG_PREFIX)
+        or key == MANAGED_PROPERTY
+        or key in PREREQUISITE_PROPERTIES
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class PrimaryKey:

@@ -20,34 +20,17 @@ from __future__ import annotations
 from deltaplan.model.change import Change
 from deltaplan.model.table import (
     MANAGED_PROPERTY,
-    PREREQUISITE_PROPERTIES,
     Check,
     PrimaryKey,
     Securable,
     Table,
     field_at,
+    is_bookkeeping,
     type_at,
 )
 from deltaplan.model.types import Array, DataType, Field, Map, Struct, type_kind
 from deltaplan.model.view import Relation, View, normalise_query
 from deltaplan.sql import normalise_expression
-
-# Live properties that are Delta's own bookkeeping rather than anyone's intent.
-# They are never reported as unmanaged, because seeing them would be noise.
-_BOOKKEEPING_PROPERTIES = frozenset(
-    {
-        "delta.columnMapping.maxColumnId",
-        "delta.minReaderVersion",
-        "delta.minWriterVersion",
-        # deltaplan's own ownership marker. A spec never writes it — see
-        # `ownership()` for how it gets there — and reporting it as unmanaged
-        # would be reporting ourselves.
-        MANAGED_PROPERTY,
-        # Likewise the table features `apply` turns on as prerequisites: after a
-        # rename, columnMapping is on because deltaplan put it there.
-        *PREREQUISITE_PROPERTIES,
-    }
-)
 
 
 def diff(
@@ -145,7 +128,7 @@ def unmanaged_properties(
     return tuple(
         (key, value)
         for key, value in actual.properties
-        if key not in declared and key not in _BOOKKEEPING_PROPERTIES
+        if key not in declared and not is_bookkeeping(key)
     )
 
 
@@ -158,7 +141,7 @@ def _unmanaged_governance(desired: Securable, actual: Securable) -> list[str]:
     found: list[str] = []
     declared_properties = desired.properties_map()
     for key in sorted(actual.properties_map()):
-        if key not in declared_properties and key not in _BOOKKEEPING_PROPERTIES:
+        if key not in declared_properties and not is_bookkeeping(key):
             found.append(f"property {key}")
     declared_tags = desired.tags_map()
     for key in sorted(actual.tags_map()):
@@ -176,7 +159,7 @@ def unmanaged(desired: Table, actual: Table) -> tuple[str, ...]:
     found: list[str] = []
     desired_properties = desired.properties_map()
     for key in sorted(actual.properties_map()):
-        if key not in desired_properties and key not in _BOOKKEEPING_PROPERTIES:
+        if key not in desired_properties and not is_bookkeeping(key):
             found.append(f"property {key}")
     desired_tags = desired.tags_map()
     for key in sorted(actual.tags_map()):

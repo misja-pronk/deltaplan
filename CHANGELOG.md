@@ -31,6 +31,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unnoticed** — and a rewrite would have dropped them (an identity column coming
   back as a plain BIGINT). They are now read from the catalog, reported as not
   modelled, and a table that has any is never rewritten.
+- **`import` wrote properties Delta maintains itself** — among them
+  `delta.columnMapping.maxColumnId`, which every later plan would then have set
+  back to a stale value as columns were added. Import now writes intent only,
+  `validate` refuses a spec that declares a Delta-maintained property, and
+  `delta.feature.*` flags are no longer reported as unmanaged.
 - A failed postcheck reports what it means, not a generic message.
 - The live suite skipped entirely unless `DATABRICKS_HOST` was set, so anyone
   authenticating with a profile would never have run it. It now accepts any

@@ -21,13 +21,15 @@ import yaml
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 from deltaplan.model.table import (
-    MANAGED_PROPERTY,
+    MAINTAINED_PROPERTIES,
+    PREREQUISITE_PROPERTIES,
     Check,
     Constraint,
     Grant,
     PrimaryKey,
     RowFilter,
     Table,
+    is_bookkeeping,
 )
 from deltaplan.model.types import (
     Array,
@@ -791,6 +793,9 @@ def validate_table(table: Table, where: str) -> tuple[Diagnostic, ...]:
             f"table name {table.name!r} must be catalog.schema.table "
             "(three parts, after variable substitution)"
         )
+    for key, _ in table.properties:
+        if key in MAINTAINED_PROPERTIES:
+            error(f"property {key!r} is maintained by Delta itself; don't declare it")
 
     # Delta column names ignore case, so `id` and `ID` are the same column.
     seen: set[str] = set()
@@ -912,8 +917,12 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
         document["cluster_by"] = list(table.cluster_by)
     if table.tags:
         document["tags"] = dict(table.tags)
+    # Delta's own bookkeeping and deltaplan's marker are not intent; a spec that
+    # declared them would fight Delta for them.
     properties = {
-        key: value for key, value in table.properties if key != MANAGED_PROPERTY
+        key: value
+        for key, value in table.properties
+        if not is_bookkeeping(key) or key in PREREQUISITE_PROPERTIES
     }
     if properties:
         document["properties"] = properties
@@ -946,7 +955,7 @@ def _dump_view(view: View, name: str) -> str:
     document: dict[str, object] = {"view": name}
     if view.comment is not None:
         document["comment"] = view.comment
-    properties = {k: v for k, v in view.properties if k != MANAGED_PROPERTY}
+    properties = {k: v for k, v in view.properties if not is_bookkeeping(k)}
     if properties:
         document["properties"] = properties
     if view.tags:
