@@ -1,0 +1,39 @@
+name: Databricks behaviour report
+description: A Delta / Unity Catalog behaviour deltaplan classifies wrongly
+labels: [databricks-behaviour]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Use this when deltaplan's idea of a change — metadata-only, needs a table
+        feature, needs a rewrite, destructive — doesn't match what Databricks
+        actually does. Every confirmed report becomes a test.
+  - type: input
+    id: change
+    attributes:
+      label: The change
+      placeholder: "SET NOT NULL on a nested struct field"
+    validations:
+      required: true
+  - type: input
+    id: expected
+    attributes:
+      label: What deltaplan planned
+      placeholder: "meta — a single ALTER TABLE ... ALTER COLUMN ... SET NOT NULL"
+  - type: input
+    id: actual
+    attributes:
+      label: What Databricks did
+      placeholder: "rejected the statement: nested fields cannot be altered this way"
+    validations:
+      required: true
+  - type: input
+    id: docs
+    attributes:
+      label: Documentation link
+      description: The Databricks docs page that states the rule, if you found one.
+  - type: textarea
+    id: repro
+    attributes:
+      label: SQL to reproduce
+      render: sql

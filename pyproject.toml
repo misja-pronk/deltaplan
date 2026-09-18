@@ -1,0 +1,92 @@
+[project]
+name = "deltaplan"
+version = "0.1.0"
+description = "Declarative plan/apply for Databricks SQL tables — Terraform-style diffs for Unity Catalog"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Misja Pronk", email = "misja@prorexconsultancy.nl" }]
+keywords = [
+    "databricks",
+    "unity-catalog",
+    "delta-lake",
+    "schema-migration",
+    "infrastructure-as-code",
+    "data-engineering",
+    "cli",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Database",
+    "Topic :: Software Development :: Version Control",
+    "Typing :: Typed",
+]
+dependencies = [
+    "databricks-sdk>=0.30",
+    "pyyaml>=6.0.3",
+    "rich>=13.7",
+    "typer>=0.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/misja-pronk/deltaplan"
+Documentation = "https://misja-pronk.github.io/deltaplan/"
+Repository = "https://github.com/misja-pronk/deltaplan"
+Issues = "https://github.com/misja-pronk/deltaplan/issues"
+Changelog = "https://github.com/misja-pronk/deltaplan/blob/main/CHANGELOG.md"
+
+[project.scripts]
+deltaplan = "deltaplan.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deltaplan"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "syrupy>=4.8",
+    "ty>=0.0.1a1",
+    "types-pyyaml>=6.0.12",
+]
+docs = [
+    "mkdocs-material>=9.7.5",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "integration: needs a live workspace (DATABRICKS_HOST / token / warehouse id)",
+]
+
+[tool.ruff]
+line-length = 90
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.ty.environment]
+python-version = "3.11"
+root = ["src"]
+# tests import sibling modules (e.g. `helpers`) the way pytest runs them
+extra-paths = ["tests"]

@@ -1,0 +1,56 @@
+/* deltaplan docs — the plan's own palette: teal base, diff green / amber / red. */
+
+:root {
+  --dp-teal: #1f9e9a;
+  --dp-add: #3fb950;
+  --dp-change: #d29922;
+  --dp-destroy: #f85149;
+}
+
+/* brand primary (header) + accent (hover) for both light and dark palettes */
+[data-md-color-primary="custom"] {
+  --md-primary-fg-color: var(--dp-teal);
+  --md-primary-fg-color--light: #3fb8b4;
+  --md-primary-fg-color--dark: #167a77;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: rgba(255, 255, 255, 0.7);
+}
+[data-md-color-accent="custom"] {
+  --md-accent-fg-color: var(--dp-change);
+}
+
+/* dark scheme → graphite, like a terminal running a plan */
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #0e1116;
+  --md-code-bg-color: #161b22;
+  --md-typeset-a-color: #4fd1cc;
+}
+[data-md-color-scheme="slate"] .md-header,
+[data-md-color-scheme="slate"] .md-tabs {
+  background-color: #161b22;
+  color: rgba(236, 240, 243, 0.92);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+[data-md-color-scheme="slate"] .md-header__title {
+  color: #4fd1cc;
+  font-weight: 700;
+}
+
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: 8px;
+}
+
+/* a tri-colour rule that nods to add / change / destroy */
+.dp-rule {
+  height: 3px;
+  border: 0;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--dp-add) 0 33%,
+    var(--dp-change) 33% 66%,
+    var(--dp-destroy) 66% 100%
+  );
+  margin: 1.2rem 0 1.6rem;
+}

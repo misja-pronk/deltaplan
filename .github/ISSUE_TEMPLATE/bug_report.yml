@@ -1,0 +1,48 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: Spec (YAML)
+      description: >
+        The smallest spec that reproduces this, with names redacted if needed.
+      render: yaml
+  - type: textarea
+    id: plan
+    attributes:
+      label: Plan output
+      description: >
+        The output of `deltaplan plan --format json` (or the rich output if the
+        failure happens before the plan is built).
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: deltaplan version
+      placeholder: "0.1.0  (deltaplan version)"
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12"
+  - type: input
+    id: workspace
+    attributes:
+      label: Databricks details
+      description: Cloud, warehouse type/size, and anything unusual about the table.
+      placeholder: "Azure · Serverless SQL warehouse · Delta table with columnMapping enabled"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output
+      description: The traceback or SQL error, if there is one.
+      render: shell

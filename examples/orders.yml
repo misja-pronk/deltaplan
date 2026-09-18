@@ -1,0 +1,50 @@
+# A worked example of the spec format. Every key here is optional except
+# `table` and `columns`; see https://misja-pronk.github.io/deltaplan/spec/
+table: ${catalog}.sales.orders
+comment: Order facts, one row per order line
+
+# Liquid clustering. Columns must exist in `columns` below.
+cluster_by: [order_date]
+
+tags:
+  domain: sales
+  pii: "false"
+
+properties:
+  delta.enableChangeDataFeed: "true"
+
+columns:
+  - name: order_id
+    type: bigint
+    nullable: false
+    comment: Surrogate key from the source system
+
+  - name: order_date
+    type: date
+    nullable: false
+
+  # `renamed_from` turns what would look like a drop + add into a RENAME COLUMN.
+  # Remove it once the rename has been applied everywhere; `validate` will say so.
+  - name: customer_ref
+    type: string
+    renamed_from: cust_id
+
+  - name: amount
+    type: decimal(18, 2)
+
+  # A type can be a string (`struct<street:string,zip:string>`) or nested YAML.
+  # The nested form is the one that allows per-field comments and renames.
+  - name: address
+    type:
+      struct:
+        - {name: street, type: string}
+        - {name: zip, type: string, comment: "Postal code, unformatted"}
+        - {name: country, type: string}
+
+  # Types can also be written as Databricks type strings — the two notations
+  # parse to the same type tree.
+  - name: line_items
+    type: array<struct<sku:string,quantity:int>>
+
+constraints:
+  - primary_key: [order_id]
