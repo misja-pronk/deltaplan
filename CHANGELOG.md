@@ -12,6 +12,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `~/.databrickscfg` profile, and `--profile` overrides it on every command that
   connects — dev and prod are usually different workspaces.
 - A runbook for the live test suite in the testing guide.
+- The terminal plan ends with the same warnings the pull-request comment
+  raises: that it destroys something, or has steps `apply` will refuse.
 
 ### Fixed
 

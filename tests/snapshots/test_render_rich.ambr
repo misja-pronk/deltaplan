@@ -21,6 +21,7 @@
   generated in v1 (milestone 3)
   
   Plan: 0 add, 1 change, 0 destroy · 1 steps · 1 rewrites · 0 warnings
+  ⚠ Step 1 can't be generated: `apply` will refuse this plan. See the notes above.
   
   '''
 # ---
@@ -60,6 +61,7 @@
       6. DROP COLUMN                  [destructive]
   
   Plan: 0 add, 1 change, 0 destroy · 6 steps · 0 rewrites · 1 warning
+  ⚠ Destroys something (step 6): `apply` needs --allow-destructive.
   
   '''
 # ---

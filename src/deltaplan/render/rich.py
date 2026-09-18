@@ -79,6 +79,26 @@ def render_plan(plan: Plan, console: Console) -> None:
         return
     console.print()
     console.print(Text(str(plan.summary), style="bold"))
+    # What the pull-request comment raises as alerts, the terminal says too — so
+    # nobody learns about it from `apply` refusing.
+    destructive = [step.id for step in plan.steps if step.risk == "destructive"]
+    if destructive:
+        console.print(
+            Text(
+                f"⚠ Destroys something (step {', '.join(map(str, destructive))}): "
+                "`apply` needs --allow-destructive.",
+                style="red",
+            )
+        )
+    unrunnable = [step.id for step in plan.steps if step.sql is None]
+    if unrunnable:
+        console.print(
+            Text(
+                f"⚠ Step {', '.join(map(str, unrunnable))} can't be generated: `apply` "
+                "will refuse this plan. See the notes above.",
+                style="yellow",
+            )
+        )
 
 
 def plan_text(plan: Plan, *, width: int = 100) -> str:
