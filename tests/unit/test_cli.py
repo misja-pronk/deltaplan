@@ -487,15 +487,34 @@ def test_import_needs_a_qualified_schema(project: Path) -> None:
     assert "catalog.schema" in result.output
 
 
-def test_import_reports_what_it_skipped(
+def test_import_writes_views_and_reports_what_it_skipped(
     project: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     fake = fake_runner(
         tables=(
             {"table_name": "v_orders", "table_type": "VIEW", "data_source_format": None},
+            {
+                "table_name": "daily",
+                "table_type": "MATERIALIZED_VIEW",
+                "data_source_format": "DELTA",
+            },
         ),
+    )
+    fake.responses["information_schema.views"] = (
+        {"table_name": "v_orders", "view_definition": "SELECT * FROM main.sales.orders"},
     )
     monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
     result = runner.invoke(app, ["import", "main.sales", "-o", str(tmp_path / "out")])
-    assert "skipped main.sales.v_orders" in result.output
-    assert "No Delta tables found" in result.output
+    assert result.exit_code == 0, result.output
+    written = (tmp_path / "out" / "v_orders.yml").read_text()
+    assert written.startswith("view: main.sales.v_orders")
+    assert "query: |" in written, "a query reads like SQL, not one long line"
+    assert "skipped main.sales.daily (materialized view)" in result.output
+
+
+def test_import_with_nothing_to_import(
+    project: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake_runner())
+    result = runner.invoke(app, ["import", "main.sales", "-o", str(tmp_path / "out")])
+    assert "No Delta tables or views found" in result.output

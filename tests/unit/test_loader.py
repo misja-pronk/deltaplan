@@ -173,7 +173,7 @@ constraints:
 @pytest.mark.parametrize(
     ("spec", "message"),
     [
-        ("columns: [{name: a, type: int}]\n", "needs a 'table' key"),
+        ("columns: [{name: a, type: int}]\n", "needs a 'table' or a 'view' key"),
         ("table: c.s.t\n", "needs a 'columns' key"),
         ("table: c.s.t\ncolumns: []\n", "at least one column"),
         (

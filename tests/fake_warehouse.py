@@ -25,6 +25,7 @@ from dataclasses import dataclass, field, replace
 
 from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, RowFilter, Table
 from deltaplan.model.types import Array, DataType, Field, Map, Mask, Struct
+from deltaplan.model.view import View
 from deltaplan.typeparser import parse_type
 
 Row = dict[str, str | None]
@@ -40,6 +41,7 @@ class FakeWarehouse:
     """A `SqlRunner` backed by models rather than a database."""
 
     tables: dict[str, Table] = field(default_factory=dict)
+    views: dict[str, View] = field(default_factory=dict)
     sizes: dict[str, int] = field(default_factory=dict)
     versions: dict[str, int] = field(default_factory=dict)
     #: Substring -> error message, so a test can make any statement fail.
@@ -51,13 +53,16 @@ class FakeWarehouse:
     @classmethod
     def of(
         cls,
-        *tables: Table,
+        *relations: Table | View,
         sizes: dict[str, int] | None = None,
     ) -> FakeWarehouse:
         fake = cls(sizes=sizes or {})
-        for table in tables:
-            fake.tables[table.name] = table
-            fake.versions.setdefault(table.name, 1)
+        for relation in relations:
+            if isinstance(relation, View):
+                fake.views[relation.name] = relation
+                continue
+            fake.tables[relation.name] = relation
+            fake.versions.setdefault(relation.name, 1)
         return fake
 
     # -- the SqlRunner protocol -------------------------------------------
@@ -90,9 +95,17 @@ class FakeWarehouse:
             return self._describe_history(flat)
         if upper.startswith("DESCRIBE TABLE"):
             return ()
-        if upper.startswith("CREATE TABLE") or upper.startswith(
-            "CREATE OR REPLACE TABLE"
-        ):
+        if upper.startswith(("CREATE VIEW", "CREATE OR REPLACE VIEW")):
+            return self._create_view(original)
+        if upper.startswith("DROP VIEW"):
+            self.views.pop(_unquote(flat[len("DROP VIEW ") :]), None)
+            return ()
+        if upper.startswith("ALTER VIEW"):
+            return self._alter_view(flat)
+        if upper.startswith("SHOW TBLPROPERTIES"):
+            view = self._view(_unquote(flat[len("SHOW TBLPROPERTIES ") :]))
+            return tuple({"key": k, "value": v} for k, v in view.properties)
+        if upper.startswith(("CREATE TABLE", "CREATE OR REPLACE TABLE")):
             return self._create_table(original)
         if upper.startswith("DROP TABLE"):
             return self._drop_table(flat)
@@ -123,6 +136,12 @@ class FakeWarehouse:
             for name, table in sorted(self.tables.items())
             if name.startswith(f"{catalog}.{schema}.")
         ]
+        views = [
+            view
+            for name, view in sorted(self.views.items())
+            if name.startswith(f"{catalog}.{schema}.")
+        ]
+        governed: list[Table | View] = [*tables, *views]
         if "information_schema.tables" in flat:
             return tuple(
                 {
@@ -132,6 +151,19 @@ class FakeWarehouse:
                     "data_source_format": "DELTA",
                 }
                 for table in tables
+            ) + tuple(
+                {
+                    "table_name": view.short_name,
+                    "comment": view.comment,
+                    "table_type": "VIEW",
+                    "data_source_format": None,
+                }
+                for view in views
+            )
+        if "information_schema.views" in flat:
+            return tuple(
+                {"table_name": view.short_name, "view_definition": view.query}
+                for view in views
             )
         if "information_schema.columns" in flat:
             return tuple(
@@ -202,14 +234,14 @@ class FakeWarehouse:
                     "privilege_type": privilege,
                     "inherited_from": "NONE",
                 }
-                for table in tables
+                for table in governed
                 for grant in table.grants
                 for privilege in grant.privileges
             )
         if "information_schema.table_tags" in flat:
             return tuple(
                 {"table_name": table.short_name, "tag_name": key, "tag_value": value}
-                for table in tables
+                for table in governed
                 for key, value in table.tags
             )
         if "information_schema.table_constraints" in flat:
@@ -331,7 +363,10 @@ class FakeWarehouse:
         if match is None:
             raise FakeSqlError(f"cannot read: {flat}")
         verb, privileges, name, principal = match.groups()
-        table = self._table(_unquote(name))
+        target = _unquote(name)
+        table: Table | View = (
+            self.views[target] if target in self.views else self._table(target)
+        )
         who = _unquote(principal)
         held = dict(table.grants_map())
         changed = {p.strip() for p in privileges.split(",")}
@@ -341,10 +376,58 @@ class FakeWarehouse:
             held[who] = tuple(current)
         else:
             held.pop(who, None)
-        self._store(
-            replace(table, grants=tuple(Grant(p, tuple(v)) for p, v in held.items()))
+        updated = replace(
+            table, grants=tuple(Grant(p, tuple(v)) for p, v in held.items())
+        )
+        if isinstance(updated, View):
+            self.views[updated.name] = updated
+        else:
+            self._store(updated)
+        return ()
+
+    def _create_view(self, statement: str) -> tuple[Row, ...]:
+        match = _VIEW.fullmatch(statement.strip())
+        if match is None:
+            raise FakeSqlError(f"cannot read CREATE VIEW:\n{statement}")
+        name = _unquote(match.group("name"))
+        if name in self.tables:
+            raise FakeSqlError(f"{name} is a table")
+        if match.group("verb").endswith("IF NOT EXISTS") and name in self.views:
+            return ()
+        existing = self.views.get(name)
+        self.views[name] = View(
+            name=name,
+            query=match.group("query"),
+            comment=_unliteral(match.group("comment"))
+            if match.group("comment")
+            else None,
+            properties=tuple(_pairs(match.group("properties")).items()),
+            # A replace keeps the view's tags and grants in the fake; the planner
+            # puts them back anyway, so either behaviour converges.
+            tags=existing.tags if existing else (),
+            grants=existing.grants if existing else (),
         )
         return ()
+
+    def _alter_view(self, flat: str) -> tuple[Row, ...]:
+        match = re.fullmatch(r"ALTER VIEW (\S+) SET (TBLPROPERTIES|TAGS) \((.*)\)", flat)
+        if match is None:
+            raise FakeSqlError(f"the fake warehouse does not know this: {flat}")
+        view = self._view(_unquote(match.group(1)))
+        added = _pairs(match.group(3))
+        if match.group(2) == "TAGS":
+            view = replace(view, tags=tuple((dict(view.tags) | added).items()))
+        else:
+            view = replace(
+                view, properties=tuple((dict(view.properties) | added).items())
+            )
+        self.views[view.name] = view
+        return ()
+
+    def _view(self, name: str) -> View:
+        if name not in self.views:
+            raise FakeSqlError(f"no such view: {name}")
+        return self.views[name]
 
     # -- plumbing ----------------------------------------------------------
     def _table(self, name: str) -> Table:
@@ -643,6 +726,14 @@ def _literal_after(text: str, marker: str) -> str | None:
     match = re.match(r"'(?:[^']|'')*'", rest)
     return _unliteral(match.group(0)) if match else None
 
+
+_VIEW = re.compile(
+    r"(?P<verb>CREATE VIEW IF NOT EXISTS|CREATE OR REPLACE VIEW) (?P<name>\S+)"
+    r"(?:\nCOMMENT (?P<comment>'(?:[^']|'')*'))?"
+    r"\nTBLPROPERTIES \((?P<properties>.*?)\n\)"
+    r"\nAS\n(?P<query>.*)",
+    re.DOTALL,
+)
 
 _CTAS = re.compile(
     r"CREATE OR REPLACE TABLE (?P<name>\S+)"

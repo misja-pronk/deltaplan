@@ -30,12 +30,13 @@ from deltaplan.loader import (
     dump_spec,
     find_project_file,
     load_project,
+    load_spec,
     load_specs,
-    load_table,
     spec_files,
-    validate_table,
+    validate_spec,
 )
 from deltaplan.model.plan import Plan, Step
+from deltaplan.model.view import Relation
 from deltaplan.planning import PlanningError, plan_tables
 from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_json
@@ -125,12 +126,12 @@ def validate(
     problems = 0
     for path in files:
         try:
-            table = load_table(path, variables)
+            table = load_spec(path, variables)
         except SpecError as error:
             err.print(f"[red]{error}[/]")
             problems += 1
             continue
-        for diagnostic in validate_table(table, str(path)):
+        for diagnostic in validate_spec(table, str(path)):
             _print_diagnostic(diagnostic)
             problems += diagnostic.severity == "error"
 
@@ -183,16 +184,21 @@ def import_schema(
     directory.mkdir(parents=True, exist_ok=True)
 
     variable = _catalog_variable(chosen, parts[0])
-    for table in (entry.table for entry in live.tables):
-        path = directory / f"{table.short_name}.yml"
-        path.write_text(dump_spec(table, catalog_variable=variable), encoding="utf-8")
+    relations: list[Relation] = [entry.table for entry in live.tables]
+    relations.extend(live.views)
+    for relation in relations:
+        path = directory / f"{relation.short_name}.yml"
+        path.write_text(dump_spec(relation, catalog_variable=variable), encoding="utf-8")
         out.print(f"[green]+[/] {path}")
 
     for name, reason in live.skipped:
-        out.print(f"[dim]· skipped {name} ({reason}) — deltaplan manages Delta tables[/]")
+        out.print(
+            f"[dim]· skipped {name} ({reason}) — deltaplan manages Delta tables and "
+            "views[/]"
+        )
 
-    if not live.tables:
-        err.print(f"[yellow]No Delta tables found in {schema}.[/]")
+    if not relations:
+        err.print(f"[yellow]No Delta tables or views found in {schema}.[/]")
 
 
 def _catalog_variable(target: Target | None, catalog: str) -> str | None:
@@ -552,7 +558,7 @@ def _load(project: Project, target: Target) -> tuple[LoadedSpec, ...]:
 def _abort_on_lint_errors(specs: tuple[LoadedSpec, ...]) -> None:
     errors = 0
     for spec in specs:
-        for diagnostic in validate_table(spec.table, str(spec.path)):
+        for diagnostic in validate_spec(spec.table, str(spec.path)):
             _print_diagnostic(diagnostic)
             errors += diagnostic.severity == "error"
     if errors:

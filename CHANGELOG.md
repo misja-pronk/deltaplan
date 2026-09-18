@@ -8,6 +8,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Milestone 5 (governance) is complete.**
+- **Views.** A spec with `view:` and a `query:` describes a view. The query is
+  what is compared — whitespace aside — and a change replaces the view, with
+  its tags and grants put back as they were, and the old definition as undo.
+  Views are planned after tables and after the views they read; a cycle is an
+  error. Views can be claimed, dropped in a strict schema, and `import`ed.
+- A table is never turned into a view or the reverse; planning stops instead.
+- Materialized views and streaming tables are recognised and skipped — they
+  report their storage as Delta, and would otherwise have been treated as
+  tables.
 - **Column masks and row filters**, handled as security controls: set or
   replaced when the spec declares them, never removed because a spec is silent,
   inline in `CREATE TABLE` so a new table is never unprotected, refused up front

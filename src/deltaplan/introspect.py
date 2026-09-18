@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, RowFilter, Table
 from deltaplan.model.types import Column, DataType, Field, Mask, Primitive
+from deltaplan.model.view import Relation, View
 from deltaplan.sql import (
     normalise_expression,
     normalise_privilege,
@@ -36,6 +37,11 @@ if TYPE_CHECKING:  # the SDK is only needed to talk to a workspace
     from databricks.sdk import WorkspaceClient
 
 Row = dict[str, str | None]
+
+
+#: `table_type`s that are neither tables deltaplan can alter nor views it can
+#: define. TODO(verify): the exact strings against a live workspace.
+_NOT_TABLES = frozenset({"MATERIALIZED_VIEW", "STREAMING_TABLE"})
 
 
 class IntrospectionError(Exception):
@@ -69,6 +75,7 @@ class LiveSchema:
     schema: str
     tables: tuple[LiveTable, ...] = ()
     skipped: tuple[tuple[str, str], ...] = ()
+    views: tuple[View, ...] = ()
 
     def get(self, name: str) -> LiveTable | None:
         for live in self.tables:
@@ -76,9 +83,22 @@ class LiveSchema:
                 return live
         return None
 
+    def get_view(self, name: str) -> View | None:
+        for view in self.views:
+            if view.name == name:
+                return view
+        return None
+
+    def relation(self, name: str) -> Relation | None:
+        """A table or a view, whichever lives under that name."""
+        live = self.get(name)
+        return live.table if live else self.get_view(name)
+
     @property
     def names(self) -> tuple[str, ...]:
-        return tuple(live.table.name for live in self.tables)
+        return tuple(live.table.name for live in self.tables) + tuple(
+            view.name for view in self.views
+        )
 
 
 @dataclass(slots=True)
@@ -110,13 +130,32 @@ class Introspector:
         grants = self._grant_rows(catalog, schema)
 
         tables: list[LiveTable] = []
+        views: list[View] = []
         skipped: list[tuple[str, str]] = []
+        definitions = (
+            self._view_rows(catalog, schema) if "VIEW" in formats.values() else {}
+        )
         for name, table_type in sorted(formats.items()):
             full_name = f"{catalog}.{schema}.{name}"
+            if table_type == "VIEW":
+                views.append(
+                    View(
+                        name=full_name,
+                        query=definitions.get(name, ""),
+                        comment=comments.get(name),
+                        properties=self._view_properties(full_name),
+                        tags=tuple(sorted(tags.get(name, {}).items())),
+                        grants=tuple(
+                            Grant(principal, tuple(privileges))
+                            for principal, privileges in grants.get(name, {}).items()
+                        ),
+                    )
+                )
+                continue
             if table_type != "DELTA":
-                # Views and non-Delta formats are out of scope by design, and
-                # never touched.
-                skipped.append((full_name, f"{table_type.lower()} table"))
+                # Other formats and other kinds of object are out of scope by
+                # design, and never touched.
+                skipped.append((full_name, table_type.lower().replace("_", " ")))
                 continue
             detail = self._describe_detail(full_name)
             tables.append(
@@ -139,24 +178,23 @@ class Introspector:
                     data_format=table_type,
                 )
             )
-        return LiveSchema(catalog, schema, tuple(tables), tuple(skipped))
+        return LiveSchema(catalog, schema, tuple(tables), tuple(skipped), tuple(views))
 
     def table(self, name: str) -> LiveTable | None:
         """One table by its full `catalog.schema.table` name."""
         catalog, schema, short = _split(name)
         return self.schema(catalog, schema).get(f"{catalog}.{schema}.{short}")
 
-    def tables(self, names: Sequence[str]) -> dict[str, Table | None]:
-        """Look up several tables at once — one schema scan per schema, not per table."""
-        found: dict[str, Table | None] = {}
+    def tables(self, names: Sequence[str]) -> dict[str, Relation | None]:
+        """Look up several tables or views — one schema scan per schema, not per name."""
+        found: dict[str, Relation | None] = {}
         scanned: dict[tuple[str, str], LiveSchema] = {}
         for name in names:
             catalog, schema, _ = _split(name)
             key = (catalog, schema)
             if key not in scanned:
                 scanned[key] = self.schema(catalog, schema)
-            live = scanned[key].get(name)
-            found[name] = live.table if live else None
+            found[name] = scanned[key].relation(name)
         return found
 
     def latest_version(self, name: str) -> int | None:
@@ -182,7 +220,14 @@ class Introspector:
             comments[name] = row.get("comment")
             table_type = (row.get("table_type") or "").upper()
             data_format = (row.get("data_source_format") or "").upper()
-            formats[name] = "VIEW" if table_type == "VIEW" else data_format or "UNKNOWN"
+            if table_type == "VIEW":
+                formats[name] = "VIEW"
+            elif table_type in _NOT_TABLES:
+                # A materialized view or streaming table reports its storage as
+                # DELTA, but deltaplan can't ALTER it like a table — or define it.
+                formats[name] = table_type
+            else:
+                formats[name] = data_format or "UNKNOWN"
         return comments, formats
 
     def _column_rows(self, catalog: str, schema: str) -> dict[str, list[Column]]:
@@ -247,6 +292,31 @@ class Introspector:
                 continue
             tags.setdefault((table_name, column), {})[tag] = row.get("tag_value") or ""
         return tags
+
+    def _view_rows(self, catalog: str, schema: str) -> dict[str, str]:
+        """Each view's definition. TODO(verify): that `view_definition` is the
+        query as written — see `normalise_query`.
+        https://docs.databricks.com/aws/en/sql/language-manual/information-schema/views
+        """
+        rows = self.runner.query(
+            "SELECT table_name, view_definition "
+            f"FROM {_information_schema(catalog)}.views "
+            f"WHERE table_schema = {quote_literal(schema)}"
+        )
+        return {
+            str(row["table_name"]): row.get("view_definition") or ""
+            for row in rows
+            if row.get("table_name")
+        }
+
+    def _view_properties(self, name: str) -> tuple[tuple[str, str], ...]:
+        """A view's properties — DESCRIBE DETAIL is for tables only.
+        TODO(verify): SHOW TBLPROPERTIES column names against a live workspace.
+        """
+        rows = self.runner.query(f"SHOW TBLPROPERTIES {quote_qualified(name)}")
+        return _pairs(
+            {str(row["key"]): row.get("value") or "" for row in rows if row.get("key")}
+        )
 
     def _mask_rows(self, catalog: str, schema: str) -> dict[tuple[str, str], Mask]:
         # TODO(verify): column_masks column names and how using_column_names is

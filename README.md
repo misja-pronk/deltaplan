@@ -11,8 +11,10 @@ then apply it.
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-> **Status: pre-alpha.** Planning, applying (rewrites included), drift detection and
-> the GitHub Action all work. The governance milestone is next.
+> **Status: pre-alpha.** Every milestone in the design is built — plan, apply
+> (rewrites included), drift, the GitHub Action, and governance (tags, grants, masks,
+> row filters, views). None of it has run against a real workspace yet: the live test
+> suite is written and waiting for credentials.
 
 **[Read the docs →](https://misja-pronk.github.io/deltaplan/)** — the spec format, the
 commands, and the safety model. [`docs/DESIGN.md`](docs/DESIGN.md) is the source of truth.

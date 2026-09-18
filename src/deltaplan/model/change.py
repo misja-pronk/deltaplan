@@ -11,11 +11,14 @@ from typing import Literal, TypeAlias
 
 from deltaplan.model.table import Constraint, RowFilter, Table
 from deltaplan.model.types import DataType, Field, Mask
+from deltaplan.model.view import View
 
 ChangeKind: TypeAlias = Literal[
     "create_table",
     "drop_table",
     "claim_table",
+    "create_view",
+    "replace_view",
     "set_table_comment",
     "set_cluster_by",
     "set_property",
@@ -52,6 +55,7 @@ ChangeValue: TypeAlias = (
     | Field
     | Constraint
     | Table
+    | View
     | Mask
     | RowFilter
 )

@@ -51,6 +51,7 @@ from deltaplan.model.types import (
     render_type,
     type_kind,
 )
+from deltaplan.model.view import View
 from deltaplan.sql import privilege_sql, quote_ident, quote_literal, quote_qualified
 
 STREAMING_WARNING = "breaks streaming readers — they must be restarted from scratch"
@@ -136,6 +137,7 @@ class _Planner:
     """Sequences step ids and remembers which prerequisites are already planned."""
 
     def __init__(self, *, clone_suffix: str | None = None) -> None:
+        self._kind: str = "table"
         self._clone_suffix = clone_suffix
         self._cloned: set[str] = set()
         self._existing: set[str] = set()
@@ -255,6 +257,7 @@ class _Planner:
     def plan_table(self, table_diff: TableDiff) -> None:
         if table_diff.facts.exists and table_diff.live is not None:
             self._existing.add(table_diff.table)
+        self._kind = table_diff.facts.kind
         start = self._change + 1
         if _rewrites(table_diff):
             # The table is rebuilt whole rather than patched change by change, so
@@ -267,9 +270,14 @@ class _Planner:
             self._change += 1
             self.plan_change(change, table_diff.facts)
 
+    @property
+    def _object(self) -> str:
+        """`TABLE` or `VIEW`, for the statements that say which."""
+        return "VIEW" if self._kind == "view" else "TABLE"
+
     def _rewrite(self, table_diff: TableDiff) -> None:
         desired, live = table_diff.desired, table_diff.live
-        assert desired is not None and live is not None  # `_rewrites` checked
+        assert isinstance(desired, Table) and isinstance(live, Table)  # `_rewrites`
         facts = table_diff.facts
         staging = staging_name(table_diff.table)
         projection = build_projection(desired, live)
@@ -424,6 +432,10 @@ class _Planner:
                 self._grant(change)
             case "revoke":
                 self._revoke(change)
+            case "create_view":
+                self._create_view(change)
+            case "replace_view":
+                self._replace_view(change)
             case "claim_table":
                 self._claim(change)
             case "drop_table":
@@ -516,16 +528,75 @@ class _Planner:
             "meta",
             path=change.path,
             sql=(
-                f"ALTER TABLE {quote_qualified(change.table)} SET TBLPROPERTIES "
+                f"ALTER {self._object} {quote_qualified(change.table)} SET TBLPROPERTIES "
                 f"({quote_literal(MANAGED_PROPERTY)} = 'true')"
             ),
             note=(
-                "a spec now describes this table, so deltaplan manages it — in a "
-                "strict schema, removing its spec later will drop it"
+                f"a spec now describes this {self._object.lower()}, so deltaplan "
+                "manages it — in a strict schema, removing its spec later will drop it"
             ),
         )
 
+    def _create_view(self, change: Change) -> None:
+        view = change.after
+        assert isinstance(view, View)
+        self.emit(
+            view.name,
+            f"CREATE VIEW {view.short_name}",
+            "meta",
+            sql=create_view_sql(view, if_not_exists=True),
+            undo_hint=f"DROP VIEW {quote_qualified(view.name)}",
+        )
+        if view.tags:
+            self.emit(
+                view.name,
+                "SET TAGS",
+                "meta",
+                sql=set_tags_sql(view.name, view.tags, "VIEW"),
+            )
+        for grant in view.grants:
+            self._emit_grant(view.name, grant.principal, grant.privileges)
+
+    def _replace_view(self, change: Change) -> None:
+        view, previous = change.after, change.before
+        assert isinstance(view, View) and isinstance(previous, View)
+        self.emit(
+            view.name,
+            "REPLACE VIEW",
+            "meta",
+            sql=create_view_sql(view),
+            undo_hint=create_view_sql(previous),
+            note="readers see the new definition from the moment it runs",
+        )
+        # TODO(verify): whether CREATE OR REPLACE VIEW keeps the view's tags and
+        # grants. Put them back as they were, so the answer doesn't matter; the
+        # spec's own changes to them follow as their own steps. These belong to
+        # the view rather than the change, so a resume runs them again.
+        change_index = self._change
+        self._change = -1
+        if previous.tags:
+            self.emit(
+                view.name,
+                "SET TAGS",
+                "meta",
+                sql=set_tags_sql(view.name, previous.tags, "VIEW"),
+                note="put back after the replace, as the view had them",
+            )
+        for grant in previous.grants:
+            self._emit_grant(view.name, grant.principal, grant.privileges)
+        self._change = change_index
+
     def _drop_table(self, change: Change, facts: TableFacts) -> None:
+        dropped = change.before
+        if isinstance(dropped, View):
+            self.emit(
+                change.table,
+                "DROP VIEW",
+                "destructive",
+                sql=f"DROP VIEW {quote_qualified(change.table)}",
+                undo_hint=create_view_sql(dropped),
+            )
+            return
         self.emit(
             change.table,
             "DROP TABLE",
@@ -598,7 +669,7 @@ class _Planner:
             "meta",
             path=change.path,
             sql=(
-                f"ALTER TABLE {quote_qualified(change.table)} SET TBLPROPERTIES "
+                f"ALTER {self._object} {quote_qualified(change.table)} SET TBLPROPERTIES "
                 f"({quote_literal(change.path)} = {quote_literal(value)})"
             ),
         )
@@ -610,7 +681,7 @@ class _Planner:
             "SET TAGS",
             "meta",
             path=change.path,
-            sql=set_tags_sql(change.table, ((change.path, value),)),
+            sql=set_tags_sql(change.table, ((change.path, value),), self._object),
         )
 
     def _column_tag(self, change: Change) -> None:
@@ -870,14 +941,37 @@ def column_path_sql(path: str) -> str:
     return ".".join(quote_ident(part) for part in path.split("."))
 
 
-def set_tags_sql(table: str, tags: tuple[tuple[str, str], ...]) -> str:
+def set_tags_sql(
+    table: str, tags: tuple[tuple[str, str], ...], kind: str = "TABLE"
+) -> str:
     """TODO(verify): tag syntax against a live workspace.
     https://docs.databricks.com/aws/en/database-objects/tags
     """
     pairs = ", ".join(
         f"{quote_literal(key)} = {quote_literal(value)}" for key, value in tags
     )
-    return f"ALTER TABLE {quote_qualified(table)} SET TAGS ({pairs})"
+    return f"ALTER {kind} {quote_qualified(table)} SET TAGS ({pairs})"
+
+
+def create_view_sql(view: View, *, if_not_exists: bool = False) -> str:
+    """`CREATE VIEW`, marked managed like every object deltaplan creates.
+
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create-view
+    """
+    verb = "CREATE VIEW IF NOT EXISTS" if if_not_exists else "CREATE OR REPLACE VIEW"
+    lines = [f"{verb} {quote_qualified(view.name)}"]
+    if view.comment is not None:
+        lines.append(f"COMMENT {quote_literal(view.comment)}")
+    properties = dict(view.properties)
+    properties[MANAGED_PROPERTY] = "true"
+    rendered = ",\n".join(
+        f"  {quote_literal(key)} = {quote_literal(value)}"
+        for key, value in sorted(properties.items())
+    )
+    lines.append(f"TBLPROPERTIES (\n{rendered}\n)")
+    lines.append("AS")
+    lines.append(view.query.strip().rstrip(";"))
+    return "\n".join(lines)
 
 
 def grant_sql(table: str, principal: str, privileges: tuple[str, ...]) -> str:
@@ -1034,8 +1128,8 @@ def _rewrites(table_diff: TableDiff) -> bool:
     saying it can't generate the SQL.
     """
     return (
-        table_diff.desired is not None
-        and table_diff.live is not None
+        isinstance(table_diff.desired, Table)
+        and isinstance(table_diff.live, Table)
         and any(needs_rewrite(change) for change in table_diff.changes)
     )
 

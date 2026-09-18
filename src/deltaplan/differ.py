@@ -23,11 +23,13 @@ from deltaplan.model.table import (
     PREREQUISITE_PROPERTIES,
     Check,
     PrimaryKey,
+    Securable,
     Table,
     field_at,
     type_at,
 )
 from deltaplan.model.types import Array, DataType, Field, Map, Struct, type_kind
+from deltaplan.model.view import Relation, View, normalise_query
 from deltaplan.sql import normalise_expression
 
 # Live properties that are Delta's own bookkeeping rather than anyone's intent.
@@ -80,7 +82,7 @@ def diff(
     return tuple(changes)
 
 
-def ownership(desired: Table, actual: Table | None) -> tuple[Change, ...]:
+def ownership(desired: Relation, actual: Relation | None) -> tuple[Change, ...]:
     """Claim a live table that a spec now describes but deltaplan didn't create.
 
     Writing a spec for a table is the decision to manage it, so the first apply
@@ -92,6 +94,65 @@ def ownership(desired: Table, actual: Table | None) -> tuple[Change, ...]:
     if actual is None or actual.managed:
         return ()
     return (Change(desired.name, "claim_table", path=MANAGED_PROPERTY, after="true"),)
+
+
+def diff_view(desired: View, actual: View | None) -> tuple[Change, ...]:
+    """Diff one view. A view's shape is its query, so that is what is compared.
+
+    A changed query or comment replaces the view; tags, properties and grants
+    are diffed like a table's.
+    """
+    if actual is None:
+        return (Change(desired.name, "create_view", after=desired),)
+    changes: list[Change] = []
+    if (
+        normalise_query(desired.query) != normalise_query(actual.query)
+        or desired.comment != actual.comment
+    ):
+        changes.append(Change(desired.name, "replace_view", before=actual, after=desired))
+    changes.extend(_diff_governance(desired, actual))
+    return tuple(changes)
+
+
+def _diff_governance(desired: Securable, actual: Securable) -> list[Change]:
+    """Properties and tags, additively, then grants per principal."""
+    changes: list[Change] = []
+    live_properties = actual.properties_map()
+    for key, value in desired.properties:
+        if live_properties.get(key) != value:
+            changes.append(
+                Change(desired.name, "set_property", key, live_properties.get(key), value)
+            )
+    live_tags = actual.tags_map()
+    for key, value in desired.tags:
+        if live_tags.get(key) != value:
+            changes.append(
+                Change(desired.name, "set_tag", key, live_tags.get(key), value)
+            )
+    changes.extend(_diff_grants(desired, actual))
+    return changes
+
+
+def unmanaged_view(desired: View, actual: View) -> tuple[str, ...]:
+    """What a live view carries that its spec doesn't mention."""
+    return tuple(_unmanaged_governance(desired, actual))
+
+
+def _unmanaged_governance(desired: Securable, actual: Securable) -> list[str]:
+    found: list[str] = []
+    declared_properties = desired.properties_map()
+    for key in sorted(actual.properties_map()):
+        if key not in declared_properties and key not in _BOOKKEEPING_PROPERTIES:
+            found.append(f"property {key}")
+    declared_tags = desired.tags_map()
+    for key in sorted(actual.tags_map()):
+        if key not in declared_tags:
+            found.append(f"tag {key}")
+    declared_grants = desired.grants_map()
+    for grant in actual.grants:
+        if grant.principal not in declared_grants:
+            found.append(f"grants to {grant.principal}")
+    return found
 
 
 def unmanaged(desired: Table, actual: Table) -> tuple[str, ...]:
@@ -387,7 +448,7 @@ def _diff_struct(
 # ---------------------------------------------------------------------------
 
 
-def _diff_grants(desired: Table, actual: Table) -> list[Change]:
+def _diff_grants(desired: Securable, actual: Securable) -> list[Change]:
     """Per principal: a principal the spec names has exactly those privileges.
 
     Principals it doesn't name are left alone — they are reported by
@@ -442,18 +503,18 @@ def _primary_key_differs(desired: PrimaryKey, live: PrimaryKey | None) -> bool:
     return desired.name is not None and desired.name != live.name
 
 
-def is_applied(change: Change, live: Table | None) -> bool:
-    """Is this change already true of the live table?
+def is_applied(change: Change, live: Relation | None) -> bool:
+    """Is this change already true of the live table or view?
 
     The executor's idempotency check. The design calls for a precheck query per
     step; asking the model instead reuses code that is already tested and adds no
-    new assumption about what Databricks accepts — the live table is read the
+    new assumption about what Databricks accepts — the live object is read the
     same way `plan` read it, and compared the same way the differ compares it.
 
     Being wrong in the "not applied yet" direction is the safe one: the step runs
     again, and every statement deltaplan generates is safe to repeat.
     """
-    if change.kind == "create_table":
+    if change.kind in {"create_table", "create_view"}:
         return live is not None
     if change.kind == "drop_table":
         return live is None
@@ -463,25 +524,40 @@ def is_applied(change: Change, live: Table | None) -> bool:
     match change.kind:
         case "claim_table":
             return live.managed
-        case "set_table_comment":
-            return live.comment == change.after
-        case "set_cluster_by":
-            return live.cluster_by == change.after
         case "set_property":
             return live.properties_map().get(change.path) == change.after
         case "set_tag":
             return live.tags_map().get(change.path) == change.after
-        case "set_mask":
-            column = live.column(change.path)
-            return column is not None and column.mask == change.after
-        case "set_row_filter":
-            return live.row_filter == change.after
         case "grant":
             wanted = change.after if isinstance(change.after, tuple) else ()
             return set(wanted) <= set(live.grants_map().get(change.path, ()))
         case "revoke":
             gone = change.before if isinstance(change.before, tuple) else ()
             return not set(gone) & set(live.grants_map().get(change.path, ()))
+        case "replace_view":
+            wanted = change.after
+            return (
+                isinstance(live, View)
+                and isinstance(wanted, View)
+                and normalise_query(live.query) == normalise_query(wanted.query)
+                and live.comment == wanted.comment
+            )
+        case _:
+            return isinstance(live, Table) and _is_applied_to_table(change, live)
+
+
+def _is_applied_to_table(change: Change, live: Table) -> bool:
+    """The kinds only a table has: columns, constraints, clustering, filters."""
+    match change.kind:
+        case "set_table_comment":
+            return live.comment == change.after
+        case "set_cluster_by":
+            return live.cluster_by == change.after
+        case "set_mask":
+            column = live.column(change.path)
+            return column is not None and column.mask == change.after
+        case "set_row_filter":
+            return live.row_filter == change.after
         case "set_column_tag":
             column = live.column(change.path)
             wanted = change.after if isinstance(change.after, tuple) else ()
@@ -511,7 +587,8 @@ def is_applied(change: Change, live: Table | None) -> bool:
             return _has_constraint(live, change.after)
         case "drop_constraint":
             return not _has_constraint(live, change.before)
-        case "create_table" | "drop_table":  # answered above
+        case _:
+            # Every other kind is answered by `is_applied` before it gets here.
             return False
 
 

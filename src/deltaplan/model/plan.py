@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Literal, TypeAlias
 
 from deltaplan.model.change import Change
-from deltaplan.model.table import Table
+from deltaplan.model.view import Relation
 
 #: What a step can cost you.
 #:
@@ -71,6 +71,9 @@ class TableFacts:
     properties: tuple[tuple[str, str], ...] = ()
     size_bytes: int | None = None
     delta_version: int | None = None
+    #: Tables and views take different statements for the same idea —
+    #: `ALTER VIEW … SET TAGS`, `DROP VIEW`.
+    kind: Literal["table", "view"] = "table"
 
     def property(self, key: str) -> str | None:
         return dict(self.properties).get(key)
@@ -94,8 +97,8 @@ class TableDiff:
     changes: tuple[Change, ...] = ()
     facts: TableFacts = field(default_factory=lambda: TableFacts("unknown"))
     unmanaged: tuple[str, ...] = ()
-    desired: Table | None = None
-    live: Table | None = None
+    desired: Relation | None = None
+    live: Relation | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,7 +188,7 @@ class Plan:
         )
 
 
-def fingerprint(tables: Iterable[Table | None]) -> str:
+def fingerprint(tables: Iterable[Relation | None]) -> str:
     """A short digest of live state, used to refuse a plan that has gone stale.
 
     Deliberately blunt: it hashes the whole model, so *any* difference — a

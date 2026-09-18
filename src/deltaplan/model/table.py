@@ -75,8 +75,58 @@ class Grant:
         object.__setattr__(self, "privileges", tuple(sorted(set(self.privileges))))
 
 
+class Securable:
+    """What tables and views share: a three-part name, and what governs them.
+
+    A mixin rather than a base dataclass, so both stay frozen and slotted.
+    """
+
+    __slots__ = ()
+
+    name: str
+    properties: tuple[tuple[str, str], ...]
+    tags: tuple[tuple[str, str], ...]
+    grants: tuple[Grant, ...]
+
+    @property
+    def parts(self) -> tuple[str, ...]:
+        return tuple(self.name.split("."))
+
+    @property
+    def short_name(self) -> str:
+        return self.parts[-1]
+
+    @property
+    def schema(self) -> str:
+        """The `catalog.schema` this lives in."""
+        return ".".join(self.parts[:-1])
+
+    def properties_map(self) -> dict[str, str]:
+        return dict(self.properties)
+
+    def tags_map(self) -> dict[str, str]:
+        return dict(self.tags)
+
+    def grants_map(self) -> dict[str, tuple[str, ...]]:
+        return {grant.principal: grant.privileges for grant in self.grants}
+
+    @property
+    def managed(self) -> bool:
+        """True when deltaplan created this and may therefore drop it."""
+        return self.properties_map().get(MANAGED_PROPERTY, "").lower() == "true"
+
+
+def sort_governance(obj: Securable) -> None:
+    """Store unordered maps sorted, so equality ignores the order they came in."""
+    object.__setattr__(obj, "properties", tuple(sorted(obj.properties)))
+    object.__setattr__(obj, "tags", tuple(sorted(obj.tags)))
+    object.__setattr__(
+        obj, "grants", tuple(sorted(obj.grants, key=lambda g: g.principal))
+    )
+
+
 @dataclass(frozen=True, slots=True)
-class Table:
+class Table(Securable):
     """A Delta table in Unity Catalog.
 
     `properties` and `tags` are unordered maps, so they are stored sorted and
@@ -95,25 +145,7 @@ class Table:
     row_filter: RowFilter | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "properties", tuple(sorted(self.properties)))
-        object.__setattr__(self, "tags", tuple(sorted(self.tags)))
-        object.__setattr__(
-            self, "grants", tuple(sorted(self.grants, key=lambda g: g.principal))
-        )
-
-    # -- names -------------------------------------------------------------
-    @property
-    def parts(self) -> tuple[str, ...]:
-        return tuple(self.name.split("."))
-
-    @property
-    def short_name(self) -> str:
-        return self.parts[-1]
-
-    @property
-    def schema(self) -> str:
-        """The `catalog.schema` this table lives in."""
-        return ".".join(self.parts[:-1])
+        sort_governance(self)
 
     # -- lookups -----------------------------------------------------------
     def column(self, name: str) -> Column | None:
@@ -126,24 +158,10 @@ class Table:
     def column_names(self) -> tuple[str, ...]:
         return tuple(column.name for column in self.columns)
 
-    def properties_map(self) -> dict[str, str]:
-        return dict(self.properties)
-
-    def tags_map(self) -> dict[str, str]:
-        return dict(self.tags)
-
-    @property
-    def managed(self) -> bool:
-        """True when deltaplan created this table and may therefore drop it."""
-        return self.properties_map().get(MANAGED_PROPERTY, "").lower() == "true"
-
     @property
     def protected(self) -> bool:
         """Does anything here decide what a reader may see?"""
         return self.row_filter is not None or any(c.mask for c in self.columns)
-
-    def grants_map(self) -> dict[str, tuple[str, ...]]:
-        return {grant.principal: grant.privileges for grant in self.grants}
 
     def primary_key(self) -> PrimaryKey | None:
         for constraint in self.constraints:

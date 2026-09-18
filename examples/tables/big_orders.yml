@@ -1,0 +1,13 @@
+# A view spec: its shape is its query, so that is what deltaplan compares. A
+# changed query replaces the view; tags and grants work as they do on a table.
+view: ${catalog}.sales.big_orders
+comment: Orders over 1000
+tags:
+  domain: sales
+grants:
+  - principal: analysts
+    privileges: [SELECT]
+query: |
+  SELECT order_id, order_date, amount
+  FROM ${catalog}.sales.orders
+  WHERE amount > 1000

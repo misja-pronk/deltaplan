@@ -11,8 +11,8 @@ deltaplan force-unlock
 ```
 
 !!! warning "Pre-alpha"
-    Every command here works. The governance milestone — masks, row filters, grants,
-    views — is still to come.
+    Every command here works offline against deltaplan's test warehouse. None has yet
+    been run against a real workspace.
 
 Every command takes `--config` to point at a `deltaplan.yml`, and `-t/--target` to pick
 the target whose variables are substituted. `plan` and `import` also take

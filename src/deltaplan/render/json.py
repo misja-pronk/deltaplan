@@ -18,6 +18,7 @@ from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
 from deltaplan.model.table import Check, Grant, PrimaryKey, RowFilter, Table
 from deltaplan.model.types import Field, Mask, as_data_type, render_type
+from deltaplan.model.view import View
 from deltaplan.typeparser import parse_type
 
 #: Bumped when the shape below changes in a way `apply` has to know about.
@@ -62,8 +63,8 @@ def _diff_to_dict(diff: TableDiff) -> dict[str, Any]:
         "unmanaged": list(diff.unmanaged),
         # Both sides are kept: a rewrite needs the shape it builds towards, and a
         # plan file that records what was compared is one you can audit later.
-        "desired": _table_to_dict(diff.desired) if diff.desired else None,
-        "live": _table_to_dict(diff.live) if diff.live else None,
+        "desired": _relation_to_dict(diff.desired) if diff.desired else None,
+        "live": _relation_to_dict(diff.live) if diff.live else None,
         "changes": [_change_to_dict(change) for change in diff.changes],
     }
 
@@ -73,6 +74,7 @@ def _facts_to_dict(facts: TableFacts) -> dict[str, Any]:
         "exists": facts.exists,
         "size_bytes": facts.size_bytes,
         "delta_version": facts.delta_version,
+        "kind": facts.kind,
         "properties": dict(facts.properties),
     }
 
@@ -111,8 +113,8 @@ def _value(value: object) -> Any:
         return value
     if isinstance(value, Field):
         return _field_to_dict(value)
-    if isinstance(value, Table):
-        return _table_to_dict(value)
+    if isinstance(value, Table | View):
+        return _relation_to_dict(value)
     if isinstance(value, PrimaryKey):
         return {"primary_key": {"name": value.name, "columns": list(value.columns)}}
     if isinstance(value, Check):
@@ -156,6 +158,35 @@ def _mask_to_dict(mask: Mask) -> dict[str, Any]:
 
 def _row_filter_to_dict(row_filter: RowFilter) -> dict[str, Any]:
     return {"function": row_filter.function, "columns": list(row_filter.columns)}
+
+
+def _relation_to_dict(relation: Table | View) -> dict[str, Any]:
+    if isinstance(relation, View):
+        return {
+            "view": relation.name,
+            "query": relation.query,
+            "comment": relation.comment,
+            "properties": dict(relation.properties),
+            "tags": dict(relation.tags),
+            "grants": {g.principal: list(g.privileges) for g in relation.grants},
+        }
+    return _table_to_dict(relation)
+
+
+def _relation_from_dict(entry: dict[str, Any]) -> Table | View:
+    if "view" in entry:
+        return View(
+            name=str(entry["view"]),
+            query=str(entry["query"]),
+            comment=entry.get("comment"),
+            properties=tuple(sorted(entry.get("properties", {}).items())),
+            tags=tuple(sorted(entry.get("tags", {}).items())),
+            grants=tuple(
+                Grant(principal, tuple(privileges))
+                for principal, privileges in entry.get("grants", {}).items()
+            ),
+        )
+    return _table_from_dict(entry)
 
 
 def _table_to_dict(table: Table) -> dict[str, Any]:
@@ -225,10 +256,11 @@ def _diff_from_dict(entry: dict[str, Any]) -> TableDiff:
             properties=tuple(sorted(facts.get("properties", {}).items())),
             size_bytes=facts.get("size_bytes"),
             delta_version=facts.get("delta_version"),
+            kind="view" if facts.get("kind") == "view" else "table",
         ),
         unmanaged=tuple(entry.get("unmanaged", ())),
-        desired=_table_from_dict(entry["desired"]) if entry.get("desired") else None,
-        live=_table_from_dict(entry["live"]) if entry.get("live") else None,
+        desired=_relation_from_dict(entry["desired"]) if entry.get("desired") else None,
+        live=_relation_from_dict(entry["live"]) if entry.get("live") else None,
     )
 
 
@@ -267,8 +299,8 @@ def _value_from(kind: str, raw: Any) -> Any:
     if raw is None:
         return None
     match kind:
-        case "create_table" | "drop_table":
-            return _table_from_dict(raw)
+        case "create_table" | "drop_table" | "create_view" | "replace_view":
+            return _relation_from_dict(raw)
         case "add_column" | "drop_column":
             return _field_from_dict(raw)
         case "change_type":

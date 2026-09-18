@@ -34,7 +34,7 @@ from deltaplan.history import (
 from deltaplan.introspect import Introspector, SqlRunner
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Step, fingerprint
-from deltaplan.model.table import Table
+from deltaplan.model.view import Relation
 
 #: Risk classes whose steps get a restore point recorded before they run.
 RECORD_VERSION_FOR = frozenset({"destructive", "rewrite"})
@@ -74,7 +74,7 @@ class Executor:
     #: Called as each step resolves, so a caller can show progress live rather
     #: than after the fact.
     observer: Callable[[Step, Status, str | None], None] | None = None
-    _live: dict[str, Table | None] = field(default_factory=dict)
+    _live: dict[str, Relation | None] = field(default_factory=dict)
 
     # -- the run -----------------------------------------------------------
     def apply(self, plan: Plan, *, allow_destructive: bool = False) -> ExecutionResult:

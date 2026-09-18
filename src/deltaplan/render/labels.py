@@ -10,6 +10,7 @@ from __future__ import annotations
 from deltaplan.model.change import Change
 from deltaplan.model.table import Check, PrimaryKey, RowFilter, Table
 from deltaplan.model.types import Decimal, Field, Mask, as_data_type, render_type
+from deltaplan.model.view import View, normalise_query
 
 
 def human_bytes(size: int | None) -> str | None:
@@ -54,6 +55,18 @@ def describe(change: Change) -> tuple[str, str]:
             table = change.before
             columns = len(table.columns) if isinstance(table, Table) else 0
             return "-", (f"{columns} columns — its spec is gone and the schema is strict")
+        case "create_view":
+            return "+", ("view")
+        case "replace_view":
+            before, after = change.before, change.after
+            if isinstance(before, View) and isinstance(after, View):
+                changed = []
+                if normalise_query(before.query) != normalise_query(after.query):
+                    changed.append("query")
+                if before.comment != after.comment:
+                    changed.append("comment")
+                return "~", (" and ".join(changed) or "definition")
+            return "~", ("definition")
         case "claim_table":
             return "+", ("ownership — deltaplan manages this table from now on")
         case "add_column":

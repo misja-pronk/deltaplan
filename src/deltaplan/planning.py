@@ -18,15 +18,17 @@ sides at once:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 
-from deltaplan.differ import diff, ownership, unmanaged
+from deltaplan.differ import diff, diff_view, ownership, unmanaged, unmanaged_view
 from deltaplan.introspect import Introspector, LiveSchema, LiveTable
 from deltaplan.loader import Mode
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, TableDiff, TableFacts, fingerprint
 from deltaplan.model.table import Table
+from deltaplan.model.view import Relation, View
 from deltaplan.planner import build_plan
 
 
@@ -35,7 +37,7 @@ class PlanningError(Exception):
 
 
 def plan_tables(
-    tables: Sequence[Table],
+    specs: Sequence[Relation],
     introspector: Introspector,
     *,
     target: str,
@@ -44,14 +46,20 @@ def plan_tables(
     check_order: bool = False,
     clone: bool = False,
 ) -> Plan:
-    """Plan every table against live state.
+    """Plan every table and view against live state.
+
+    Tables come first, then views in dependency order: a view is planned after
+    anything its query reads that is also being planned.
 
     `mode_for` answers `strict` or `additive` for a `catalog.schema` — it is a
     callable rather than a mapping because which schemas matter isn't known
     until the specs have been read.
     """
-    schemas = _introspect(tables, introspector)
-    described = {table.name for table in tables}
+    schemas = _introspect(specs, introspector)
+    described = {spec.name for spec in specs}
+    tables = [spec for spec in specs if isinstance(spec, Table)]
+    views = order_views([spec for spec in specs if isinstance(spec, View)])
+    _refuse_kind_changes(specs, schemas)
 
     diffs: list[TableDiff] = []
     for table in tables:
@@ -72,15 +80,30 @@ def plan_tables(
             )
         )
 
+    for view in views:
+        live_view = _schema_of(schemas, view.name).get_view(view.name)
+        changes = (*ownership(view, live_view), *diff_view(view, live_view))
+        diffs.append(
+            TableDiff(
+                view.name,
+                changes,
+                _view_facts(view.name, live_view),
+                unmanaged_view(view, live_view) if live_view else (),
+                desired=view,
+                live=live_view,
+            )
+        )
+
     unmanaged_tables: list[str] = []
     orphaned_tables: list[str] = []
     for (catalog, schema), found in sorted(schemas.items()):
+        strict = mode_for(f"{catalog}.{schema}") == "strict"
         for live in found.tables:
             if live.table.name in described:
                 continue
             if not live.table.managed:
                 unmanaged_tables.append(live.table.name)
-            elif mode_for(f"{catalog}.{schema}") == "strict":
+            elif strict:
                 drop = Change(live.table.name, "drop_table", before=live.table)
                 diffs.append(
                     TableDiff(
@@ -92,12 +115,29 @@ def plan_tables(
                 )
             else:
                 orphaned_tables.append(live.table.name)
+        for live_view in found.views:
+            if live_view.name in described:
+                continue
+            if not live_view.managed:
+                unmanaged_tables.append(live_view.name)
+            elif strict:
+                drop = Change(live_view.name, "drop_table", before=live_view)
+                diffs.append(
+                    TableDiff(
+                        live_view.name,
+                        (drop,),
+                        _view_facts(live_view.name, live_view),
+                        live=live_view,
+                    )
+                )
+            else:
+                orphaned_tables.append(live_view.name)
 
     built = build_plan(
         diffs,
         target=target,
         tool_version=tool_version,
-        spec_hash=fingerprint(tables),
+        spec_hash=fingerprint(specs),
         state_fingerprint=fingerprint(d.live for d in diffs),
         clone=clone,
     )
@@ -108,14 +148,71 @@ def plan_tables(
     )
 
 
+def order_views(views: Sequence[View]) -> list[View]:
+    """Views in an order where each comes after the views its query reads.
+
+    Stable: views that don't depend on each other keep their spec order. A cycle
+    is an error — no order could create them.
+    """
+    names = [view.name for view in views]
+    depends_on = {
+        view.name: {o for o in names if o != view.name and _reads(view.query, o)}
+        for view in views
+    }
+    ordered: list[View] = []
+    placed: set[str] = set()
+    while len(ordered) < len(views):
+        ready = [
+            v for v in views if v.name not in placed and depends_on[v.name] <= placed
+        ]
+        if not ready:
+            stuck = sorted(name for name in names if name not in placed)
+            raise PlanningError(
+                f"these views read each other in a cycle: {', '.join(stuck)}"
+            )
+        for view in ready:
+            ordered.append(view)
+            placed.add(view.name)
+    return ordered
+
+
+def _reads(query: str, name: str) -> bool:
+    """Does the query name this table or view — quoted or not, any case?"""
+    pattern = r"\s*\.\s*".join(rf"`?{re.escape(part)}`?" for part in name.split("."))
+    found = re.search(rf"(?<![\w`.]){pattern}(?![\w`])", query, re.IGNORECASE)
+    return found is not None
+
+
+def _refuse_kind_changes(
+    specs: Sequence[Relation], schemas: dict[tuple[str, str], LiveSchema]
+) -> None:
+    """A table the spec calls a view, or the other way round, is not converted."""
+    for spec in specs:
+        found = _schema_of(schemas, spec.name)
+        live_kind = (
+            "table"
+            if found.get(spec.name) is not None
+            else "view"
+            if found.get_view(spec.name) is not None
+            else None
+        )
+        spec_kind = "view" if isinstance(spec, View) else "table"
+        if live_kind is not None and live_kind != spec_kind:
+            raise PlanningError(
+                f"{spec.name} is a {live_kind} in the catalog but a {spec_kind} in "
+                "its spec. deltaplan won't turn one into the other — drop it by "
+                "hand first"
+            )
+
+
 def _introspect(
-    tables: Sequence[Table], introspector: Introspector
+    specs: Sequence[Relation], introspector: Introspector
 ) -> dict[tuple[str, str], LiveSchema]:
     schemas: dict[tuple[str, str], LiveSchema] = {}
-    for table in tables:
-        parts = table.parts
+    for spec in specs:
+        parts = spec.parts
         if len(parts) != 3:
-            raise PlanningError(f"table name {table.name!r} must be catalog.schema.table")
+            raise PlanningError(f"name {spec.name!r} must be catalog.schema.name")
         key = (parts[0], parts[1])
         if key not in schemas:
             schemas[key] = introspector.schema(*key)
@@ -125,6 +222,15 @@ def _introspect(
 def _schema_of(schemas: dict[tuple[str, str], LiveSchema], name: str) -> LiveSchema:
     catalog, schema, _ = name.split(".")
     return schemas[(catalog, schema)]
+
+
+def _view_facts(name: str, live: View | None) -> TableFacts:
+    return TableFacts(
+        name,
+        exists=live is not None,
+        properties=live.properties if live else (),
+        kind="view",
+    )
 
 
 def _facts(

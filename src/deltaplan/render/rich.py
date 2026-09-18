@@ -119,7 +119,9 @@ def _render_table(plan: Plan, diff: TableDiff, console: Console, offset: int) ->
     # the table rather than to any one change above.
     rest = [step for step in plan.steps_for(diff.table) if step.id not in shown]
     if rest:
-        console.print(_line(1, "↻", Text("rewrite")))
+        # A rewrite's own steps, or what a replace puts back as it found it.
+        rewriting = any(step.risk == "rewrite" for step in rest)
+        console.print(_line(1, "↻", Text("rewrite" if rewriting else "restore")))
         for step in rest:
             _render_step(step, console, indent=2)
 

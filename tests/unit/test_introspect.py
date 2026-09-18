@@ -140,8 +140,10 @@ def test_tags_and_constraints() -> None:
     )
 
 
-def test_views_and_other_formats_are_skipped_never_touched() -> None:
-    schema = live_schema(
+def test_views_are_read_and_other_kinds_are_skipped() -> None:
+    from deltaplan.model.view import View
+
+    runner = fake_runner(
         tables=(
             {"table_name": "v_orders", "table_type": "VIEW", "data_source_format": None},
             {
@@ -150,12 +152,23 @@ def test_views_and_other_formats_are_skipped_never_touched() -> None:
                 "data_source_format": "CSV",
                 "comment": None,
             },
+            {
+                # Stored as Delta, but not a table deltaplan can alter.
+                "table_name": "daily_totals",
+                "table_type": "MATERIALIZED_VIEW",
+                "data_source_format": "DELTA",
+            },
         ),
     )
+    runner.responses["information_schema.views"] = (
+        {"table_name": "v_orders", "view_definition": "SELECT 1 AS one"},
+    )
+    schema = Introspector(runner).schema(CATALOG, SCHEMA)
     assert schema.tables == ()
+    assert schema.views == (View("main.sales.v_orders", "SELECT 1 AS one"),)
     assert schema.skipped == (
-        ("main.sales.csv_dump", "csv table"),
-        ("main.sales.v_orders", "view table"),
+        ("main.sales.csv_dump", "csv"),
+        ("main.sales.daily_totals", "materialized view"),
     )
 
 

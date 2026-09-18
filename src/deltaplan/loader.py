@@ -40,6 +40,7 @@ from deltaplan.model.types import (
     Struct,
     render_type,
 )
+from deltaplan.model.view import Relation, View
 from deltaplan.sql import privilege_sql
 from deltaplan.typeparser import TypeParseError, parse_type
 
@@ -141,10 +142,14 @@ class Project:
 
 @dataclass(frozen=True, slots=True)
 class LoadedSpec:
-    """A table, and the file it came from."""
+    """A table or view, and the file it came from.
+
+    `table` because Unity Catalog calls a view a kind of table, and so does the
+    rest of deltaplan's vocabulary.
+    """
 
     path: Path
-    table: Table
+    table: Relation
 
 
 # ---------------------------------------------------------------------------
@@ -491,13 +496,53 @@ def _read_primary_key(ctx: _Ctx, node: Node) -> PrimaryKey:
     return PrimaryKey(_string_list(ctx, columns_node, "primary_key columns"), name)
 
 
-def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
-    """Read one spec file into a `Table`."""
+VIEW_KEYS = {"view", "query", "comment", "tags", "properties", "grants"}
+
+
+def load_spec(path: Path, variables: dict[str, str] | None = None) -> Relation:
+    """Read one spec file: a table, or — with a `view:` key — a view."""
     ctx = _Ctx(path, tuple(sorted((variables or {}).items())))
     node = _compose(path)
     if node is None:
         raise SpecError("spec file is empty", Loc(path, 1, 1))
     items = _mapping(ctx, node, "a spec")
+    if "view" in items:
+        return _read_view(ctx, node, items)
+    if "table" not in items:
+        raise SpecError("a spec needs a 'table' or a 'view' key", ctx.loc(node))
+    return _read_table(ctx, node, items)
+
+
+def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
+    """Read one spec file that must describe a table."""
+    spec = load_spec(path, variables)
+    if isinstance(spec, View):
+        raise SpecError("this spec describes a view, not a table", Loc(path, 1, 1))
+    return spec
+
+
+def _read_view(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> View:
+    _known_keys(items, allowed=VIEW_KEYS, what="a view spec")
+    name = _string(ctx, items["view"][0], "view name")
+    query = _string(ctx, _require(ctx, items, node, "query", "a view spec"), "query")
+    if not query.strip():
+        raise SpecError("a view's query cannot be empty", ctx.loc(items["query"][0]))
+    comment = None
+    if "comment" in items:
+        comment = _string(ctx, items["comment"][0], "view comment")
+    properties: tuple[tuple[str, str], ...] = ()
+    if "properties" in items:
+        properties = _string_map(ctx, items["properties"][0], "properties")
+    tags: tuple[tuple[str, str], ...] = ()
+    if "tags" in items:
+        tags = _string_map(ctx, items["tags"][0], "tags")
+    grants: tuple[Grant, ...] = ()
+    if "grants" in items:
+        grants = _read_grants(ctx, items["grants"][0])
+    return View(name, query, comment, properties, tags, grants)
+
+
+def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Table:
     _known_keys(items, allowed=TABLE_KEYS, what="a spec")
 
     name = _string(ctx, _require(ctx, items, node, "table", "a spec"), "table name")
@@ -683,7 +728,7 @@ def load_specs(project: Project, target: Target) -> tuple[LoadedSpec, ...]:
     """Load every spec in a project, rendered for one target."""
     variables = target.variables_map()
     return tuple(
-        LoadedSpec(path, load_table(path, variables)) for path in spec_files(project)
+        LoadedSpec(path, load_spec(path, variables)) for path in spec_files(project)
     )
 
 
@@ -695,6 +740,31 @@ def load_specs(project: Project, target: Target) -> tuple[LoadedSpec, ...]:
 # TODO(verify): confirm against a live workspace; the limit has moved before.
 # https://docs.databricks.com/aws/en/delta/clustering
 MAX_CLUSTER_COLUMNS = 4
+
+
+def validate_spec(spec: Relation, where: str) -> tuple[Diagnostic, ...]:
+    """Lint a table or a view."""
+    if isinstance(spec, View):
+        return validate_view(spec, where)
+    return validate_table(spec, where)
+
+
+def validate_view(view: View, where: str) -> tuple[Diagnostic, ...]:
+    found: list[Diagnostic] = []
+    if len(view.parts) != 3:
+        found.append(
+            Diagnostic(
+                "error",
+                f"view name {view.name!r} must be catalog.schema.view "
+                "(three parts, after variable substitution)",
+                where,
+            )
+        )
+    if VARIABLE.search(view.query):
+        found.append(
+            Diagnostic("error", "the query still contains an unsubstituted ${…}", where)
+        )
+    return tuple(found)
 
 
 def validate_table(table: Table, where: str) -> tuple[Diagnostic, ...]:
@@ -810,8 +880,8 @@ def _lint_field(
 # ---------------------------------------------------------------------------
 
 
-def dump_spec(table: Table, *, catalog_variable: str | None = None) -> str:
-    """Render a table as a spec file, the way `import` writes it.
+def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
+    """Render a table or view as a spec file, the way `import` writes it.
 
     Types are written in the string notation, which carries nested comments and
     nullability, so the result round-trips through `load_table` unchanged.
@@ -822,6 +892,8 @@ def dump_spec(table: Table, *, catalog_variable: str | None = None) -> str:
     if catalog_variable:
         _, _, rest = name.partition(".")
         name = f"${{{catalog_variable}}}.{rest}"
+    if isinstance(table, View):
+        return _dump_view(table, name)
 
     document: dict[str, object] = {"table": name}
     if table.comment is not None:
@@ -855,6 +927,45 @@ def dump_spec(table: Table, *, catalog_variable: str | None = None) -> str:
         ]
 
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False, width=100)
+
+
+def _dump_view(view: View, name: str) -> str:
+    """A view spec. The query is written as the catalog holds it, catalog names
+    and all — rewriting names inside SQL is not something to do by text search.
+    """
+    document: dict[str, object] = {"view": name}
+    if view.comment is not None:
+        document["comment"] = view.comment
+    properties = {k: v for k, v in view.properties if k != MANAGED_PROPERTY}
+    if properties:
+        document["properties"] = properties
+    if view.tags:
+        document["tags"] = dict(view.tags)
+    if view.grants:
+        document["grants"] = [
+            {"principal": grant.principal, "privileges": list(grant.privileges)}
+            for grant in view.grants
+        ]
+    document["query"] = _LiteralText(view.query.strip() + "\n")
+    return yaml.dump(
+        document, Dumper=_SpecDumper, sort_keys=False, default_flow_style=False, width=100
+    )
+
+
+class _LiteralText(str):
+    """Written as a `|` block, so a query reads like SQL rather than one long line."""
+
+
+class _SpecDumper(yaml.SafeDumper):
+    pass
+
+
+_SpecDumper.add_representer(
+    _LiteralText,
+    lambda dumper, text: dumper.represent_scalar(
+        "tag:yaml.org,2002:str", str(text), style="|"
+    ),
+)
 
 
 def _column_document(column: Field) -> dict[str, object]:

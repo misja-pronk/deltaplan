@@ -247,6 +247,36 @@ than putting `using` on a nested field.
     with a format, a rounding rule, a default instead of NULL — write it with `using`
     and the plan will show exactly what will run.
 
+## Views
+
+A view spec has a `view:` key instead of `table:`, and a query instead of columns — a
+view's columns are whatever its query returns.
+
+```yaml
+view: ${catalog}.sales.big_orders
+comment: Orders over 1000
+tags: {domain: sales}
+grants:
+  - {principal: analysts, privileges: [SELECT]}
+query: |
+  SELECT order_id, order_date, amount
+  FROM ${catalog}.sales.orders
+  WHERE amount > 1000
+```
+
+- **The query is what is compared.** Whitespace and a trailing semicolon don't count;
+  anything else does. A changed query or comment is planned as a `REPLACE VIEW`, with
+  the old definition as its undo.
+- **Governance survives a replace.** Tags and grants are put back as they were right
+  after the replace, then the spec's own changes to them are applied.
+- **Views come after tables**, and after any view their query reads — so a view over a
+  table created in the same plan, or over another view, just works. Views that read each
+  other in a cycle are an error.
+- **A table is never turned into a view**, or the other way round. If the catalog has a
+  table where the spec says view, planning stops and says so.
+- `import` writes view specs too, with the query as the catalog holds it — catalog names
+  and all, since rewriting names inside SQL isn't something to do by text search.
+
 ## Constraints
 
 ```yaml

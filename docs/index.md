@@ -3,9 +3,10 @@
 Declarative, Terraform-style `plan` / `apply` for Databricks SQL tables — Unity Catalog and Delta.
 
 !!! warning "Pre-alpha"
-    Planning, applying (rewrites included), drift detection and the
-    [GitHub Action](ci.md) all work. The governance milestone is still to come.
-    [DESIGN.md](DESIGN.md) is the source of truth for the rest.
+    Every milestone in the design is built: planning, applying (rewrites included),
+    drift detection, the [GitHub Action](ci.md), and governance — column tags, grants,
+    masks, row filters and views. What hasn't happened yet is a run against a real
+    workspace; see [testing](testing.md). [DESIGN.md](DESIGN.md) is the source of truth.
 
 Describe the tables you want in YAML, diff that against live Unity Catalog, review a
 plan, then apply it. deltaplan knows which Delta changes are metadata-only, which need

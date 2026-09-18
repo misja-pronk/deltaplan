@@ -106,8 +106,15 @@ Change labels are shared by both renderers in `render/labels.py`. The Action
 must never interpolate `${{ }}` into a `run:` script — `test_action.py`
 enforces it.
 
-Next is **milestone 5 (governance)**: column tags, masks, row filters, grants,
-views.
+**Milestone 5 (governance) is done**: column tags, grants (per principal),
+column masks and row filters (additive, never removed, never rewritten), and
+views (`model/view.py`; `Relation = Table | View`; tables and views share
+`Securable`). Every milestone in DESIGN.md is built.
+
+What remains is verification, not construction: nothing has run against a real
+workspace. Every `TODO(verify)` in `src/` names an assumption the live suite in
+`tests/integration/` is written to settle — run it (`uv run pytest -m
+integration`) before trusting any of this with production tables.
 
 1. ~~Scaffold: `pyproject.toml` (uv, src layout, Apache-2.0), ruff, ty, pytest, GitHub Actions for lint + unit tests, README stub, move `DESIGN.md` to `docs/`.~~ **Done.**
 2. `model/types.py` + `typeparser.py`: type tree and parser for Databricks type strings incl. nested struct/array/map, decimal, backticked field names, `NOT NULL` and comments inside structs. Round-trip tests.

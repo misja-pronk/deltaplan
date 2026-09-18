@@ -185,5 +185,5 @@ def test_a_rewrite_is_cloned_before_it_starts() -> None:
 
 
 def test_a_bad_table_name_is_a_planning_error() -> None:
-    with pytest.raises(PlanningError, match="catalog.schema.table"):
+    with pytest.raises(PlanningError, match="catalog.schema.name"):
         planned([table(col("id", "bigint"), name="sales.orders")], FakeWarehouse())
