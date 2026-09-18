@@ -153,6 +153,12 @@ class Field:
     tags: tuple[tuple[str, str], ...] = ()
     #: A column mask. Top-level columns only.
     mask: Mask | None = None
+    #: How the column gets a value it wasn't given. At most one of the three;
+    #: top-level columns only. Identity and generated columns exist only from
+    #: table creation; a default can be set and changed at any time.
+    identity: Identity | None = None
+    generated: str | None = None
+    default: str | None = None
 
     def __post_init__(self) -> None:
         if self.tags:
@@ -172,6 +178,19 @@ class Mask:
     def __post_init__(self) -> None:
         # Unity Catalog stores function names in lower case, like every name.
         object.__setattr__(self, "function", self.function.lower())
+
+
+@dataclass(frozen=True, slots=True)
+class Identity:
+    """`GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY (START WITH … INCREMENT BY …)`.
+
+    Only on a BIGINT column, and only when the table is created.
+    https://docs.databricks.com/aws/en/delta/generated-columns
+    """
+
+    always: bool = True
+    start: int = 1
+    increment: int = 1
 
 
 #: A column is a top-level field.

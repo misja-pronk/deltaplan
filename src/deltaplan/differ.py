@@ -326,6 +326,7 @@ def _diff_columns(
             )
         changes.extend(_diff_field(desired.name, column.name, column, live))
         changes.extend(_diff_column_tags(desired.name, column, live))
+        changes.extend(_diff_generation(desired.name, column, live))
         if column.mask is not None and column.mask != live.mask:
             changes.append(
                 Change(
@@ -356,6 +357,35 @@ def _diff_columns(
                 )
             )
     return changes
+
+
+def _diff_generation(table: str, desired: Field, actual: Field) -> list[Change]:
+    """How a column gets a value it wasn't given: identity, generated, default.
+
+    All three are modelled, so a spec that leaves one out means the column has
+    none — as a missing comment means no comment.
+    """
+    changes: list[Change] = []
+    if desired.identity != actual.identity:
+        changes.append(
+            Change(table, "set_identity", desired.name, actual.identity, desired.identity)
+        )
+    if _expression(desired.generated) != _expression(actual.generated):
+        changes.append(
+            Change(
+                table, "set_generated", desired.name, actual.generated, desired.generated
+            )
+        )
+    if _expression(desired.default) != _expression(actual.default):
+        changes.append(
+            Change(table, "set_default", desired.name, actual.default, desired.default)
+        )
+    return changes
+
+
+def _expression(text: str | None) -> str | None:
+    """TODO(verify): how the catalog echoes generation and default expressions."""
+    return normalise_expression(text) if text is not None else None
 
 
 def _diff_column_tags(table: str, desired: Field, actual: Field) -> list[Change]:
@@ -582,6 +612,18 @@ def _is_applied_to_table(change: Change, live: Table) -> bool:
         case "set_mask":
             column = live.column(change.path)
             return column is not None and column.mask == change.after
+        case "set_identity":
+            column = live.column(change.path)
+            return column is not None and column.identity == change.after
+        case "set_generated" | "set_default":
+            column = live.column(change.path)
+            if column is None:
+                return False
+            live_value = (
+                column.generated if change.kind == "set_generated" else column.default
+            )
+            wanted = change.after if isinstance(change.after, str) else None
+            return _expression(live_value) == _expression(wanted)
         case "set_row_filter":
             return live.row_filter == change.after
         case "set_column_tag":

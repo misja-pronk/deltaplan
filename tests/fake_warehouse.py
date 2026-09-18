@@ -24,7 +24,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 
 from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, RowFilter, Table
-from deltaplan.model.types import Array, DataType, Field, Map, Mask, Struct
+from deltaplan.model.types import Array, DataType, Field, Identity, Map, Mask, Struct
 from deltaplan.model.view import View
 from deltaplan.typeparser import parse_type
 
@@ -199,6 +199,7 @@ class FakeWarehouse:
                     "full_data_type": _render(column.type),
                     "is_nullable": "YES" if column.nullable else "NO",
                     "comment": column.comment,
+                    **_generation_row(column),
                     **self.column_features.get((table.name, column.name), {}),
                 }
                 for table in tables
@@ -494,6 +495,16 @@ def _apply_alter(table: Table, clause: str) -> Table:
     if match := re.fullmatch(r"RENAME COLUMN (\S+) TO (\S+)", clause):
         path, new_name = _unquote(match.group(1)), _unquote(match.group(2))
         return _edit_container(table, path, _rename(_leaf(path), new_name))
+    if match := re.fullmatch(r"ALTER COLUMN (\S+) SET DEFAULT (.+)", clause):
+        path, default = _unquote(match.group(1)), match.group(2)
+        return _edit_container(
+            table, path, _amend(_leaf(path), lambda f: replace(f, default=default))
+        )
+    if match := re.fullmatch(r"ALTER COLUMN (\S+) DROP DEFAULT", clause):
+        path = _unquote(match.group(1))
+        return _edit_container(
+            table, path, _amend(_leaf(path), lambda f: replace(f, default=None))
+        )
     if match := re.fullmatch(
         r"ALTER COLUMN (\S+) SET MASK (\S+)(?: USING COLUMNS \((.*)\))?", clause
     ):
@@ -684,6 +695,21 @@ def _replace_column(table: Table, column: Field) -> Table:
 # -- little parsers ---------------------------------------------------------
 
 
+def _generation_row(column: Field) -> Row:
+    """The information_schema.columns values a column's generation shows up as."""
+    row: Row = {"column_default": column.default}
+    if column.identity is not None:
+        row |= {
+            "is_identity": "YES",
+            "identity_generation": "ALWAYS" if column.identity.always else "BY DEFAULT",
+            "identity_start": str(column.identity.start),
+            "identity_increment": str(column.identity.increment),
+        }
+    if column.generated is not None:
+        row |= {"is_generated": "ALWAYS", "generation_expression": column.generated}
+    return row
+
+
 def _same(a: str, b: str) -> bool:
     """Column and field names ignore case in Delta, so they do here."""
     return a.casefold() == b.casefold()
@@ -833,11 +859,35 @@ def _parse_column_definition(entry: str) -> Field:
     if found := re.search(r" MASK (\S+)(?: USING COLUMNS \(([^)]*)\))?$", entry):
         mask = Mask(_unquote(found.group(1)), tuple(_idents(found.group(2) or "")))
         entry = entry[: found.start()]
+    identity = None
+    if found := re.search(
+        r" GENERATED (ALWAYS|BY DEFAULT) AS IDENTITY \(START WITH (-?\d+) "
+        r"INCREMENT BY (-?\d+)\)",
+        entry,
+    ):
+        identity = Identity(
+            found.group(1) == "ALWAYS", int(found.group(2)), int(found.group(3))
+        )
+        entry = entry[: found.start()] + entry[found.end() :]
+    generated = None
+    if found := re.search(r" GENERATED ALWAYS AS \((.*)\)$", entry):
+        generated = found.group(1)
+        entry = entry[: found.start()]
+    default = None
+    if found := re.search(r" DEFAULT (.+)$", entry):
+        default = found.group(1)
+        entry = entry[: found.start()]
     name, _, rest = entry.partition(" ")
     parsed = parse_type(f"struct<{name}:{rest}>")
     if not isinstance(parsed, Struct) or len(parsed.fields) != 1:
         raise FakeSqlError(f"cannot read column definition: {entry}")
-    return replace(parsed.fields[0], mask=mask)
+    return replace(
+        parsed.fields[0],
+        mask=mask,
+        identity=identity,
+        generated=generated,
+        default=default,
+    )
 
 
 def _parse_inline_constraint(entry: str) -> Constraint:

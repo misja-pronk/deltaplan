@@ -29,6 +29,7 @@ from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Risk, Step, TableDiff, TableFacts
 from deltaplan.model.table import (
     COLUMN_MAPPING_PROPERTY,
+    DEFAULTS_FEATURE,
     MANAGED_PROPERTY,
     TYPE_WIDENING_PROPERTY,
     Check,
@@ -144,6 +145,7 @@ class _Planner:
         self._cloned: set[str] = set()
         self._existing: set[str] = set()
         self._schemas_created: set[str] = set()
+        self._column_defaults: set[str] = set()
         self.steps: list[Step] = []
         self._column_mapping: set[str] = set()
         self._type_widening: set[str] = set()
@@ -326,9 +328,29 @@ class _Planner:
         staging = staging_name(table_diff.table)
         projection = build_projection(desired, live)
 
+        generating = [
+            c.name
+            for c in live.columns
+            if c.identity is not None or c.generated is not None
+        ]
+        if generating:
+            self.emit(
+                table_diff.table,
+                "REWRITE",
+                "rewrite",
+                sql=None,
+                est_bytes=facts.size_bytes,
+                note=(
+                    f"{', '.join(generating)} can only be identity or generated columns "
+                    "from table creation, and a rewrite rebuilds the table from a query "
+                    "— they would come back as plain columns. Rewrite it by hand"
+                ),
+            )
+            return
+
         if facts.unmodelled:
             # A rewrite rebuilds the table from a query, which carries none of
-            # these — an identity column would come back as a plain BIGINT.
+            # these — partitioning would be gone.
             self.emit(
                 table_diff.table,
                 "REWRITE",
@@ -516,6 +538,10 @@ class _Planner:
                 self._drop_constraint(change)
             case "set_mask":
                 self._mask(change)
+            case "set_default":
+                self._default(change, facts)
+            case "set_identity" | "set_generated":
+                self._creation_only(change)
             case "set_row_filter":
                 self._row_filter(change)
             case "grant":
@@ -534,6 +560,70 @@ class _Planner:
                 assert_never(change.kind)
 
     # -- table level -------------------------------------------------------
+    def need_column_defaults(self, facts: TableFacts, path: str) -> None:
+        """A column default needs the allowColumnDefaults table feature.
+        https://docs.databricks.com/aws/en/delta/default-columns
+        """
+        if facts.name in self._column_defaults:
+            return
+        self._column_defaults.add(facts.name)
+        if (facts.property(DEFAULTS_FEATURE) or "").lower() == "supported":
+            return
+        self.emit(
+            facts.name,
+            "enable allowColumnDefaults",
+            "feature",
+            path=path,
+            sql=(
+                f"ALTER TABLE {quote_qualified(facts.name)} "
+                f"SET TBLPROPERTIES ({quote_literal(DEFAULTS_FEATURE)} = 'supported')"
+            ),
+            note=PROTOCOL_NOTE,
+        )
+
+    def _default(self, change: Change, facts: TableFacts) -> None:
+        table = quote_qualified(change.table)
+        column = quote_ident(change.path)
+        default = change.after if isinstance(change.after, str) else None
+        if default is None:
+            self.emit(
+                change.table,
+                "DROP DEFAULT",
+                "meta",
+                path=change.path,
+                sql=f"ALTER TABLE {table} ALTER COLUMN {column} DROP DEFAULT",
+            )
+            return
+        self.need_column_defaults(facts, change.path)
+        self.emit(
+            change.table,
+            "SET DEFAULT",
+            "meta",
+            path=change.path,
+            sql=f"ALTER TABLE {table} ALTER COLUMN {column} SET DEFAULT {default}",
+            note="applies to rows written from now on; existing rows keep their values",
+        )
+
+    def _creation_only(self, change: Change) -> None:
+        """Identity and generated columns exist only from table creation.
+
+        TODO(verify): that neither can be added to, or changed on, an existing
+        table with ALTER. https://docs.databricks.com/aws/en/delta/generated-columns
+        """
+        what = "an identity" if change.kind == "set_identity" else "a generated column"
+        self.emit(
+            change.table,
+            "CHANGE GENERATION",
+            "rewrite",
+            path=change.path,
+            sql=None,
+            note=(
+                f"{change.path} would need {what} added, changed or removed, and that "
+                "is only possible when a table is created. Recreate the table, or "
+                "make the spec match the column as it is"
+            ),
+        )
+
     def _mask(self, change: Change) -> None:
         mask = change.after
         assert isinstance(mask, Mask)
@@ -796,6 +886,18 @@ class _Planner:
     def _add_column(self, change: Change, facts: TableFacts) -> None:
         column = change.after
         assert isinstance(column, Field)
+        # Refused before anything runs: adding it without its generation would
+        # leave a plain column where an identity or generated one was asked for.
+        if not change.nested and (column.identity is not None or column.generated):
+            self._creation_only(
+                Change(
+                    change.table,
+                    "set_identity" if column.identity is not None else "set_generated",
+                    change.path,
+                    after=column.identity or column.generated,
+                )
+            )
+            return
         # A column is always added nullable: on a table with rows, every existing
         # row would violate NOT NULL. The constraint is a separate step.
         definition = (
@@ -834,6 +936,11 @@ class _Planner:
                 change,
                 facts,
                 warnings=() if backfilled else (NEW_NOT_NULL_WARNING,),
+            )
+        if column.default is not None and not change.nested:
+            self._default(
+                Change(change.table, "set_default", change.path, after=column.default),
+                facts,
             )
         if column.tags and not change.nested:
             self._emit_column_tags(change.table, change.path, column.tags)
@@ -1116,6 +1223,8 @@ def create_table_sql(table: Table) -> str:
 
     properties = dict(table.properties)
     properties[MANAGED_PROPERTY] = "true"
+    if any(column.default is not None for column in table.columns):
+        properties[DEFAULTS_FEATURE] = "supported"
     rendered_properties = ",\n".join(
         f"  {quote_literal(key)} = {quote_literal(value)}"
         for key, value in sorted(properties.items())
@@ -1145,6 +1254,17 @@ def _column_definition(column: Field) -> str:
         definition += " NOT NULL"
     if column.comment is not None:
         definition += f" COMMENT {quote_literal(column.comment)}"
+    if column.identity is not None:
+        identity = column.identity
+        kind = "ALWAYS" if identity.always else "BY DEFAULT"
+        definition += (
+            f" GENERATED {kind} AS IDENTITY "
+            f"(START WITH {identity.start} INCREMENT BY {identity.increment})"
+        )
+    if column.generated is not None:
+        definition += f" GENERATED ALWAYS AS ({column.generated})"
+    if column.default is not None:
+        definition += f" DEFAULT {column.default}"
     if column.mask is not None:
         # Inline, so the table never exists without it.
         definition += f" MASK {mask_sql(column.mask)}"

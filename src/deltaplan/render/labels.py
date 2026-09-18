@@ -106,6 +106,16 @@ def describe(change: Change) -> tuple[str, str]:
                 columns = ", ".join(row_filter.columns)
                 return "~", (f"row filter → {row_filter.function} ON ({columns})")
             return "~", ("row filter")
+        case "set_default":
+            after = change.after
+            return "~", (f"{leaf}  default → {after}" if after else f"{leaf}  no default")
+        case "set_identity":
+            return "~", (f"{leaf}  identity" if change.after else f"{leaf}  no identity")
+        case "set_generated":
+            after = change.after
+            return "~", (
+                f"{leaf}  generated as {after}" if after else f"{leaf}  not generated"
+            )
         case "grant":
             privileges = change.after if isinstance(change.after, tuple) else ()
             return "+", (f"grant {', '.join(privileges)} to {change.path}")

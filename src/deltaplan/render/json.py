@@ -17,7 +17,7 @@ from typing import Any
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
 from deltaplan.model.table import Check, Grant, PrimaryKey, RowFilter, Table
-from deltaplan.model.types import Field, Mask, as_data_type, render_type
+from deltaplan.model.types import Field, Identity, Mask, as_data_type, render_type
 from deltaplan.model.view import View
 from deltaplan.typeparser import parse_type
 
@@ -126,6 +126,8 @@ def _value(value: object) -> Any:
         return _mask_to_dict(value)
     if isinstance(value, RowFilter):
         return _row_filter_to_dict(value)
+    if isinstance(value, Identity):
+        return _identity_to_dict(value)
     data_type = as_data_type(value)
     if data_type is not None:
         return render_type(data_type)
@@ -152,7 +154,21 @@ def _field_to_dict(field: Field) -> dict[str, Any]:
         rendered["tags"] = dict(field.tags)
     if field.mask is not None:
         rendered["mask"] = _mask_to_dict(field.mask)
+    if field.identity is not None:
+        rendered["identity"] = _identity_to_dict(field.identity)
+    if field.generated is not None:
+        rendered["generated"] = field.generated
+    if field.default is not None:
+        rendered["default"] = field.default
     return rendered
+
+
+def _identity_to_dict(identity: Identity) -> dict[str, Any]:
+    return {
+        "always": identity.always,
+        "start": identity.start,
+        "increment": identity.increment,
+    }
 
 
 def _mask_to_dict(mask: Mask) -> dict[str, Any]:
@@ -320,6 +336,8 @@ def _value_from(kind: str, raw: Any) -> Any:
             return _mask_from_dict(raw)
         case "set_row_filter":
             return _row_filter_from_dict(raw)
+        case "set_identity":
+            return Identity(**raw)
         case "add_constraint" | "drop_constraint":
             return _constraint_from_dict(raw)
         case "set_cluster_by" | "reorder_columns" | "set_column_tag" | "grant" | "revoke":
@@ -338,6 +356,9 @@ def _field_from_dict(entry: dict[str, Any]) -> Field:
         using=entry.get("using"),
         tags=tuple(sorted(entry.get("tags", {}).items())),
         mask=_mask_from_dict(entry["mask"]) if entry.get("mask") else None,
+        identity=Identity(**entry["identity"]) if entry.get("identity") else None,
+        generated=entry.get("generated"),
+        default=entry.get("default"),
     )
 
 

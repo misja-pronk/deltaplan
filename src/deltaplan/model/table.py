@@ -22,6 +22,9 @@ MANAGED_PROPERTY = "deltaplan.managed"
 #: https://docs.databricks.com/aws/en/delta/type-widening
 COLUMN_MAPPING_PROPERTY = "delta.columnMapping.mode"
 TYPE_WIDENING_PROPERTY = "delta.enableTypeWidening"
+#: The table feature column defaults need. A `delta.feature.*` flag, so it is
+#: bookkeeping as far as reporting and import are concerned.
+DEFAULTS_FEATURE = "delta.feature.allowColumnDefaults"
 PREREQUISITE_PROPERTIES = frozenset({COLUMN_MAPPING_PROPERTY, TYPE_WIDENING_PROPERTY})
 
 #: Properties Delta maintains itself. Declaring one in a spec would have deltaplan

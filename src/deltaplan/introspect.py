@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
 from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, RowFilter, Table
-from deltaplan.model.types import Column, DataType, Field, Mask, Primitive
+from deltaplan.model.types import Column, DataType, Field, Identity, Mask, Primitive
 from deltaplan.model.view import Relation, View
 from deltaplan.sql import (
     normalise_expression,
@@ -245,16 +245,18 @@ class Introspector:
     def _column_rows(
         self, catalog: str, schema: str
     ) -> tuple[dict[str, list[Column]], dict[str, list[str]]]:
-        """Each table's columns, and the column features deltaplan doesn't model.
+        """Each table's columns, with how they get values they weren't given.
 
+        The second result is kept for column features deltaplan doesn't model;
+        today there are none — identity, generated and default are all modelled.
         TODO(verify): the identity, generation and default columns of
         information_schema.columns against a live workspace.
         https://docs.databricks.com/aws/en/sql/language-manual/information-schema/columns
         """
         rows = self.runner.query(
             "SELECT table_name, column_name, ordinal_position, full_data_type, "
-            "is_nullable, comment, column_default, is_identity, is_generated, "
-            "generation_expression "
+            "is_nullable, comment, column_default, is_identity, identity_generation, "
+            "identity_start, identity_increment, is_generated, generation_expression "
             f"FROM {_information_schema(catalog)}.columns "
             f"WHERE table_schema = {quote_literal(schema)} "
             "ORDER BY table_name, ordinal_position"
@@ -266,26 +268,24 @@ class Introspector:
             column_name = row.get("column_name")
             if table_name is None or column_name is None:
                 continue
+            identity = None
             if (row.get("is_identity") or "NO").upper() == "YES":
-                features.setdefault(table_name, []).append(
-                    f"identity column {column_name}"
+                identity = Identity(
+                    always=(row.get("identity_generation") or "ALWAYS").upper()
+                    == "ALWAYS",
+                    start=_as_int(row.get("identity_start")) or 1,
+                    increment=_as_int(row.get("identity_increment")) or 1,
                 )
-            if row.get("generation_expression") or (
-                (row.get("is_generated") or "NEVER").upper() not in {"NEVER", "NO"}
-            ):
-                features.setdefault(table_name, []).append(
-                    f"generated column {column_name}"
-                )
-            if row.get("column_default") is not None:
-                features.setdefault(table_name, []).append(
-                    f"default on column {column_name}"
-                )
+            generated = row.get("generation_expression") or None
             columns.setdefault(table_name, []).append(
                 Field(
                     column_name,
                     _parse_live_type(row.get("full_data_type"), table_name, column_name),
                     nullable=(row.get("is_nullable") or "YES").upper() != "NO",
                     comment=row.get("comment"),
+                    identity=identity,
+                    generated=generated if identity is None else None,
+                    default=row.get("column_default"),
                 )
             )
         return columns, features

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
 from deltaplan.model.table import Constraint, RowFilter, Table
-from deltaplan.model.types import DataType, Field, Mask
+from deltaplan.model.types import DataType, Field, Identity, Mask
 from deltaplan.model.view import View
 
 ChangeKind: TypeAlias = Literal[
@@ -26,6 +26,9 @@ ChangeKind: TypeAlias = Literal[
     "set_column_tag",
     "set_mask",
     "set_row_filter",
+    "set_default",
+    "set_identity",
+    "set_generated",
     "add_column",
     "drop_column",
     "rename_column",
@@ -58,6 +61,7 @@ ChangeValue: TypeAlias = (
     | View
     | Mask
     | RowFilter
+    | Identity
 )
 
 

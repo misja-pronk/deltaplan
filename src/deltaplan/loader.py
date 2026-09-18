@@ -37,6 +37,7 @@ from deltaplan.model.types import (
     Column,
     DataType,
     Field,
+    Identity,
     Map,
     Mask,
     Primitive,
@@ -318,6 +319,9 @@ FIELD_KEYS = {
     "using",
     "tags",
     "mask",
+    "identity",
+    "generated",
+    "default",
 }
 
 
@@ -398,6 +402,15 @@ def _read_field(ctx: _Ctx, node: Node) -> Field:
     mask = None
     if "mask" in items:
         mask = _read_mask(ctx, items["mask"][0])
+    identity = None
+    if "identity" in items:
+        identity = _read_identity(ctx, items["identity"][0])
+    generated = None
+    if "generated" in items:
+        generated = _string(ctx, items["generated"][0], f"generated of {name!r}")
+    default = None
+    if "default" in items:
+        default = _string(ctx, items["default"][0], f"default of {name!r}")
     return Field(
         name,
         field_type,
@@ -407,7 +420,45 @@ def _read_field(ctx: _Ctx, node: Node) -> Field:
         using=using,
         tags=tags,
         mask=mask,
+        identity=identity,
+        generated=generated,
+        default=default,
     )
+
+
+def _read_identity(ctx: _Ctx, node: Node) -> Identity:
+    """`identity: always`, `by_default`, or `{generated: …, start: …, increment: …}`."""
+
+    def kind(value_node: Node) -> bool:
+        value = _string(ctx, value_node, "identity").lower().replace(" ", "_")
+        if value not in {"always", "by_default"}:
+            raise SpecError(
+                f"identity is 'always' or 'by_default', not {value!r}",
+                ctx.loc(value_node),
+            )
+        return value == "always"
+
+    if isinstance(node, ScalarNode):
+        return Identity(always=kind(node))
+    items = _mapping(ctx, node, "an identity")
+    _known_keys(items, allowed={"generated", "start", "increment"}, what="an identity")
+    always = kind(items["generated"][0]) if "generated" in items else True
+    start = _integer(ctx, items["start"][0], "start") if "start" in items else 1
+    increment = (
+        _integer(ctx, items["increment"][0], "increment") if "increment" in items else 1
+    )
+    if increment == 0:
+        raise SpecError(
+            "an identity can't increment by 0", ctx.loc(items["increment"][0])
+        )
+    return Identity(always, start, increment)
+
+
+def _integer(ctx: _Ctx, node: Node, what: str) -> int:
+    scalar = _scalar(ctx, node, what)
+    if scalar.tag != "tag:yaml.org,2002:int":
+        raise SpecError(f"{what} must be a whole number", ctx.loc(node))
+    return int(str(scalar.value))
 
 
 def _read_function(ctx: _Ctx, node: Node, what: str) -> str:
@@ -866,6 +917,22 @@ def _lint_field(
         error(f"{path}: tags go on columns, not on fields inside them")
     if field.mask is not None and "." in path:
         error(f"{path}: masks go on columns, not on fields inside them")
+    generation = [
+        what
+        for what, value in (
+            ("identity", field.identity),
+            ("generated", field.generated),
+            ("default", field.default),
+        )
+        if value is not None
+    ]
+    if generation and "." in path:
+        error(f"{path}: {generation[0]} goes on columns, not on fields inside them")
+    if len(generation) > 1:
+        error(f"{path}: a column takes one of identity, generated and default, not both")
+    if field.identity is not None and render_type(field.type) != "bigint":
+        # https://docs.databricks.com/aws/en/delta/generated-columns
+        error(f"{path}: an identity column must be bigint")
     if field.mask is not None:
         for name in field.mask.using_columns:
             if table.column(name) is None:
@@ -1010,6 +1077,22 @@ def _column_document(column: Field) -> dict[str, object]:
         rendered["comment"] = column.comment
     if column.tags:
         rendered["tags"] = dict(column.tags)
+    if column.identity is not None:
+        identity = column.identity
+        default_identity = identity.start == 1 and identity.increment == 1
+        rendered["identity"] = (
+            ("always" if identity.always else "by_default")
+            if default_identity
+            else {
+                "generated": "always" if identity.always else "by_default",
+                "start": identity.start,
+                "increment": identity.increment,
+            }
+        )
+    if column.generated is not None:
+        rendered["generated"] = column.generated
+    if column.default is not None:
+        rendered["default"] = column.default
     if column.mask is not None:
         rendered["mask"] = (
             {

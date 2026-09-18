@@ -8,6 +8,9 @@
         columns=tuple(
           Field(
             comment=None,
+            default=None,
+            generated=None,
+            identity=None,
             mask=None,
             name='id',
             nullable=False,
@@ -45,6 +48,9 @@
     Change(
       after=Field(
         comment=None,
+        default=None,
+        generated=None,
+        identity=None,
         mask=None,
         name='sku',
         nullable=False,
@@ -110,6 +116,9 @@
     Change(
       after=Field(
         comment='Postal code',
+        default=None,
+        generated=None,
+        identity=None,
         mask=None,
         name='zip',
         nullable=True,
@@ -129,6 +138,9 @@
     Change(
       after=Field(
         comment=None,
+        default=None,
+        generated=None,
+        identity=None,
         mask=None,
         name='country',
         nullable=True,
@@ -149,6 +161,9 @@
       after=None,
       before=Field(
         comment=None,
+        default=None,
+        generated=None,
+        identity=None,
         mask=None,
         name='old_zip',
         nullable=True,
@@ -168,6 +183,9 @@
       after=None,
       before=Field(
         comment=None,
+        default=None,
+        generated=None,
+        identity=None,
         mask=None,
         name='gone',
         nullable=True,

@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Identity, generated and default columns** (`identity:`, `generated:`,
+  `default:`). `CREATE TABLE` has all three. Defaults can be set, changed and
+  dropped later, with the `allowColumnDefaults` feature enabled first as its own
+  step; identity and generated columns exist only from creation, so adding or
+  changing one on an existing table is a step deltaplan won't run, with the
+  reason. Rewrites carry defaults; tables with identity or generated columns
+  are never rewritten. Introspected and imported, so an imported table
+  re-creates faithfully.
 - `plan` and `drift` note a `renamed_from` hint that has done its job and can
   be deleted. (The design puts this in `validate`, which can't see the live
   table.) A table with only notes still reads "No changes".

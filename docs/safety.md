@@ -48,10 +48,10 @@ anything else — visible, numbered, with a warning and its undo.
 
 The same rule applies within a table. A table feature or property deltaplan doesn't
 model is shown as *"unmanaged feature, left untouched"* — never diffed away just
-because the spec is silent about it. Partitioning, identity and generated columns, and
-column defaults are listed as *not modelled*: ordinary `ALTER`s leave them be, and a
-table that has any is never rewritten, since a rewrite rebuilds the table from a query
-that carries none of them.
+because the spec is silent about it. Partitioning is listed as *not modelled*: ordinary `ALTER`s leave it be, and a
+partitioned table is never rewritten, since a rewrite rebuilds the table from a query.
+Identity and generated columns are modelled, but a table with one is never rewritten
+either, for the same reason.
 
 ## Risk classes
 

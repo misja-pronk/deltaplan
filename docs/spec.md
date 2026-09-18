@@ -157,6 +157,39 @@ tags in the spec are set, and tags someone else put on the column are listed as
 unmanaged and left alone — including across a rewrite, which puts them back after
 rebuilding the table.
 
+## Identity, generated and default columns
+
+```yaml
+columns:
+  - name: order_id
+    type: bigint
+    identity: always            # or by_default, or {generated: by_default, start: 100, increment: 1}
+  - name: order_ts
+    type: timestamp
+  - name: order_date
+    type: date
+    generated: CAST(order_ts AS DATE)
+  - name: status
+    type: string
+    default: "'new'"            # a SQL expression — note the quotes inside the quotes
+```
+
+A column takes one of the three, and they go on columns, not fields inside them.
+Databricks treats them differently, and so does the plan:
+
+- **A default** can be set, changed or dropped at any time. The first default on a table
+  needs the `allowColumnDefaults` table feature, which the plan enables first, as its own
+  step. A default applies to rows written from then on.
+- **An identity or generated column** exists only from the moment the table is created.
+  `CREATE TABLE` includes it; adding one to an existing table, or changing or removing
+  one, is a step deltaplan won't run — the plan says so, and why.
+- A rewrite carries defaults across. A table with an identity or generated column is
+  never rewritten: the rebuilt table would have plain columns in their place.
+
+An identity column must be `bigint`. All three are modelled, so a spec that leaves one out
+means the column has none — as a missing comment means no comment. `import` writes them,
+so an imported spec plans nothing.
+
 ## Adding a NOT NULL column to a table with data
 
 A new column arrives empty in every existing row, so `NOT NULL` can't hold until those
