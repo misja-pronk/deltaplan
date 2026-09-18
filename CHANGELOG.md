@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0a3] - 2026-09-18
+
+Schemas and managed volumes as specs, and a `plan` that reads only what it
+needs, several queries at a time. Verified against a live workspace: 24 of 24.
+
 ### Added
 
 - **Schemas as specs** (`schema:`): a schema's comment, tags and grants. A
