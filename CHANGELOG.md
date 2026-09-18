@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0a2] - 2026-09-18
+
+The first release run against a real workspace. That found six bugs in
+0.1.0a1 — most seriously, `apply` couldn't create a table — all fixed below,
+and SQL specs arrive alongside YAML.
+
 ### Added
 
 - **Editor support.** JSON Schemas for YAML specs and `deltaplan.yml`, published
