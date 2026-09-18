@@ -6,7 +6,8 @@ from deltaplan.differ import diff, unmanaged
 from deltaplan.model.plan import Plan, TableDiff, TableFacts
 from deltaplan.model.table import Check, PrimaryKey, Table
 from deltaplan.planner import build_plan
-from deltaplan.render.rich import human_bytes, plan_text
+from deltaplan.render.labels import human_bytes
+from deltaplan.render.rich import plan_text
 from helpers import col, table
 
 TABLE = "main.sales.orders"

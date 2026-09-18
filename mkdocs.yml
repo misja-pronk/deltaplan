@@ -83,6 +83,7 @@ nav:
       - Writing a spec: spec.md
       - Commands: cli.md
       - Safety model: safety.md
+      - In CI: ci.md
   - Security: security.md
   - Develop:
       - Design: DESIGN.md

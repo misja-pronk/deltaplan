@@ -23,8 +23,7 @@ from rich.text import Text
 
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Risk, Step, TableDiff
-from deltaplan.model.table import Check, PrimaryKey, Table
-from deltaplan.model.types import Decimal, Field, as_data_type, render_type
+from deltaplan.render.labels import describe, display_name, human_bytes, table_verb
 
 RISK_STYLE: dict[Risk, str] = {
     "meta": "dim",
@@ -36,19 +35,6 @@ RISK_STYLE: dict[Risk, str] = {
 MARKER_STYLE = {"+": "green", "-": "red", "~": "yellow", "→": "cyan", "↻": "magenta"}
 
 TITLE_WIDTH = 28
-
-
-def human_bytes(size: int | None) -> str | None:
-    """`442381631488` -> `412 GB`."""
-    if size is None:
-        return None
-    value = float(size)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if value < 1024 or unit == "TB":
-            rendered = f"{value:.0f}" if value >= 10 or unit == "B" else f"{value:.1f}"
-            return f"{rendered} {unit}"
-        value /= 1024
-    return None  # pragma: no cover - the loop always returns
 
 
 def render_plan(plan: Plan, console: Console) -> None:
@@ -141,29 +127,24 @@ def _render_table(plan: Plan, diff: TableDiff, console: Console, offset: int) ->
         console.print(Text(f"  · {item} — unmanaged, left untouched", style="dim"))
 
 
+VERB_STYLE = {
+    "no changes": "dim",
+    "create": "green",
+    "destroy": "red",
+    "update": "yellow",
+}
+
+
 def _table_header(diff: TableDiff) -> Text:
-    kinds = {change.kind for change in diff.changes}
-    if not diff.changes:
-        marker, verb, style = " ", "no changes", "dim"
-    elif "create_table" in kinds:
-        marker, verb, style = "+", "create", "green"
-    elif "drop_table" in kinds:
-        marker, verb, style = "-", "destroy", "red"
-    else:
-        marker, verb, style = "~", "update", "yellow"
-    line = Text(_display_name(diff.table), style="bold")
+    marker, verb = table_verb({change.kind for change in diff.changes})
+    style = VERB_STYLE[verb]
+    line = Text(display_name(diff.table), style="bold")
     line.append("   ")
     line.append(f"{marker} {verb}", style=style)
     size = human_bytes(diff.facts.size_bytes)
     if size is not None:
         line.append(f"  ({size})", style="dim")
     return line
-
-
-def _display_name(name: str) -> str:
-    """`main.sales.orders` -> `sales.orders`: the catalog is the target's job."""
-    parts = name.split(".")
-    return ".".join(parts[-2:]) if len(parts) > 2 else name
 
 
 def _group_by_column(
@@ -184,8 +165,8 @@ def _render_change(
     indent: int,
 ) -> set[int]:
     """Print one change and its steps. Returns the step ids it printed."""
-    marker, label = _describe(change)
-    console.print(_line(indent, marker, label))
+    marker, label = describe(change)
+    console.print(_line(indent, marker, Text(label)))
     # Steps always sit one level in from the column, whether the change they
     # implement is the column itself or something nested inside it.
     printed: set[int] = set()
@@ -217,90 +198,3 @@ def _render_step(step: Step, console: Console, *, indent: int) -> None:
         console.print(Text(f"{hanging}⚠ {warning}", style="yellow"))
     if step.note:
         console.print(Text(f"{hanging}· {step.note}", style="dim"))
-
-
-# ---------------------------------------------------------------------------
-# change labels
-# ---------------------------------------------------------------------------
-
-
-def _describe(change: Change) -> tuple[str, Text]:
-    """The marker and the text for one change."""
-    leaf = _relative_path(change)
-    match change.kind:
-        case "create_table":
-            table = change.after
-            columns = len(table.columns) if isinstance(table, Table) else 0
-            return "+", Text(f"{columns} columns")
-        case "drop_table":
-            table = change.before
-            columns = len(table.columns) if isinstance(table, Table) else 0
-            return "-", Text(
-                f"{columns} columns — its spec is gone and the schema is strict"
-            )
-        case "claim_table":
-            return "+", Text("ownership — deltaplan manages this table from now on")
-        case "add_column":
-            column = change.after
-            rendered = (
-                render_type(column.type, upper=True) if isinstance(column, Field) else ""
-            )
-            return "+", Text(f"{leaf} {rendered}".strip())
-        case "drop_column":
-            return "-", Text(leaf)
-        case "rename_column":
-            return "→", Text(f"{leaf} (was {change.before})")
-        case "change_type":
-            return "~", Text(f"{leaf}  {_type_change(change)}")
-        case "set_nullable":
-            state = "NOT NULL" if change.after is False else "nullable"
-            return "~", Text(f"{leaf}  {state}")
-        case "set_comment":
-            return "~", Text(f"{leaf}  comment")
-        case "set_table_comment":
-            return "~", Text("comment")
-        case "set_cluster_by":
-            columns = change.after if isinstance(change.after, tuple) else ()
-            label = f"cluster_by [{', '.join(columns)}]" if columns else "cluster_by none"
-            return "~", Text(label)
-        case "set_property":
-            return "~", Text(f"property {change.path} = {change.after!r}")
-        case "set_tag":
-            return "~", Text(f"tag {change.path} = {change.after!r}")
-        case "reorder_columns":
-            order = change.after if isinstance(change.after, tuple) else ()
-            return "~", Text(f"column order [{', '.join(order)}]")
-        case "add_constraint":
-            return "+", Text(f"constraint {_constraint_label(change.after)}")
-        case "drop_constraint":
-            return "-", Text(f"constraint {_constraint_label(change.before)}")
-
-
-def _relative_path(change: Change) -> str:
-    """`address.zip` shown under `address` is just `zip`."""
-    if change.nested and change.path.startswith(f"{change.column}."):
-        return change.path[len(change.column) + 1 :]
-    return change.path
-
-
-def _type_change(change: Change) -> str:
-    before = as_data_type(change.before)
-    after = as_data_type(change.after)
-    if before is None or after is None:
-        return "type"
-    rendered_before = render_type(before, upper=True)
-    rendered_after = render_type(after, upper=True)
-    if isinstance(before, Decimal) and isinstance(after, Decimal):
-        # `DECIMAL(10,2) → (18,2)` — the design's shorthand for when only the
-        # parameters moved.
-        rendered_after = f"({after.precision},{after.scale})"
-    return f"{rendered_before} → {rendered_after}"
-
-
-def _constraint_label(constraint: object) -> str:
-    if isinstance(constraint, Check):
-        return f"{constraint.name} CHECK"
-    if isinstance(constraint, PrimaryKey):
-        columns = ", ".join(constraint.columns)
-        return f"{constraint.name or 'primary key'} PRIMARY KEY ({columns})"
-    return "unknown"

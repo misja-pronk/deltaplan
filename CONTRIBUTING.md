@@ -50,8 +50,14 @@ The dependency rule is simple: **the middle of the pipeline does no I/O.**
   workspace. Validation happens at this edge and nowhere else.
 - **`differ.py` / `planner.py`** — pure functions: no I/O, no SDK imports, no clock,
   no environment. They must be unit-testable without a workspace.
-- **`render/`** — rich / markdown / json views of the same `Plan` object.
-- **`executor.py`** — the only place that runs SQL (milestone 2).
+- **`render/`** — rich / markdown / json views of the same `Plan` object, sharing
+  their wording through `render/labels.py`.
+- **`planning.py`** — specs and a warehouse in, a plan out: the pipeline `plan`,
+  `drift` and the GitHub Action share.
+- **`executor.py`** / **`history.py`** — the only places that run SQL that changes
+  anything.
+- **`action.yml`** + **`action/`** — the GitHub Action, at the repo root so
+  `uses: misja-pronk/deltaplan@v0` finds it.
 
 House rules worth repeating:
 

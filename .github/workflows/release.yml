@@ -102,3 +102,10 @@ jobs:
           args=(--title "v$version" --target "$GITHUB_SHA")
           if [ -s notes.md ]; then args+=(--notes-file notes.md); else args+=(--generate-notes); fi
           gh release create "v$version" dist/* "${args[@]}"
+      - name: Move the major-version tag the GitHub Action is used by
+        # `uses: misja-pronk/deltaplan@v0` follows the latest 0.x release.
+        run: |
+          version="${{ needs.check.outputs.version }}"
+          major="v${version%%.*}"
+          git tag -f "$major" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$major"

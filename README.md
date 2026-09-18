@@ -11,9 +11,8 @@ then apply it.
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-> **Status: pre-alpha.** `validate`, `import`, `plan`, `apply` and `force-unlock`
-> work, including rewrites. `apply` resumes an interrupted run and refuses a stale one.
-> `drift` is still to come.
+> **Status: pre-alpha.** Planning, applying (rewrites included), drift detection and
+> the GitHub Action all work. The governance milestone is next.
 
 **[Read the docs →](https://misja-pronk.github.io/deltaplan/)** — the spec format, the
 commands, and the safety model. [`docs/DESIGN.md`](docs/DESIGN.md) is the source of truth.
@@ -76,12 +75,23 @@ Plan: 0 add, 1 change, 0 destroy · 6 steps · 0 rewrites · 1 warning
 ```sh
 deltaplan validate -t dev             # spec lint, no connection needed
 deltaplan import main.sales -o tables # live tables -> YAML specs
-deltaplan plan -t dev [-o plan.json] [--format rich|json]
+deltaplan plan -t dev [-o plan.json] [--format rich|md|json]
+deltaplan show plan.json -f md        # render a saved plan, no warehouse needed
 deltaplan apply plan.json [--allow-destructive]
+deltaplan drift -t dev                # exit code 2 on drift, for CI
 deltaplan force-unlock -t dev
-
-deltaplan drift -t dev                # designed, not built yet
 ```
+
+## In CI
+
+```yaml
+- uses: misja-pronk/deltaplan@v0
+  with:
+    target: prod        # comments the plan on the pull request
+```
+
+Plan on pull requests, apply on merge, catch drift nightly — see
+[the CI guide](https://misja-pronk.github.io/deltaplan/ci/).
 
 ## Development
 

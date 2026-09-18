@@ -1,0 +1,119 @@
+name: deltaplan
+description: Plan Databricks SQL table changes, and comment the plan on the pull request.
+author: Misja Pronk
+branding:
+  icon: layers
+  color: blue
+
+inputs:
+  command:
+    description: "`plan` to show what would change, or `drift` to check live tables against their specs."
+    default: plan
+  target:
+    description: The target in deltaplan.yml to plan for.
+    required: true
+  config:
+    description: Path to deltaplan.yml, relative to working-directory.
+    default: deltaplan.yml
+  working-directory:
+    description: Where the deltaplan project lives.
+    default: .
+  clone:
+    description: "`plan` only: add a SHALLOW CLONE of each table before a step that risks its data."
+    default: "false"
+  comment:
+    description: On a pull request, post the result as a comment — updating deltaplan's previous one rather than adding another.
+    default: "true"
+  fail-on-drift:
+    description: "`drift` only: fail the job when live tables have drifted."
+    default: "true"
+  github-token:
+    description: Token used to comment on the pull request.
+    default: ${{ github.token }}
+
+outputs:
+  has-changes:
+    description: "`true` when the plan would do something (or, for `drift`, when there is drift)."
+    value: ${{ steps.run.outputs.has-changes }}
+  plan-file:
+    description: The plan as JSON, for `deltaplan apply`. Empty for `drift`.
+    value: ${{ steps.run.outputs.plan-file }}
+  markdown-file:
+    description: The rendered comment.
+    value: ${{ steps.run.outputs.markdown-file }}
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v6
+
+    # Inputs reach the script through the environment, never by `${{ }}` inside
+    # `run:` — interpolating them there would let a crafted input run as shell.
+    - id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        COMMAND: ${{ inputs.command }}
+        TARGET: ${{ inputs.target }}
+        CONFIG: ${{ inputs.config }}
+        CLONE: ${{ inputs.clone }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        case "$COMMAND" in
+          plan|drift) ;;
+          *) echo "::error::command must be plan or drift, not '$COMMAND'"; exit 1 ;;
+        esac
+
+        # deltaplan is installed from this action's own checkout, so the action
+        # and the tool it runs are always the same version.
+        deltaplan() { uvx --from "$ACTION_PATH" deltaplan "$@"; }
+
+        out="$RUNNER_TEMP/deltaplan"
+        mkdir -p "$out"
+        markdown="$out/$COMMAND.md"
+
+        if [ "$COMMAND" = plan ]; then
+          plan_file="$out/plan.json"
+          args=(plan -t "$TARGET" --config "$CONFIG" -f json -o "$plan_file")
+          if [ "$CLONE" = true ]; then args+=(--clone); fi
+          deltaplan "${args[@]}"
+          # The comment is rendered from the plan file, so it shows exactly what
+          # `apply` of that file would run.
+          deltaplan show "$plan_file" -f md -o "$markdown"
+          has_changes=$(uv run --no-project python -c \
+            'import json, sys; print(str(bool(json.load(open(sys.argv[1]))["steps"])).lower())' \
+            "$plan_file")
+          echo "plan-file=$plan_file" >> "$GITHUB_OUTPUT"
+        else
+          # drift exits 2 when there is drift; anything else non-zero is a failure.
+          set +e
+          deltaplan drift -t "$TARGET" --config "$CONFIG" -f md -o "$markdown"
+          code=$?
+          set -e
+          case "$code" in
+            0) has_changes=false ;;
+            2) has_changes=true ;;
+            *) exit "$code" ;;
+          esac
+          echo "plan-file=" >> "$GITHUB_OUTPUT"
+        fi
+
+        echo "has-changes=$has_changes" >> "$GITHUB_OUTPUT"
+        echo "markdown-file=$markdown" >> "$GITHUB_OUTPUT"
+        cat "$markdown" >> "$GITHUB_STEP_SUMMARY"
+
+    - if: inputs.comment == 'true' && github.event.pull_request
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BODY_FILE: ${{ steps.run.outputs.markdown-file }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: uv run --no-project python "$ACTION_PATH/action/upsert_comment.py" "$BODY_FILE"
+
+    - if: inputs.command == 'drift' && inputs.fail-on-drift == 'true' && steps.run.outputs.has-changes == 'true'
+      shell: bash
+      run: |
+        echo "::error::Live tables have drifted from their specs. See the job summary."
+        exit 1

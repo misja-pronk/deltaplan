@@ -40,6 +40,7 @@ from deltaplan.planning import PlanningError, plan_tables
 from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_json
 from deltaplan.render.json import loads as plan_loads
+from deltaplan.render.markdown import render_markdown
 from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, plan_text, render_plan
 
 app = typer.Typer(
@@ -237,34 +238,102 @@ def plan(
     ] = None,
 ) -> None:
     """Diff your specs against live Unity Catalog and show what would change."""
-    if output_format is Format.md:
-        err.print(
-            "[red]The Markdown renderer arrives with the CI milestone. "
-            "Use --format rich or --format json.[/]"
-        )
-        raise typer.Exit(1)
+    built = _plan_for(config, target, warehouse_id, check_order=check_order, clone=clone)
+    _output(built, output_format, output, heading="plan")
 
+
+@app.command()
+def show(
+    plan_file: Annotated[
+        Path, typer.Argument(help="A plan written by `deltaplan plan`.")
+    ],
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Write it to a file.")
+    ] = None,
+    output_format: Annotated[
+        Format, typer.Option("--format", "-f", help="How to render the plan.")
+    ] = Format.rich,
+) -> None:
+    """Render a saved plan. What `apply` would run, without asking a warehouse."""
+    _output(_read_plan(plan_file), output_format, output, heading="plan")
+
+
+#: `drift`'s exit codes, the way `terraform plan -detailed-exitcode` has them.
+IN_SYNC, FAILED, DRIFTED = 0, 1, 2
+
+
+@app.command()
+def drift(
+    target: Annotated[
+        str | None, typer.Option("--target", "-t", help="Which target to check.")
+    ] = None,
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Write the plan to a file.")
+    ] = None,
+    output_format: Annotated[
+        Format, typer.Option("--format", "-f", help="How to render the drift.")
+    ] = Format.rich,
+    config: Annotated[
+        Path | None, typer.Option("--config", "-c", help="Path to deltaplan.yml.")
+    ] = None,
+    warehouse_id: Annotated[
+        str | None, typer.Option("--warehouse-id", help="SQL warehouse to read through.")
+    ] = None,
+) -> None:
+    """Check live tables against their specs. Exits 2 if they have drifted.
+
+    Drift is anything `apply` would do: an edit made by hand, a table dropped
+    outside deltaplan, a spec merged but never applied. Unmanaged objects are
+    not drift — deltaplan never claimed them.
+    """
+    built = _plan_for(config, target, warehouse_id)
+    _output(built, output_format, output, heading="drift")
+    if built.empty:
+        raise typer.Exit(IN_SYNC)
+    drifted = len([diff for diff in built.diffs if diff.changes])
+    err.print(
+        f"[yellow]Drift: {drifted} table(s) differ from their specs.[/] "
+        "Run `deltaplan plan` to see how to bring them back."
+    )
+    raise typer.Exit(DRIFTED)
+
+
+def _plan_for(
+    config: Path | None,
+    target: str | None,
+    warehouse_id: str | None,
+    *,
+    check_order: bool = False,
+    clone: bool = False,
+) -> Plan:
     project = _project(config)
     chosen = _target(project, target)
     specs = _load(project, chosen)
     _abort_on_lint_errors(specs)
-
     runner = _warehouse(warehouse_id, chosen)
-    built = _plan(project, chosen, specs, runner, check_order=check_order, clone=clone)
+    return _plan(project, chosen, specs, runner, check_order=check_order, clone=clone)
 
-    if output_format is Format.json:
-        text = plan_json(built)
-        if output:
-            output.write_text(text, encoding="utf-8")
-            out.print(f"[green]Wrote[/] {output}")
-        else:
-            typer.echo(text, nl=False)
-        return
 
-    render_plan(built, out)
+def _output(
+    built: Plan, output_format: Format, output: Path | None, *, heading: str
+) -> None:
+    """Render a plan in the chosen format, to the terminal or to a file."""
+    match output_format:
+        case Format.json:
+            text = plan_json(built)
+        case Format.md:
+            text = render_markdown(built, heading=heading)
+        case Format.rich:
+            render_plan(built, out)
+            if output:
+                output.write_text(plan_text(built), encoding="utf-8")
+                out.print(f"\n[green]Wrote[/] {output}")
+            return
     if output:
-        output.write_text(plan_text(built), encoding="utf-8")
-        out.print(f"\n[green]Wrote[/] {output}")
+        output.write_text(text, encoding="utf-8")
+        out.print(f"[green]Wrote[/] {output}")
+    else:
+        typer.echo(text, nl=False)
 
 
 def _plan(

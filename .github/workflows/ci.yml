@@ -43,6 +43,18 @@ jobs:
       - name: Tests (pytest)
         run: uv run --python ${{ matrix.python-version }} pytest tests/unit
 
+  actionlint:
+    name: workflows (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The installer from actionlint's own README; it fetches a release binary.
+      # https://github.com/rhysd/actionlint/blob/main/docs/install.md
+      - name: Install actionlint
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+      - name: Lint workflows
+        run: ./actionlint -color
+
   docs:
     name: docs (strict build)
     runs-on: ubuntu-latest

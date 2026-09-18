@@ -8,6 +8,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Milestone 4 (CI) is complete.**
+- `--format md`: the plan as a pull-request comment — summary, GitHub alerts for
+  anything destructive, expensive or impossible, a `diff` block per table so
+  additions and removals are coloured, the numbered steps with their risk, and
+  the SQL folded away. Falls back to leaving out the SQL, then to a summary
+  table, when a plan is too long for a comment.
+- `deltaplan show plan.json`: render a saved plan in any format without a
+  warehouse — exactly what `apply` of that file would run.
+- `deltaplan drift`: exits 0 in sync, 2 on drift, 1 on error. Drift is anything
+  `apply` would do; unmanaged objects are not drift.
+- A GitHub Action (`uses: misja-pronk/deltaplan@v0`) that runs `plan` or
+  `drift`, writes the job summary, and comments on the pull request — updating
+  its own comment rather than adding one per push. Inputs reach its script
+  through the environment, never by interpolation, and a test holds it to that.
+- CI lints the workflows with actionlint; releases move the major-version tag
+  the Action is used by.
+
+## [0.4.0 — ownership and strict schemas]
+
+### Added
+
 - **Ownership is claimed.** A spec for a table deltaplan didn't create plans a
   visible `CLAIM ownership` step that marks it managed — which is how an
   `import`ed table is handed over on its first apply.

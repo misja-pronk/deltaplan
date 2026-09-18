@@ -334,13 +334,111 @@ def test_plan_refuses_to_run_with_spec_errors(project: Path, live: FakeRunner) -
     assert "Refusing to plan" in result.output
 
 
-def test_markdown_is_not_here_yet(project: Path) -> None:
+def test_plan_as_markdown(project: Path, live: FakeRunner) -> None:
     result = runner.invoke(
         app,
         ["plan", "-t", "dev", "--config", str(project / "deltaplan.yml"), "-f", "md"],
     )
-    assert result.exit_code == 1
-    assert "Markdown renderer arrives with the CI milestone" in result.output
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith("<!-- deltaplan:plan:dev -->")
+    assert "```diff" in result.output
+
+
+def test_show_renders_a_saved_plan_without_a_warehouse(
+    project: Path, live: FakeRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan_file = tmp_path / "plan.json"
+    written = runner.invoke(
+        app,
+        [
+            "plan",
+            "-t",
+            "dev",
+            "--config",
+            str(project / "deltaplan.yml"),
+            "-f",
+            "json",
+            "-o",
+            str(plan_file),
+        ],
+    )
+    assert written.exit_code == 0, written.output
+
+    # `show` must not reach for a warehouse: the plan file is the whole story.
+    def no_warehouse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("show asked for a warehouse")
+
+    monkeypatch.setattr(cli, "_warehouse", no_warehouse)
+    shown = runner.invoke(app, ["show", str(plan_file)])
+    assert shown.exit_code == 0, shown.output
+    assert "sales.orders   ~ update  (412 GB)" in shown.output
+
+    as_markdown = runner.invoke(app, ["show", str(plan_file), "-f", "md"])
+    assert as_markdown.exit_code == 0
+    assert "### 🟡 deltaplan plan · `dev`" in as_markdown.output
+
+
+def test_drift_exits_2_when_live_tables_have_moved(
+    project: Path, live: FakeRunner
+) -> None:
+    result = runner.invoke(
+        app, ["drift", "-t", "dev", "--config", str(project / "deltaplan.yml")]
+    )
+    assert result.exit_code == 2, result.output
+    assert "Drift: 1 table(s) differ from their specs." in result.output
+
+
+def test_drift_exits_0_when_in_sync(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fake_warehouse import FakeWarehouse
+
+    (project / "tables" / "orders.yml").write_text(
+        "table: ${catalog}.sales.orders\n"
+        "comment: Order facts\n"
+        "columns:\n"
+        "  - {name: order_id, type: bigint, nullable: false}\n"
+        "  - {name: amount, type: 'decimal(10,2)'}\n"
+        "  - {name: cust_id, type: string}\n"
+    )
+    fake = FakeWarehouse.of(_live_orders(managed=True))
+    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    result = runner.invoke(
+        app, ["drift", "-t", "dev", "--config", str(project / "deltaplan.yml")]
+    )
+    assert result.exit_code == 0, result.output
+    assert "No changes" in result.output
+
+
+def test_drift_ignores_what_deltaplan_never_claimed(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fake_warehouse import FakeWarehouse
+
+    (project / "tables" / "orders.yml").write_text(
+        "table: ${catalog}.sales.orders\n"
+        "comment: Order facts\n"
+        "columns:\n"
+        "  - {name: order_id, type: bigint, nullable: false}\n"
+        "  - {name: amount, type: 'decimal(10,2)'}\n"
+        "  - {name: cust_id, type: string}\n"
+    )
+    # An unmanaged table beside it is not drift: nobody asked deltaplan to keep it.
+    fake = FakeWarehouse.of(_live_orders(managed=True), _stranger(managed=False))
+    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    result = runner.invoke(
+        app, ["drift", "-t", "dev", "--config", str(project / "deltaplan.yml")]
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_drift_as_markdown_has_its_own_marker(project: Path, live: FakeRunner) -> None:
+    result = runner.invoke(
+        app,
+        ["drift", "-t", "dev", "--config", str(project / "deltaplan.yml"), "-f", "md"],
+    )
+    assert result.exit_code == 2
+    assert result.output.startswith("<!-- deltaplan:drift:dev -->")
 
 
 # ---------------------------------------------------------------------------

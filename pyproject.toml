@@ -69,6 +69,8 @@ docs = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# the GitHub Action's comment script lives beside action.yml, not in the package
+pythonpath = ["action"]
 addopts = "-q --strict-markers --strict-config"
 markers = [
     "integration: needs a live workspace (DATABRICKS_HOST / token / warehouse id)",
@@ -77,7 +79,7 @@ markers = [
 [tool.ruff]
 line-length = 90
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests", "action"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -88,5 +90,6 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.ty.environment]
 python-version = "3.11"
 root = ["src"]
-# tests import sibling modules (e.g. `helpers`) the way pytest runs them
-extra-paths = ["tests"]
+# tests import sibling modules (e.g. `helpers`) the way pytest runs them, and
+# the Action's comment script from action/
+extra-paths = ["tests", "action"]

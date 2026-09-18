@@ -1,0 +1,64 @@
+# serializer version: 1
+# name: test_the_design_documents_plan_as_a_comment
+  '''
+  <!-- deltaplan:plan:test -->
+  ### 🔴 deltaplan plan · `test`
+  
+  **Plan: 0 add, 1 change, 0 destroy · 6 steps · 0 rewrites · 1 warning**
+  
+  > [!CAUTION]
+  > This plan destroys something — step 6 (DROP COLUMN on `sales.orders`). `apply` refuses it without `--allow-destructive`.
+  
+  <details open>
+  <summary><b>sales.orders</b> · ~ update · 412 GB</summary>
+  
+  ```diff
+  ~ amount  DECIMAL(10,2) → (18,2)
+  ~ address
+  +   zip STRING
+  → customer_ref (was cust_id)
+  - legacy_flag
+  ```
+  
+  | # | Step | Risk | |
+  |--:|---|---|---|
+  | 1 | enable typeWidening | 🟡 feature | raises the table's protocol version; older clients lose access |
+  | 2 | ALTER COLUMN TYPE | 🟢 meta |  |
+  | 3 | ADD COLUMN address.zip | 🟢 meta |  |
+  | 4 | enable columnMapping | 🟡 feature | ⚠️ breaks streaming readers — they must be restarted from scratch<br>column mapping cannot be turned off again |
+  | 5 | RENAME COLUMN | 🟢 meta |  |
+  | 6 | DROP COLUMN | 🔴 destructive |  |
+  
+  <details><summary>SQL</summary>
+  
+  ```sql
+  -- 1. enable typeWidening
+  ALTER TABLE `main`.`sales`.`orders` SET TBLPROPERTIES ('delta.enableTypeWidening' = 'true');
+  
+  -- 2. ALTER COLUMN TYPE
+  ALTER TABLE `main`.`sales`.`orders` ALTER COLUMN `amount` TYPE DECIMAL(18,2);
+  
+  -- 3. ADD COLUMN address.zip
+  ALTER TABLE `main`.`sales`.`orders` ADD COLUMNS (`address`.`zip` STRING);
+  
+  -- 4. enable columnMapping
+  ALTER TABLE `main`.`sales`.`orders` SET TBLPROPERTIES (
+    'delta.columnMapping.mode' = 'name',
+    'delta.minReaderVersion' = '2',
+    'delta.minWriterVersion' = '5');
+  
+  -- 5. RENAME COLUMN
+  ALTER TABLE `main`.`sales`.`orders` RENAME COLUMN `cust_id` TO `customer_ref`;
+  
+  -- 6. DROP COLUMN
+  ALTER TABLE `main`.`sales`.`orders` DROP COLUMN `legacy_flag`;
+  ```
+  
+  </details>
+  
+  </details>
+  
+  <sub>deltaplan 0.1.0 · specs `spec` · live state `live`</sub>
+  
+  '''
+# ---

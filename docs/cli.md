@@ -4,14 +4,15 @@
 deltaplan validate            # spec lint, no connection needed
 deltaplan import <schema>     # live tables -> YAML specs
 deltaplan plan -t <target> [-o plan.json] [--format rich|md|json]
+deltaplan show plan.json [--format rich|md|json]
 deltaplan apply plan.json [--allow-destructive]
-deltaplan drift -t <target>   # exit code != 0 on drift, for CI
+deltaplan drift -t <target>   # exit code 2 on drift, for CI
 deltaplan force-unlock
 ```
 
 !!! warning "Pre-alpha"
-    `validate`, `import`, `plan`, `apply` and `force-unlock` work today, including
-    rewrites. `drift` is still to come.
+    Every command here works. The governance milestone — masks, row filters, grants,
+    views — is still to come.
 
 Every command takes `--config` to point at a `deltaplan.yml`, and `-t/--target` to pick
 the target whose variables are substituted. `plan` and `import` also take
@@ -46,7 +47,8 @@ tables are reported and skipped. Imported tables are marked managed on their fir
 Reads live state, diffs it against the specs, and prints the plan. `--format`:
 
 - `rich` — the terminal view: a tree of nested changes with numbered, risk-labelled steps.
-- `md` — Markdown, for posting as a pull-request comment. *(Milestone 4.)*
+- `md` — Markdown, for a pull-request comment. The [GitHub Action](ci.md) posts it for
+  you.
 - `json` — the plan object itself. `-o plan.json` writes it out for `apply` to consume.
 
 All of them render the same plan object, so the review and the artefact can't disagree.
@@ -58,6 +60,16 @@ its data — see the [safety model](safety.md#when-something-goes-wrong).
 
 Tables in the schema that no spec describes are listed at the bottom as unmanaged, and
 never touched.
+
+## `show`
+
+```sh
+deltaplan show plan.json -f md
+```
+
+Renders a saved plan in any format, without a warehouse. What you see is what
+`apply plan.json` would run — which is why the GitHub Action renders its comment this
+way rather than planning twice.
 
 ## `apply`
 
@@ -116,8 +128,21 @@ TO VERSION AS OF n` is one command.
 
 ## `drift`
 
-Plans and exits non-zero if anything differs. Point a scheduled CI job at it to find
-out when someone edits a table by hand.
+```sh
+deltaplan drift -t prod [-f rich|md|json] [-o file]
+```
+
+Asks whether `apply` would do anything, and exits accordingly:
+
+| Exit code | Meaning |
+|---|---|
+| `0` | Live tables match their specs. |
+| `2` | They have drifted — the plan is printed. |
+| `1` | Something went wrong. |
+
+Drift is a hand edit in the catalog, a table dropped outside deltaplan, a spec merged but
+never applied. Unmanaged objects are not drift: deltaplan never claimed them. Point a
+[scheduled workflow](ci.md#catch-drift-nightly) at it.
 
 ## `force-unlock`
 

@@ -99,8 +99,15 @@ because `plan`, `drift` and the Action all need it. One departure: the design
 says the mode is per schema; `deltaplan.yml` has a per-schema `schemas:` map
 *and* keeps the target's `mode` as the default for unlisted schemas.
 
-Next milestones are **4 (CI)**: Markdown renderer, GitHub Action, `drift`; then
-**5 (governance)**.
+**Milestone 4 (CI) is done**: `render/markdown.py`, `show`, `drift` (exit 0/2/1),
+and a composite GitHub Action — `action.yml` at the repo root, with its comment
+script in `action/upsert_comment.py` (stdlib only, tested against a fake API).
+Change labels are shared by both renderers in `render/labels.py`. The Action
+must never interpolate `${{ }}` into a `run:` script — `test_action.py`
+enforces it.
+
+Next is **milestone 5 (governance)**: column tags, masks, row filters, grants,
+views.
 
 1. ~~Scaffold: `pyproject.toml` (uv, src layout, Apache-2.0), ruff, ty, pytest, GitHub Actions for lint + unit tests, README stub, move `DESIGN.md` to `docs/`.~~ **Done.**
 2. `model/types.py` + `typeparser.py`: type tree and parser for Databricks type strings incl. nested struct/array/map, decimal, backticked field names, `NOT NULL` and comments inside structs. Round-trip tests.
