@@ -191,6 +191,17 @@ def _render_field(field_: Field, upper: bool) -> str:
     return rendered
 
 
+def as_data_type(value: object) -> DataType | None:
+    """Narrow a `ChangeValue` (or anything else) to a type, or None.
+
+    Changes carry whatever the change is about, so consumers that only make sense
+    for a type — rendering it, widening it — ask for one here.
+    """
+    if isinstance(value, Primitive | Decimal | Char | Varchar | Array | Map | Struct):
+        return value
+    return None
+
+
 def type_kind(data_type: DataType) -> str:
     """The shape of a type, ignoring its parameters: `struct`, `array`, `decimal`, ...
 
