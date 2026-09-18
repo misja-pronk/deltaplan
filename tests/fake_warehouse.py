@@ -425,12 +425,14 @@ class FakeWarehouse:
         return ()
 
     def _view(self, name: str) -> View:
+        name = name.lower()
         if name not in self.views:
             raise FakeSqlError(f"no such view: {name}")
         return self.views[name]
 
     # -- plumbing ----------------------------------------------------------
     def _table(self, name: str) -> Table:
+        name = name.lower()
         if name not in self.tables:
             raise FakeSqlError(f"no such table: {name}")
         return self.tables[name]
@@ -538,11 +540,11 @@ def _move(table: Table, name: str, after: str | None) -> Table:
     column = table.column(name)
     if column is None:
         raise FakeSqlError(f"no such column: {name}")
-    rest = [c for c in table.columns if c.name != name]
+    rest = [c for c in table.columns if not _same(c.name, name)]
     if after is None:
         return replace(table, columns=(column, *rest))
     target = _unquote(after)
-    index = next((i for i, c in enumerate(rest) if c.name == target), None)
+    index = next((i for i, c in enumerate(rest) if _same(c.name, target)), None)
     if index is None:
         raise FakeSqlError(f"no such column: {target}")
     return replace(table, columns=(*rest[: index + 1], column, *rest[index + 1 :]))
@@ -552,17 +554,17 @@ def _move(table: Table, name: str, after: str | None) -> Table:
 
 
 def _drop(leaf: str) -> Callable[[Fields], Fields]:
-    return lambda fields: tuple(f for f in fields if f.name != leaf)
+    return lambda fields: tuple(f for f in fields if not _same(f.name, leaf))
 
 
 def _rename(leaf: str, new_name: str) -> Callable[[Fields], Fields]:
     return lambda fields: tuple(
-        replace(f, name=new_name) if f.name == leaf else f for f in fields
+        replace(f, name=new_name) if _same(f.name, leaf) else f for f in fields
     )
 
 
 def _amend(leaf: str, change: Callable[[Field], Field]) -> Callable[[Fields], Fields]:
-    return lambda fields: tuple(change(f) if f.name == leaf else f for f in fields)
+    return lambda fields: tuple(change(f) if _same(f.name, leaf) else f for f in fields)
 
 
 def _edit_container(table: Table, path: str, edit: Callable[[Fields], Fields]) -> Table:
@@ -594,7 +596,7 @@ def _edit_type(
             return Struct(
                 tuple(
                     replace(f, type=_edit_type(f.type, rest, edit))
-                    if f.name == head
+                    if _same(f.name, head)
                     else f
                     for f in fields
                 )
@@ -630,7 +632,7 @@ def _replace_type(data_type: DataType, parts: list[str], new_type: DataType) -> 
             return Struct(
                 tuple(
                     replace(f, type=_replace_type(f.type, rest, new_type))
-                    if f.name == head
+                    if _same(f.name, head)
                     else f
                     for f in fields
                 )
@@ -648,11 +650,16 @@ def _replace_type(data_type: DataType, parts: list[str], new_type: DataType) -> 
 def _replace_column(table: Table, column: Field) -> Table:
     return replace(
         table,
-        columns=tuple(column if c.name == column.name else c for c in table.columns),
+        columns=tuple(column if _same(c.name, column.name) else c for c in table.columns),
     )
 
 
 # -- little parsers ---------------------------------------------------------
+
+
+def _same(a: str, b: str) -> bool:
+    """Column and field names ignore case in Delta, so they do here."""
+    return a.casefold() == b.casefold()
 
 
 def _render(data_type: DataType) -> str:

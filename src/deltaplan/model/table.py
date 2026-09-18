@@ -59,6 +59,9 @@ class RowFilter:
     function: str
     columns: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "function", self.function.lower())
+
 
 @dataclass(frozen=True, slots=True)
 class Grant:
@@ -117,7 +120,16 @@ class Securable:
 
 
 def sort_governance(obj: Securable) -> None:
-    """Store unordered maps sorted, so equality ignores the order they came in."""
+    """Normalise what the catalog normalises, so equality means what it says.
+
+    * The name in lower case: Unity Catalog stores catalog, schema, table and
+      view names that way, whatever case they were written in. Comparing them any
+      other way would make `Orders` in a spec a different table from the live
+      `orders` — which, in a strict schema, plans dropping the real one.
+      https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-names
+    * Unordered maps sorted, so equality ignores the order they came in.
+    """
+    object.__setattr__(obj, "name", obj.name.lower())
     object.__setattr__(obj, "properties", tuple(sorted(obj.properties)))
     object.__setattr__(obj, "tags", tuple(sorted(obj.tags)))
     object.__setattr__(
@@ -149,8 +161,14 @@ class Table(Securable):
 
     # -- lookups -----------------------------------------------------------
     def column(self, name: str) -> Column | None:
+        """Look a column up the way Delta resolves one: ignoring case.
+
+        Delta keeps the case a column was written in but won't hold two names
+        that differ only by it, so a case-insensitive match is never ambiguous.
+        """
+        wanted = name.casefold()
         for candidate in self.columns:
-            if candidate.name == name:
+            if candidate.name.casefold() == wanted:
                 return candidate
         return None
 

@@ -118,8 +118,10 @@ class Struct:
     fields: tuple[Field, ...] = ()
 
     def field(self, name: str) -> Field | None:
+        """Look a field up the way Spark resolves one: ignoring case."""
+        wanted = name.casefold()
         for candidate in self.fields:
-            if candidate.name == name:
+            if candidate.name.casefold() == wanted:
                 return candidate
         return None
 
@@ -166,6 +168,10 @@ class Mask:
 
     function: str
     using_columns: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        # Unity Catalog stores function names in lower case, like every name.
+        object.__setattr__(self, "function", self.function.lower())
 
 
 #: A column is a top-level field.

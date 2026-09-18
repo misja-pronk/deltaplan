@@ -133,7 +133,7 @@ class Project:
         variables = target.variables_map()
         for pattern, mode in self.schema_modes:
             try:
-                if substitute(pattern, variables) == schema:
+                if substitute(pattern, variables).lower() == schema.lower():
                     return mode
             except KeyError:
                 continue  # a pattern using a variable this target doesn't define
@@ -783,21 +783,22 @@ def validate_table(table: Table, where: str) -> tuple[Diagnostic, ...]:
             "(three parts, after variable substitution)"
         )
 
+    # Delta column names ignore case, so `id` and `ID` are the same column.
     seen: set[str] = set()
     for column in table.columns:
-        if column.name in seen:
-            error(f"duplicate column {column.name!r}")
-        seen.add(column.name)
+        if column.name.casefold() in seen:
+            error(f"duplicate column {column.name!r} (column names ignore case)")
+        seen.add(column.name.casefold())
 
     for column in table.columns:
         _lint_field(column, column.name, table, error, warn)
 
     for name in table.cluster_by:
-        if name not in seen:
+        if name.casefold() not in seen:
             error(f"cluster_by column {name!r} is not in the spec")
     if table.row_filter is not None:
         for name in table.row_filter.columns:
-            if name not in seen:
+            if name.casefold() not in seen:
                 error(f"row filter column {name!r} is not in the spec")
     if len(table.cluster_by) > MAX_CLUSTER_COLUMNS:
         warn(
@@ -862,9 +863,9 @@ def _lint_field(
         case Struct(fields):
             names: set[str] = set()
             for member in fields:
-                if member.name in names:
-                    error(f"{path}: duplicate field {member.name!r}")
-                names.add(member.name)
+                if member.name.casefold() in names:
+                    error(f"{path}: duplicate field {member.name!r} (names ignore case)")
+                names.add(member.name.casefold())
                 _lint_field(member, f"{path}.{member.name}", table, error, warn)
         case Array(element, _):
             _lint_field(Field("element", element), f"{path}.element", table, error, warn)

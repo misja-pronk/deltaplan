@@ -264,12 +264,16 @@ def _match_renames(
     name is there and the new one isn't. Once the rename has happened the hint is
     spent, and a spec that still carries it diffs clean.
     """
-    live = {field.name for field in actual_fields}
+    live = {field.name.casefold(): field.name for field in actual_fields}
     matched: dict[str, str] = {}
     for field in desired_fields:
         old = field.renamed_from
-        if old is not None and old in live and field.name not in live:
-            matched[field.name] = old
+        if (
+            old is not None
+            and old.casefold() in live
+            and field.name.casefold() not in live
+        ):
+            matched[field.name] = live[old.casefold()]
     return matched
 
 
@@ -412,13 +416,13 @@ def _diff_struct(
 ) -> list[Change]:
     changes: list[Change] = []
     renames = _match_renames(desired_fields, actual_fields)
-    consumed = set(renames.values())
-    live_by_name = {field.name: field for field in actual_fields}
+    consumed = {name.casefold() for name in renames.values()}
+    live_by_name = {field.name.casefold(): field for field in actual_fields}
 
     for field in desired_fields:
         child_path = f"{path}.{field.name}"
         live_name = renames.get(field.name, field.name)
-        live = live_by_name.get(live_name)
+        live = live_by_name.get(live_name.casefold())
         if live is None:
             changes.append(Change(table, "add_column", child_path, after=field))
             continue
@@ -434,9 +438,10 @@ def _diff_struct(
             )
         changes.extend(_diff_field(table, child_path, field, live))
 
-    desired_names = {field.name for field in desired_fields}
+    desired_names = {field.name.casefold() for field in desired_fields}
     for live in actual_fields:
-        if live.name not in desired_names and live.name not in consumed:
+        folded = live.name.casefold()
+        if folded not in desired_names and folded not in consumed:
             changes.append(
                 Change(table, "drop_column", f"{path}.{live.name}", before=live)
             )
