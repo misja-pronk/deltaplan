@@ -50,8 +50,10 @@ class Step:
     precheck: str | None = None
     refusal: str | None = None
     #: A query returning one row with one boolean column `ok`. False means the
-    #: statement ran but didn't take, which fails the run.
+    #: statement ran but didn't take, which fails the run — and `failure` says
+    #: what that means.
     postcheck: str | None = None
+    failure: str | None = None
     est_bytes: int | None = None
     undo_hint: str | None = None
     warnings: tuple[str, ...] = ()

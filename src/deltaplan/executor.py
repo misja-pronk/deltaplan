@@ -184,6 +184,13 @@ class Executor:
             if step.sql is not None:
                 self.runner.query(step.sql)
             self._confirm(step)
+        except ExecutionError as error:
+            message = str(error)  # deltaplan's own explanation, already worded
+            self.history.record_step(
+                run_id,
+                StepOutcome(step.id, step.table, step.sql, "failed", message, version),
+            )
+            return message
         except Exception as error:  # noqa: BLE001 - whatever the warehouse raised
             message = f"{type(error).__name__}: {error}"
             self.history.record_step(
@@ -222,7 +229,7 @@ class Executor:
         rows = self.runner.query(step.postcheck)
         if not rows or not _is_true(next(iter(rows[0].values()), None)):
             raise ExecutionError(
-                "the statement ran but the postcheck says it didn't take"
+                step.failure or "the statement ran but the postcheck says it didn't take"
             )
 
     def _restore_point(self, step: Step) -> int | None:

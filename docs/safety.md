@@ -79,7 +79,11 @@ rather than one statement per change:
 ```
 
 1. The converted data is written to a staging table beside the original, which is left
-   untouched. This is the expensive step, and it is safe to repeat.
+   untouched. This is the expensive step, and it is safe to repeat. It is then
+   **checked**: the staged copy must have every row, and no converted column may have
+   gained NULLs. A `CAST` that can't convert a value errors in ANSI mode but quietly
+   yields NULL without it — so a lossy conversion stops the run here, with the original
+   table as it was and the staged copy kept to inspect.
 2. The table is **replaced** from that staging table — not dropped and recreated. The
    table keeps its identity and its Delta history, which is what makes the recorded
    restore point worth having, and the swap is a single statement, so readers never see
@@ -93,6 +97,12 @@ deltaplan writes the conversion itself where it honestly can: a cast between sca
 field's values into another), and a `transform` over an array of structs. Where it
 can't — a struct becoming an array, a map whose shape moved — it says so and asks for a
 [`using:` expression](spec.md#rewrites-and-using) instead of inventing something.
+
+!!! danger "A rewrite that drops a column is destructive"
+    A rewrite copies the columns the spec lists and nothing else. If the spec also
+    removes a column, the step that replaces the table drops it — so that step is
+    classed `destructive`, names what it drops, and `apply` refuses it without
+    `--allow-destructive`.
 
 !!! warning "One thing a rewrite cannot do"
     It cannot make a field *inside a struct* `NOT NULL`, because the new table is built

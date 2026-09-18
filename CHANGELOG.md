@@ -15,6 +15,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A rewrite could drop a column without `--allow-destructive`.** A rewrite
+  copies only the columns the spec lists, so a column the spec also removed went
+  with it — inside a step classed `rewrite`, which the flag doesn't gate. The
+  step that replaces the table is now `destructive` whenever the rewrite drops a
+  column or field, and names it.
+- **A lossy conversion could NULL values silently.** The staging step now
+  checks that every row arrived and no converted column gained NULLs, and stops
+  the run — before the original table is touched — if either did.
+- A failed postcheck reports what it means, not a generic message.
 - The live suite skipped entirely unless `DATABRICKS_HOST` was set, so anyone
   authenticating with a profile would never have run it. It now accepts any
   source the Databricks SDK does, and says why when it skips.

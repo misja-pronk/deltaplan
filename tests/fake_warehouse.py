@@ -48,6 +48,8 @@ class FakeWarehouse:
     failures: dict[str, str] = field(default_factory=dict)
     #: What a `blocked` precheck should answer.
     blocked: bool = False
+    #: What an `ok` postcheck should answer — the fake has no rows to count.
+    postcheck_ok: bool = True
     statements: list[str] = field(default_factory=list)
 
     @classmethod
@@ -85,6 +87,8 @@ class FakeWarehouse:
         upper = flat.upper()
         if "AS BLOCKED" in upper:
             return ({"blocked": "true" if self.blocked else "false"},)
+        if upper.startswith("SELECT (") and upper.endswith(") AS OK"):
+            return ({"ok": "true" if self.postcheck_ok else "false"},)
         if match := re.fullmatch(r"SELECT (true|false) AS (\w+)", flat, re.IGNORECASE):
             return ({match.group(2): match.group(1).lower()},)
         if upper.startswith("SELECT"):

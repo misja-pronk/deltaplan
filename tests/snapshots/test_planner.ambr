@@ -46,6 +46,7 @@
     Step(
       change=0,
       est_bytes=None,
+      failure=None,
       id=1,
       note="raises the table's protocol version; older clients lose access",
       path='amount',
@@ -63,6 +64,7 @@
     Step(
       change=0,
       est_bytes=None,
+      failure=None,
       id=2,
       note=None,
       path='amount',
@@ -80,6 +82,7 @@
     Step(
       change=1,
       est_bytes=None,
+      failure=None,
       id=3,
       note=None,
       path='address.zip',
@@ -97,6 +100,7 @@
     Step(
       change=2,
       est_bytes=None,
+      failure=None,
       id=4,
       note='column mapping cannot be turned off again',
       path='customer_ref',
@@ -120,6 +124,7 @@
     Step(
       change=2,
       est_bytes=None,
+      failure=None,
       id=5,
       note=None,
       path='customer_ref',
@@ -137,6 +142,7 @@
     Step(
       change=3,
       est_bytes=None,
+      failure=None,
       id=6,
       note=None,
       path='legacy_flag',

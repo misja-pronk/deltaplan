@@ -158,6 +158,7 @@ class _Planner:
         precheck: str | None = None,
         refusal: str | None = None,
         postcheck: str | None = None,
+        failure: str | None = None,
         est_bytes: int | None = None,
         undo_hint: str | None = None,
         warnings: tuple[str, ...] = (),
@@ -177,6 +178,7 @@ class _Planner:
                 precheck=precheck,
                 refusal=refusal,
                 postcheck=postcheck,
+                failure=failure,
                 est_bytes=est_bytes,
                 undo_hint=undo_hint,
                 warnings=warnings,
@@ -327,15 +329,28 @@ class _Planner:
                 f"  {select}\nFROM {quote_qualified(table_diff.table)}"
             ),
             est_bytes=facts.size_bytes,
+            postcheck=staging_postcheck(table_diff.table, staging, projection),
+            failure=(
+                "staging lost rows or values: a conversion turned something into "
+                f"NULL. {table_diff.table} is untouched; the staged copy is kept at "
+                f"{staging} to inspect. Give the column a `using:` expression"
+            ),
             note="a full copy is written alongside the table, then dropped again",
         )
+        # A rewrite copies the columns the spec lists and nothing else, so one the
+        # spec removed goes with it — which makes this step destructive, whatever
+        # else it is.
+        dropped = [c.path for c in table_diff.changes if c.kind == "drop_column"]
         self.emit(
             table_diff.table,
             "REPLACE TABLE",
-            "rewrite",
+            "destructive" if dropped else "rewrite",
             sql=replace_table_sql(desired, source=staging),
             est_bytes=facts.size_bytes,
             undo_hint=_restore_hint(facts),
+            warnings=(
+                (f"drops {', '.join(dropped)} along with the rewrite",) if dropped else ()
+            ),
         )
         # A query result has names, types and an order and nothing else, so the
         # rest of the shape is put back with ordinary ALTERs — worked out by the
@@ -1155,6 +1170,9 @@ class Projection:
 
     expressions: tuple[str, ...] = ()
     problems: tuple[str, ...] = ()
+    #: (new column, live column) for every value that is *converted* rather than
+    #: copied — the ones a failed conversion could quietly turn into NULL.
+    conversions: tuple[tuple[str, str], ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -1165,6 +1183,7 @@ def build_projection(desired: Table, live: Table) -> Projection:
     """The SELECT list that turns the live table into the desired one."""
     expressions: list[str] = []
     problems: list[str] = []
+    conversions: list[tuple[str, str]] = []
     for column in desired.columns:
         source = _live_counterpart(column, live)
         expression = (
@@ -1176,7 +1195,29 @@ def build_projection(desired: Table, live: Table) -> Projection:
             problems.append(column.name)
             continue
         expressions.append(f"{expression} AS {quote_ident(column.name)}")
-    return Projection(tuple(expressions), tuple(problems))
+        if column.using is None and source is not None and source.type != column.type:
+            conversions.append((column.name, source.name))
+    return Projection(tuple(expressions), tuple(problems), tuple(conversions))
+
+
+def staging_postcheck(table: str, staging: str, projection: Projection) -> str:
+    """Nothing lost in staging: every row is there, no converted value went NULL.
+
+    A CAST that can't convert a value errors under ANSI mode and quietly yields
+    NULL without it. Counting NULLs before and after catches the second case
+    before the original table is touched. It sees top-level values only — a
+    field lost inside a rebuilt struct doesn't make the struct NULL.
+    TODO(verify): that SQL warehouses run with ANSI mode on by default.
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-ansi-compliance
+    """
+    source, copy = quote_qualified(table), quote_qualified(staging)
+    conditions = [f"(SELECT count(*) FROM {copy}) = (SELECT count(*) FROM {source})"]
+    for new, old in projection.conversions:
+        conditions.append(
+            f"(SELECT count_if({quote_ident(new)} IS NULL) FROM {copy}) <= "
+            f"(SELECT count_if({quote_ident(old)} IS NULL) FROM {source})"
+        )
+    return "SELECT (\n  " + "\n  AND ".join(conditions) + "\n) AS ok"
 
 
 def _live_counterpart(column: Field, live: Table) -> Field | None:
