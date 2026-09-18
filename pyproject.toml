@@ -55,6 +55,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/deltaplan"]
 
+[tool.hatch.build.targets.sdist]
+# Editor and CI configuration are the repo's, not the package's.
+exclude = [".zed", ".github"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
