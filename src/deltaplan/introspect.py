@@ -843,8 +843,8 @@ class Introspector:
     def _each(self, items: Sequence[str], read: Callable[[str], T]) -> dict[str, T]:
         """`read` for every item, `parallel` at a time; the results by item.
 
-        TODO(verify): that one WorkspaceClient takes concurrent statement calls —
-        the live suite runs this way.
+        One WorkspaceClient takes concurrent statement calls: verified by the
+        full live suite running this way (2026-09-18).
         """
         if self.parallel <= 1 or len(items) <= 1:
             return {item: read(item) for item in items}
