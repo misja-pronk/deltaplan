@@ -74,6 +74,8 @@ sqlglot learns more of Databricks SQL, this list grows.
 |  | Conversions and backfills (`using`) | ✓ | — | a deltaplan hint; SQL has no way to say it |
 |  | Hooks | ✓ | — | deltaplan's own; SQL has no way to say it |
 |  | Partitioning | — | — | not modelled: reported on live tables, never managed |
+| Schemas | Schemas: comment and grants | ✓ | ✓ | never dropped |
+|  | Schema tags | ✓ | — | sqlglot passes `ALTER SCHEMA … SET TAGS` through as unparsed text |
 | Views | Views: query, comment, properties | ✓ | ✓ | the query is kept exactly as written |
 |  | View tags and grants | ✓ | ✓ |  |
 | Functions | SQL functions: parameters, return type, body, comment | ✓ | ✓ | the body is kept exactly as written |

@@ -251,6 +251,22 @@ def import_schema(
     directory.mkdir(parents=True, exist_ok=True)
 
     variable = _catalog_variable(chosen, parts[0])
+    definition = live.definition
+    if definition is not None and (
+        definition.comment or definition.tags or definition.grants
+    ):
+        # The schema's own comment, tags and grants, when it has any.
+        reason = sql_cannot_say(definition) if spec_format is SpecFormat.sql else None
+        if spec_format is SpecFormat.sql and reason is None:
+            path = directory / "_schema.sql"
+            text = dump_sql_spec(definition, catalog_variable=variable)
+        else:
+            path = directory / "_schema.yml"
+            text = MODELINE + "\n" + dump_spec(definition, catalog_variable=variable)
+        path.write_text(text, encoding="utf-8")
+        note = f" [dim](YAML: SQL can't say {reason})[/]" if reason else ""
+        out.print(f"[green]+[/] {path}{note}")
+
     relations: list[Relation] = [entry.table for entry in live.tables]
     relations.extend(live.views)
     relations.extend(live.functions)

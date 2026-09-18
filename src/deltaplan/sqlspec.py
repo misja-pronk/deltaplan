@@ -42,6 +42,7 @@ from deltaplan.loader import (
     with_catalog_variable,
 )
 from deltaplan.model.function import Function, Parameter
+from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
     Check,
     Constraint,
@@ -55,6 +56,7 @@ from deltaplan.model.types import DataType, Field, Identity, render_type
 from deltaplan.model.view import Relation, View
 from deltaplan.sql import (
     FUNCTION_PRIVILEGES,
+    SCHEMA_PRIVILEGES,
     TABLE_PRIVILEGES,
     maybe_quote_ident,
     privilege_sql,
@@ -87,6 +89,9 @@ def sql_cannot_say(relation: Relation) -> str | None:
     `import --format sql` writes YAML for these instead. Kept in step with the
     — rows of `deltaplan.features`.
     """
+    if isinstance(relation, Schema):
+        # sqlglot reads ALTER SCHEMA … SET TAGS as an opaque command.
+        return "schema tags" if relation.tags else None
     if not isinstance(relation, Table):
         return None
     found: list[str] = []
@@ -121,9 +126,14 @@ def dump_sql_spec(relation: Relation, *, catalog_variable: str | None = None) ->
         statements, kind = [_create_table(relation, name)], "TABLE"
     elif isinstance(relation, View):
         statements, kind = [_create_view(relation, name)], "VIEW"
-    else:
+    elif isinstance(relation, Function):
         statements, kind = [_create_function(relation, name)], "FUNCTION"
-    if relation.tags and not isinstance(relation, Function):
+    else:
+        text = f"CREATE SCHEMA {name(relation.name)}"
+        if relation.comment is not None:
+            text += f"\nCOMMENT {quote_literal(relation.comment)}"
+        statements, kind = [text + ";"], "SCHEMA"
+    if relation.tags and isinstance(relation, Table | View):
         tags = ", ".join(
             f"{quote_literal(k)} = {quote_literal(v)}" for k, v in relation.tags
         )
@@ -284,6 +294,8 @@ class _Reader:
             relation = self._view(create, tokens)
         elif kind == "FUNCTION":
             relation = self._function(create, tokens)
+        elif kind == "SCHEMA":
+            relation = self._schema(create, tokens)
         else:
             raise self._error(
                 f"CREATE {kind} isn't something deltaplan manages", tokens[0]
@@ -369,6 +381,8 @@ class _Reader:
             allowed = (
                 FUNCTION_PRIVILEGES
                 if isinstance(relation, Function)
+                else SCHEMA_PRIVILEGES
+                if isinstance(relation, Schema)
                 else TABLE_PRIVILEGES
             )
             privileges: list[str] = []
@@ -597,6 +611,15 @@ class _Reader:
             tokens, TokenType.VAR, "RETURN", "the function's body after RETURN"
         )
         return Function(_name(udf.this), tuple(parameters), returns, body, comment)
+
+    def _schema(self, create: exp.Create, tokens: list[Token]) -> Schema:
+        comment: str | None = None
+        for prop in self._properties(create):
+            if isinstance(prop, exp.SchemaCommentProperty):
+                comment = _literal(prop.this)
+            else:
+                raise self._unsupported(prop, tokens)
+        return Schema(_name(create.this), comment)
 
     # -- helpers -----------------------------------------------------------
     def _properties(self, create: exp.Create) -> list[exp.Expression]:

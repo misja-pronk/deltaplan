@@ -17,6 +17,7 @@ from typing import Any, Literal
 from deltaplan.model.change import Change
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
+from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
     Check,
     ForeignKey,
@@ -27,7 +28,7 @@ from deltaplan.model.table import (
     Table,
 )
 from deltaplan.model.types import Field, Identity, Mask, as_data_type, render_type
-from deltaplan.model.view import View
+from deltaplan.model.view import Relation, View
 from deltaplan.typeparser import parse_type
 
 #: Bumped when the shape below changes in a way `apply` has to know about.
@@ -127,7 +128,7 @@ def _value(value: object) -> Any:
         return value
     if isinstance(value, Field):
         return _field_to_dict(value)
-    if isinstance(value, Table | View | Function):
+    if isinstance(value, Table | View | Function | Schema):
         return _relation_to_dict(value)
     if isinstance(value, PrimaryKey):
         return {"primary_key": {"name": value.name, "columns": list(value.columns)}}
@@ -199,7 +200,14 @@ def _row_filter_to_dict(row_filter: RowFilter) -> dict[str, Any]:
     return {"function": row_filter.function, "columns": list(row_filter.columns)}
 
 
-def _relation_to_dict(relation: Table | View | Function) -> dict[str, Any]:
+def _relation_to_dict(relation: Relation) -> dict[str, Any]:
+    if isinstance(relation, Schema):
+        return {
+            "schema": relation.name,
+            "comment": relation.comment,
+            "tags": dict(relation.tags),
+            "grants": {g.principal: list(g.privileges) for g in relation.grants},
+        }
     if isinstance(relation, Function):
         return {
             "function": relation.name,
@@ -223,7 +231,17 @@ def _relation_to_dict(relation: Table | View | Function) -> dict[str, Any]:
     return _table_to_dict(relation)
 
 
-def _relation_from_dict(entry: dict[str, Any]) -> Table | View | Function:
+def _relation_from_dict(entry: dict[str, Any]) -> Relation:
+    if "schema" in entry:
+        return Schema(
+            name=str(entry["schema"]),
+            comment=entry.get("comment"),
+            tags=tuple(sorted(entry.get("tags", {}).items())),
+            grants=tuple(
+                Grant(principal, tuple(privileges))
+                for principal, privileges in entry.get("grants", {}).items()
+            ),
+        )
     if "function" in entry:
         return Function(
             name=str(entry["function"]),
@@ -339,12 +357,14 @@ def _diff_from_dict(entry: dict[str, Any]) -> TableDiff:
     )
 
 
-def _kind(value: object) -> Literal["table", "view", "function"]:
+def _kind(value: object) -> Literal["table", "view", "function", "schema"]:
     match value:
         case "view":
             return "view"
         case "function":
             return "function"
+        case "schema":
+            return "schema"
         case _:
             return "table"
 

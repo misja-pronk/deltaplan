@@ -218,6 +218,25 @@ FEATURES: tuple[Feature, ...] = (
         _table(",\n  day DATE", after="\nPARTITIONED BY (day)"),
         "not modelled: reported on live tables, never managed",
     ),
+    # -- schemas ---------------------------------------------------------------
+    Feature(
+        "Schemas",
+        "Schemas: comment and grants",
+        True,
+        True,
+        "CREATE SCHEMA main.sales COMMENT 'Sales data';\n"
+        "GRANT USE SCHEMA, CREATE TABLE ON SCHEMA main.sales TO `analysts`;",
+        "never dropped",
+    ),
+    Feature(
+        "Schemas",
+        "Schema tags",
+        True,
+        False,
+        "CREATE SCHEMA main.sales;\n"
+        "ALTER SCHEMA main.sales SET TAGS ('domain' = 'sales');",
+        "sqlglot passes `ALTER SCHEMA … SET TAGS` through as unparsed text",
+    ),
     # -- views -----------------------------------------------------------------
     Feature(
         "Views",

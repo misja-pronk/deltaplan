@@ -175,7 +175,7 @@ constraints:
     [
         (
             "columns: [{name: a, type: int}]\n",
-            "needs a 'table', 'view' or 'function' key",
+            "needs a 'table', 'view', 'function' or 'schema' key",
         ),
         ("table: c.s.t\n", "needs a 'columns' key"),
         ("table: c.s.t\ncolumns: []\n", "at least one column"),

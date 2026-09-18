@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://misja-pronk.github.io/deltaplan/schema/spec.json",
   "title": "deltaplan spec",
-  "description": "A table, view or SQL function. https://misja-pronk.github.io/deltaplan/spec/",
+  "description": "A table, view, SQL function or schema. https://misja-pronk.github.io/deltaplan/spec/",
   "oneOf": [
     {
       "type": "object",
@@ -394,6 +394,78 @@
         "returns"
       ],
       "description": "A SQL function."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "comment": {
+          "type": "string"
+        },
+        "grants": {
+          "type": "array",
+          "description": "Privileges per principal. Principals not named are left alone.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "principal": {
+                "type": "string",
+                "description": "A user, group or service principal."
+              },
+              "privileges": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "ALL PRIVILEGES",
+                        "APPLY TAG",
+                        "CREATE FUNCTION",
+                        "CREATE MATERIALIZED VIEW",
+                        "CREATE MODEL",
+                        "CREATE TABLE",
+                        "CREATE VOLUME",
+                        "EXECUTE",
+                        "MANAGE",
+                        "MODIFY",
+                        "READ VOLUME",
+                        "REFRESH",
+                        "SELECT",
+                        "USE SCHEMA",
+                        "WRITE VOLUME"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[Aa][Ll][Ll][ _]+[Pp][Rr][Ii][Vv][Ii][Ll][Ee][Gg][Ee][Ss]|[Aa][Pp][Pp][Ll][Yy][ _]+[Tt][Aa][Gg]|[Cc][Rr][Ee][Aa][Tt][Ee][ _]+[Ff][Uu][Nn][Cc][Tt][Ii][Oo][Nn]|[Cc][Rr][Ee][Aa][Tt][Ee][ _]+[Mm][Aa][Tt][Ee][Rr][Ii][Aa][Ll][Ii][Zz][Ee][Dd][ _]+[Vv][Ii][Ee][Ww]|[Cc][Rr][Ee][Aa][Tt][Ee][ _]+[Mm][Oo][Dd][Ee][Ll]|[Cc][Rr][Ee][Aa][Tt][Ee][ _]+[Tt][Aa][Bb][Ll][Ee]|[Cc][Rr][Ee][Aa][Tt][Ee][ _]+[Vv][Oo][Ll][Uu][Mm][Ee]|[Ee][Xx][Ee][Cc][Uu][Tt][Ee]|[Mm][Aa][Nn][Aa][Gg][Ee]|[Mm][Oo][Dd][Ii][Ff][Yy]|[Rr][Ee][Aa][Dd][ _]+[Vv][Oo][Ll][Uu][Mm][Ee]|[Rr][Ee][Ff][Rr][Ee][Ss][Hh]|[Ss][Ee][Ll][Ee][Cc][Tt]|[Uu][Ss][Ee][ _]+[Ss][Cc][Hh][Ee][Mm][Aa]|[Ww][Rr][Ii][Tt][Ee][ _]+[Vv][Oo][Ll][Uu][Mm][Ee])$"
+                    }
+                  ]
+                },
+                "minItems": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "principal",
+              "privileges"
+            ]
+          }
+        },
+        "schema": {
+          "type": "string",
+          "description": "catalog.schema"
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "schema"
+      ],
+      "description": "A schema: its comment, tags and grants. Never dropped."
     }
   ],
   "definitions": {

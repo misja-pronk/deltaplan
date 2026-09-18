@@ -25,6 +25,7 @@ from dataclasses import dataclass, field, replace
 from typing import TypeVar
 
 from deltaplan.model.function import Function, Parameter
+from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
     FEATURE_FLAG_PREFIX,
     Check,
@@ -117,6 +118,9 @@ INFORMATION_SCHEMA_COLUMNS: dict[str, frozenset[str]] = {
         "is_grantable inherited_from",
         "schemata": "catalog_name schema_name schema_owner comment created "
         "created_by last_altered last_altered_by url custom_max_retention_hours",
+        "schema_tags": "catalog_name schema_name tag_name tag_value",
+        "schema_privileges": "grantor grantee catalog_name schema_name privilege_type "
+        "is_grantable inherited_from",
     }.items()
 }
 
@@ -132,6 +136,8 @@ class FakeWarehouse:
     tables: dict[str, Table] = field(default_factory=dict)
     views: dict[str, View] = field(default_factory=dict)
     functions: dict[str, Function] = field(default_factory=dict)
+    #: A schema's comment, tags and grants, by `catalog.schema`.
+    schema_defs: dict[str, Schema] = field(default_factory=dict)
     #: Schemas that exist even with nothing in them. A schema holding a table or
     #: view exists regardless.
     schemas: set[str] = field(default_factory=set)
@@ -154,7 +160,7 @@ class FakeWarehouse:
     @classmethod
     def of(
         cls,
-        *relations: Table | View | Function,
+        *relations: Table | View | Function | Schema,
         sizes: dict[str, int] | None = None,
     ) -> FakeWarehouse:
         fake = cls(sizes=sizes or {})
@@ -164,6 +170,10 @@ class FakeWarehouse:
                 continue
             if isinstance(relation, Function):
                 fake.functions[relation.name] = relation
+                continue
+            if isinstance(relation, Schema):
+                fake.schemas.add(relation.name)
+                fake.schema_defs[relation.name] = relation
                 continue
             fake.tables[relation.name] = relation
             fake.versions.setdefault(relation.name, 1)
@@ -230,8 +240,33 @@ class FakeWarehouse:
             # whether it is *valid* is a question only a warehouse can answer.
             return ()
         if upper.startswith("CREATE SCHEMA"):
-            name = flat.split()[-1]
-            self.schemas.add(_unquote(name).lower())
+            match = re.fullmatch(
+                r"CREATE SCHEMA IF NOT EXISTS (\S+)(?: COMMENT ('(?:[^'\\]|\\.)*'))?",
+                flat,
+            )
+            if match is None:
+                raise FakeSqlError(f"cannot read: {flat}")
+            name = _unquote(match.group(1)).lower()
+            if name not in self.schemas and match.group(2):
+                self.schema_defs[name] = Schema(name, _unliteral(match.group(2)))
+            self.schemas.add(name)
+            return ()
+        if upper.startswith("COMMENT ON SCHEMA"):
+            match = re.fullmatch(r"COMMENT ON SCHEMA (\S+) IS (.+)", flat)
+            if match is None:
+                raise FakeSqlError(f"cannot read: {flat}")
+            name = _unquote(match.group(1)).lower()
+            comment = None if match.group(2) == "NULL" else _unliteral(match.group(2))
+            self.schema_defs[name] = replace(self._schema_def(name), comment=comment)
+            return ()
+        if upper.startswith("ALTER SCHEMA"):
+            match = re.fullmatch(r"ALTER SCHEMA (\S+) SET TAGS \((.*)\)", flat)
+            if match is None:
+                raise FakeSqlError(f"cannot read: {flat}")
+            name = _unquote(match.group(1)).lower()
+            current = self._schema_def(name)
+            tags = dict(current.tags) | _pairs(match.group(2))
+            self.schema_defs[name] = replace(current, tags=tuple(sorted(tags.items())))
             return ()
         if upper.startswith("DROP SCHEMA"):
             return ()
@@ -278,7 +313,25 @@ class FakeWarehouse:
                 other.startswith(f"{name}.")
                 for other in [*self.tables, *self.views, *self.functions]
             )
-            return ({"schema_name": schema},) if present else ()
+            if not present:
+                return ()
+            return ({"schema_name": schema, "comment": self._schema_def(name).comment},)
+        if "information_schema.schema_tags" in flat:
+            return tuple(
+                {"schema_name": schema, "tag_name": k, "tag_value": v}
+                for k, v in self._schema_def(f"{catalog}.{schema}".lower()).tags
+            )
+        if "information_schema.schema_privileges" in flat:
+            # Underscored, as a warehouse answers — verified live.
+            return tuple(
+                {
+                    "grantee": grant.principal,
+                    "privilege_type": privilege.replace(" ", "_"),
+                    "inherited_from": "NONE",
+                }
+                for grant in self._schema_def(f"{catalog}.{schema}".lower()).grants
+                for privilege in grant.privileges
+            )
         if "information_schema.routines" in flat:
             return tuple(
                 {
@@ -615,15 +668,18 @@ class FakeWarehouse:
 
     def _grant(self, flat: str) -> tuple[Row, ...]:
         match = re.fullmatch(
-            r"(GRANT|REVOKE) (.+) ON (?:TABLE|VIEW|FUNCTION) (\S+) (?:TO|FROM) (\S+)",
+            r"(GRANT|REVOKE) (.+) ON (TABLE|VIEW|FUNCTION|SCHEMA) (\S+) "
+            r"(?:TO|FROM) (\S+)",
             flat,
         )
         if match is None:
             raise FakeSqlError(f"cannot read: {flat}")
-        verb, privileges, name, principal = match.groups()
-        target = _unquote(name)
-        table: Table | View | Function
-        if target in self.functions:
+        verb, privileges, kind, name, principal = match.groups()
+        target = _unquote(name).lower()
+        table: Table | View | Function | Schema
+        if kind == "SCHEMA":
+            table = self._schema_def(target)
+        elif target in self.functions:
             table = self.functions[target]
         elif target in self.views:
             table = self.views[target]
@@ -641,13 +697,23 @@ class FakeWarehouse:
         updated = replace(
             table, grants=tuple(Grant(p, tuple(v)) for p, v in held.items())
         )
-        if isinstance(updated, Function):
+        if isinstance(updated, Schema):
+            self.schema_defs[updated.name] = updated
+        elif isinstance(updated, Function):
             self.functions[updated.name] = updated
         elif isinstance(updated, View):
             self.views[updated.name] = updated
         else:
             self._store(updated)
         return ()
+
+    def _schema_def(self, name: str) -> Schema:
+        if name not in self.schemas and not any(
+            other.startswith(f"{name}.")
+            for other in [*self.tables, *self.views, *self.functions]
+        ):
+            raise FakeSqlError(f"no such schema: {name}")
+        return self.schema_defs.get(name, Schema(name))
 
     def _create_function(self, statement: str) -> tuple[Row, ...]:
         match = _FUNCTION.fullmatch(statement.strip())

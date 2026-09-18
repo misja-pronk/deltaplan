@@ -28,6 +28,7 @@ from deltaplan.differ import unmanaged_properties
 from deltaplan.model.change import Change
 from deltaplan.model.function import Function
 from deltaplan.model.plan import Plan, Risk, Step, TableDiff, TableFacts
+from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
     CLUSTER_AUTO,
     COLUMN_MAPPING_PROPERTY,
@@ -381,7 +382,9 @@ class _Planner:
     @property
     def _object(self) -> str:
         """`TABLE`, `VIEW` or `FUNCTION`, for the statements that say which."""
-        return {"view": "VIEW", "function": "FUNCTION"}.get(self._kind, "TABLE")
+        return {"view": "VIEW", "function": "FUNCTION", "schema": "SCHEMA"}.get(
+            self._kind, "TABLE"
+        )
 
     def _rewrite(self, table_diff: TableDiff) -> None:
         desired, live = table_diff.desired, table_diff.live
@@ -625,6 +628,10 @@ class _Planner:
                 self._claim(change)
             case "rename_table":
                 self._rename_table(change)
+            case "create_schema":
+                self._create_schema(change)
+            case "set_schema_comment":
+                self._schema_comment(change)
             case "drop_table":
                 self._drop_table(change, facts)
             case _:
@@ -786,6 +793,49 @@ class _Planner:
             note=(
                 f"a spec now describes this {self._object.lower()}, so deltaplan "
                 "manages it — in a strict schema, removing its spec later will drop it"
+            ),
+        )
+
+    def _create_schema(self, change: Change) -> None:
+        """A declared schema, created with its comment; then its tags and
+        grants, as for a table. Tables planned into it later find it made."""
+        schema = change.after
+        assert isinstance(schema, Schema)
+        self._schemas_created.add(schema.name)
+        sql = f"CREATE SCHEMA IF NOT EXISTS {quote_qualified(schema.name)}"
+        if schema.comment is not None:
+            sql += f" COMMENT {quote_literal(schema.comment)}"
+        self.emit(
+            schema.name,
+            f"CREATE SCHEMA {schema.short_name}",
+            "meta",
+            sql=sql,
+            note="deltaplan never drops a schema — not even in strict mode",
+        )
+        change_index, self._change = self._change, -1
+        if schema.tags:
+            self.emit(
+                schema.name,
+                "SET TAGS",
+                "meta",
+                sql=set_tags_sql(schema.name, schema.tags, "SCHEMA"),
+            )
+        for grant in schema.grants:
+            self._emit_grant(schema.name, grant.principal, grant.privileges)
+        self._change = change_index
+
+    def _schema_comment(self, change: Change) -> None:
+        comment = change.after if isinstance(change.after, str) else ""
+        previous = change.before
+        self.emit(
+            change.table,
+            "COMMENT ON SCHEMA",
+            "meta",
+            sql=f"COMMENT ON SCHEMA {quote_qualified(change.table)} IS "
+            f"{quote_literal(comment)}",
+            undo_hint=(
+                f"COMMENT ON SCHEMA {quote_qualified(change.table)} IS "
+                f"{quote_literal(previous) if isinstance(previous, str) else 'NULL'}"
             ),
         )
 

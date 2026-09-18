@@ -425,6 +425,33 @@ query: |
 - `import` writes view specs too, with the query as the catalog holds it — catalog names
   and all, since rewriting names inside SQL isn't something to do by text search.
 
+## Schemas
+
+A schema spec gives a schema its comment, tags and grants:
+
+```yaml
+schema: ${catalog}.sales
+comment: Sales data
+tags: {domain: sales}
+grants:
+  - {principal: analysts, privileges: [USE SCHEMA, SELECT]}
+  - {principal: engineers, privileges: [USE SCHEMA, CREATE TABLE, MODIFY]}
+```
+
+- **A declared schema is created with its comment**, then tagged and granted — before
+  any table in it, which then finds it made. Without a spec, a schema is still created
+  bare when a table needs it.
+- **A schema is shared ground, so a spec only adds.** A comment is set only when the
+  spec gives one; tags and grants the spec doesn't name are reported and left alone.
+  Grants to a principal the spec does name are made to match it exactly.
+- **A schema is never dropped**, strict mode or not.
+- Schema privileges: `USE SCHEMA`, `SELECT`, `MODIFY`, `EXECUTE`, `REFRESH`, `APPLY TAG`,
+  `MANAGE`, `ALL PRIVILEGES`, `CREATE TABLE` (views too), `CREATE FUNCTION`,
+  `CREATE VOLUME`, `CREATE MATERIALIZED VIEW`, `CREATE MODEL`, `READ VOLUME` and
+  `WRITE VOLUME`.
+- `import` writes the schema's spec as `_schema.yml` when it has a comment, tags or
+  grants. In SQL, `CREATE SCHEMA … COMMENT` and `GRANT … ON SCHEMA` work; tags need YAML.
+
 ## Functions
 
 A function spec has a `function:` key, its parameters, what it returns, and a body — the

@@ -26,11 +26,13 @@ from typing import TypeVar
 from deltaplan.differ import (
     diff,
     diff_function,
+    diff_schema,
     diff_view,
     ownership,
     spent_renames,
     unmanaged,
     unmanaged_function,
+    unmanaged_schema,
     unmanaged_view,
 )
 from deltaplan.introspect import Introspector, LiveSchema, LiveTable
@@ -38,6 +40,7 @@ from deltaplan.loader import Mode
 from deltaplan.model.change import Change
 from deltaplan.model.function import Function
 from deltaplan.model.plan import Plan, TableDiff, TableFacts, fingerprint
+from deltaplan.model.schema import Schema
 from deltaplan.model.table import Table
 from deltaplan.model.view import Relation, View
 from deltaplan.planner import build_plan
@@ -71,7 +74,7 @@ def plan_tables(
     """
     schemas = _introspect(specs, introspector)
     # Functions have a namespace of their own; only tables and views can clash.
-    described = {spec.name for spec in specs if not isinstance(spec, Function)}
+    described = {spec.name for spec in specs if isinstance(spec, Table | View)}
     tables = [spec for spec in specs if isinstance(spec, Table)]
     views = order_views([spec for spec in specs if isinstance(spec, View)])
     functions = _order(
@@ -79,11 +82,24 @@ def plan_tables(
         lambda function: function.body,
         "functions call each other",
     )
-    _refuse_kind_changes([s for s in specs if not isinstance(s, Function)], schemas)
+    _refuse_kind_changes([s for s in specs if isinstance(s, Table | View)], schemas)
     _refuse_shared_names(functions, described, schemas)
 
     diffs: list[TableDiff] = []
-    # Functions first: masks, row filters and views call them.
+    # Schemas first: everything else lives in one.
+    for declared in [spec for spec in specs if isinstance(spec, Schema)]:
+        live_schema = schemas[(declared.parts[0], declared.parts[1])].definition
+        diffs.append(
+            TableDiff(
+                declared.name,
+                diff_schema(declared, live_schema),
+                TableFacts(declared.name, exists=live_schema is not None, kind="schema"),
+                unmanaged_schema(declared, live_schema) if live_schema else (),
+                desired=declared,
+                live=live_schema,
+            )
+        )
+    # Then functions: masks, row filters and views call them.
     for function in functions:
         found = _schema_of(schemas, function.name)
         live_function = found.get_function(function.name)
@@ -314,7 +330,10 @@ def _introspect(
     specs: Sequence[Relation], introspector: Introspector
 ) -> dict[tuple[str, str], LiveSchema]:
     for spec in specs:
-        if len(spec.parts) != 3:
+        if isinstance(spec, Schema):
+            if len(spec.parts) != 2:
+                raise PlanningError(f"schema {spec.name!r} must be catalog.schema")
+        elif len(spec.parts) != 3:
             raise PlanningError(f"name {spec.name!r} must be catalog.schema.name")
     # Only the tables a spec describes are read in full — and a rename's old
     # name, which is about to become one. The rest of each schema gets a light

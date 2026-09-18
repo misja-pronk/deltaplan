@@ -68,6 +68,10 @@ def describe(change: Change) -> tuple[str, str]:
             return "+", ("view")
         case "create_function":
             return "+", ("function")
+        case "create_schema":
+            return "+", ("schema")
+        case "set_schema_comment":
+            return "~", ("comment")
         case "replace_function":
             return "~", ("definition")
         case "replace_view":

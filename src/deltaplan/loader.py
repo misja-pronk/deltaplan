@@ -22,6 +22,7 @@ from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 from deltaplan.bundle import WAREHOUSE_VARIABLE, BundleError, BundleTarget, read_bundle
 from deltaplan.model.function import Function, Parameter
+from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
     MAINTAINED_PROPERTIES,
     PREREQUISITE_PROPERTIES,
@@ -49,7 +50,12 @@ from deltaplan.model.types import (
     render_type,
 )
 from deltaplan.model.view import Relation, View
-from deltaplan.sql import FUNCTION_PRIVILEGES, TABLE_PRIVILEGES, privilege_sql
+from deltaplan.sql import (
+    FUNCTION_PRIVILEGES,
+    SCHEMA_PRIVILEGES,
+    TABLE_PRIVILEGES,
+    privilege_sql,
+)
 from deltaplan.typeparser import TypeParseError, parse_type
 
 SPEC_SUFFIXES = (".yml", ".yaml", ".sql")
@@ -662,8 +668,12 @@ def load_spec(
         return _read_view(ctx, node, items)
     if "function" in items:
         return _read_function_spec(ctx, node, items)
+    if "schema" in items:
+        return _read_schema_spec(ctx, items)
     if "table" not in items:
-        raise SpecError("a spec needs a 'table', 'view' or 'function' key", ctx.loc(node))
+        raise SpecError(
+            "a spec needs a 'table', 'view', 'function' or 'schema' key", ctx.loc(node)
+        )
     return _read_table(ctx, node, items)
 
 
@@ -671,12 +681,32 @@ def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
     """Read one spec file that must describe a table."""
     spec = load_spec(path, variables)
     if not isinstance(spec, Table):
-        kind = "view" if isinstance(spec, View) else "function"
+        kind = (
+            "view"
+            if isinstance(spec, View)
+            else "schema"
+            if isinstance(spec, Schema)
+            else "function"
+        )
         raise SpecError(f"this spec describes a {kind}, not a table", Loc(path, 1, 1))
     return spec
 
 
 FUNCTION_KEYS = {"function", "parameters", "returns", "body", "comment", "grants"}
+SCHEMA_KEYS = {"schema", "comment", "tags", "grants"}
+
+
+def _read_schema_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Schema:
+    _known_keys(items, allowed=SCHEMA_KEYS, what="a schema spec")
+    name = _string(ctx, items["schema"][0], "schema name")
+    comment = _string(ctx, items["comment"][0], "comment") if "comment" in items else None
+    tags: tuple[tuple[str, str], ...] = ()
+    if "tags" in items:
+        tags = _string_map(ctx, items["tags"][0], "tags")
+    grants: tuple[Grant, ...] = ()
+    if "grants" in items:
+        grants = _read_grants(ctx, items["grants"][0], allowed=SCHEMA_PRIVILEGES)
+    return Schema(name, comment, tags, grants)
 
 
 def _read_function_spec(
@@ -1052,12 +1082,24 @@ MAX_CLUSTER_COLUMNS = 4
 
 
 def validate_spec(spec: Relation, where: str) -> tuple[Diagnostic, ...]:
-    """Lint a table, a view or a function."""
+    """Lint a table, a view, a function or a schema."""
     if isinstance(spec, View):
         return validate_view(spec, where)
     if isinstance(spec, Function):
         return validate_function(spec, where)
+    if isinstance(spec, Schema):
+        return validate_schema(spec, where)
     return validate_table(spec, where)
+
+
+def validate_schema(schema: Schema, where: str) -> tuple[Diagnostic, ...]:
+    if len(schema.parts) != 2:
+        return (
+            Diagnostic(
+                "error", f"schema name {schema.name!r} must be catalog.schema", where
+            ),
+        )
+    return ()
 
 
 def validate_function(function: Function, where: str) -> tuple[Diagnostic, ...]:
@@ -1304,6 +1346,8 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
         return _dump_view(table, name)
     if isinstance(table, Function):
         return _dump_function(table, name)
+    if isinstance(table, Schema):
+        return _dump_schema(table, name)
 
     document: dict[str, object] = {"table": name}
     if table.comment is not None:
@@ -1339,6 +1383,20 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
             for grant in table.grants
         ]
 
+    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False, width=100)
+
+
+def _dump_schema(schema: Schema, name: str) -> str:
+    document: dict[str, object] = {"schema": name}
+    if schema.comment is not None:
+        document["comment"] = schema.comment
+    if schema.tags:
+        document["tags"] = dict(schema.tags)
+    if schema.grants:
+        document["grants"] = [
+            {"principal": grant.principal, "privileges": list(grant.privileges)}
+            for grant in schema.grants
+        ]
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False, width=100)
 
 

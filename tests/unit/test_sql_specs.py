@@ -17,6 +17,7 @@ from deltaplan.features import FEATURES
 from deltaplan.introspect import Introspector
 from deltaplan.loader import SpecError, load_project, load_spec, spec_files
 from deltaplan.model.function import Function, Parameter
+from deltaplan.model.schema import Schema
 from deltaplan.model.table import Check, ForeignKey, Grant, PrimaryKey, Table
 from deltaplan.model.types import Decimal, Field, Identity, Primitive
 from deltaplan.model.view import Relation, View
@@ -111,6 +112,12 @@ EXPECTED: dict[str, Callable[[Relation], bool]] = {
         and r.returns == Primitive("string")
         and r.comment == "Small or large"
         and r.body == "CASE WHEN amount < 100 THEN 'small' ELSE 'large' END"
+    ),
+    "Schemas: comment and grants": lambda r: (
+        isinstance(r, Schema)
+        and r.name == "main.sales"
+        and r.comment == "Sales data"
+        and r.grants == (Grant("analysts", ("CREATE TABLE", "USE SCHEMA")),)
     ),
     "Function grants": lambda r: (
         isinstance(r, Function) and r.grants == (Grant("analysts", ("EXECUTE",)),)

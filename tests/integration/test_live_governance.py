@@ -190,3 +190,26 @@ def test_quotes_in_strings_survive(
     assert again.empty, [
         (c.kind, c.path, c.before, c.after) for d in again.diffs for c in d.changes
     ]
+
+
+def test_a_schema_spec_reads_back(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """A schema's comment, tags and grants round-trip through
+    information_schema.schemata / schema_tags / schema_privileges.
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-comment
+    """
+    from deltaplan.model.schema import Schema
+
+    principal = os.environ.get("DELTAPLAN_TEST_PRINCIPAL", "account users")
+    spec = Schema(
+        schema,
+        comment="It's the test schema",
+        tags=(("domain", "testing"),),
+        grants=(Grant(principal, ("USE SCHEMA", "CREATE TABLE")),),
+    )
+    apply(planned([spec], introspector), runner, introspector)
+    again = planned([spec], introspector)
+    assert again.empty, [
+        (c.kind, c.path, c.after) for d in again.diffs for c in d.changes
+    ]

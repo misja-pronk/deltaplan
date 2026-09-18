@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Schemas as specs** (`schema:`): a schema's comment, tags and grants. A
+  declared schema is created with its comment before the tables in it; its tags
+  and grants are brought in line, per principal. A spec only adds — a comment
+  it doesn't give isn't cleared, and tags and grants it doesn't name are
+  reported. Never dropped. `import` writes `_schema.yml`; SQL specs can say a
+  schema's comment and grants, not its tags. Schema privileges verified live.
+
 ### Changed
 
 - **`plan` reads less, and in parallel.** Only tables a spec describes get the full

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from deltaplan.model.change import Change
 from deltaplan.model.function import Function
+from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
     CLUSTER_AUTO,
     MANAGED_PROPERTY,
@@ -183,6 +184,31 @@ def unmanaged_properties(
 
 def unmanaged_view(desired: View, actual: View) -> tuple[str, ...]:
     """What a live view carries that its spec doesn't mention."""
+    return tuple(_unmanaged_governance(desired, actual))
+
+
+def diff_schema(desired: Schema, actual: Schema | None) -> tuple[Change, ...]:
+    """Diff a schema: its comment, then tags and grants as for any securable.
+    Nothing a spec leaves out is removed — a schema's tags and grants that the
+    spec doesn't name are reported, not revoked."""
+    if actual is None:
+        return (Change(desired.name, "create_schema", after=desired),)
+    changes: list[Change] = []
+    if desired.comment is not None and desired.comment != actual.comment:
+        changes.append(
+            Change(
+                desired.name,
+                "set_schema_comment",
+                before=actual.comment,
+                after=desired.comment,
+            )
+        )
+    changes.extend(_diff_governance(desired, actual))
+    return tuple(changes)
+
+
+def unmanaged_schema(desired: Schema, actual: Schema) -> tuple[str, ...]:
+    """What a live schema carries that its spec doesn't mention."""
     return tuple(_unmanaged_governance(desired, actual))
 
 
@@ -643,7 +669,7 @@ def is_applied(change: Change, live: Relation | None) -> bool:
     Being wrong in the "not applied yet" direction is the safe one: the step runs
     again, and every statement deltaplan generates is safe to repeat.
     """
-    if change.kind in {"create_table", "create_view", "create_function"}:
+    if change.kind in {"create_table", "create_view", "create_function", "create_schema"}:
         return live is not None
     if change.kind == "drop_table":
         return live is None
@@ -653,6 +679,8 @@ def is_applied(change: Change, live: Relation | None) -> bool:
     match change.kind:
         case "claim_table":
             return live.managed
+        case "set_schema_comment":
+            return isinstance(live, Schema) and live.comment == change.after
         case "rename_table":
             # `live` is whatever answers to the new name: the rename happened.
             return True

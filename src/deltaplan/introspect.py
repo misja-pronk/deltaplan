@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from deltaplan.ddl import DdlError, read_columns
 from deltaplan.model.function import Function, Parameter
+from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
     CHECK_PROPERTY_PREFIX,
     Check,
@@ -108,6 +109,9 @@ class LiveSchema:
     #: False when the schema itself isn't there yet — a fresh target.
     exists: bool = True
     functions: tuple[Function, ...] = ()
+    #: The schema itself — its comment, tags and direct grants. None when the
+    #: schema doesn't exist.
+    definition: Schema | None = None
 
     def get(self, name: str) -> LiveTable | None:
         for live in self.tables:
@@ -128,6 +132,11 @@ class LiveSchema:
         return None
 
     def relation(self, name: str) -> Relation | None:
+        if len(name.split(".")) == 2:
+            return self.definition if name == f"{self.catalog}.{self.schema}" else None
+        return self._object(name)
+
+    def _object(self, name: str) -> Relation | None:
         """A table, a view or a function, whichever lives under that name."""
         live = self.get(name)
         if live is not None:
@@ -169,8 +178,10 @@ class Introspector:
         """
         self._detail_cache.clear()
         self._keys_cache.clear()
-        if not self._schema_exists(catalog, schema):
+        schema_row = self._schema_row(catalog, schema)
+        if schema_row is None:
             return LiveSchema(catalog, schema, exists=False)
+        definition = self._schema_definition(catalog, schema, schema_row)
         comments, formats = self._table_rows(catalog, schema)
         columns, column_features = self._column_rows(catalog, schema)
         column_tags = self._column_tag_rows(catalog, schema)
@@ -284,6 +295,7 @@ class Introspector:
             tuple(skipped),
             tuple(views),
             functions=self._functions(catalog, schema, grants),
+            definition=definition,
         )
 
     def table(self, name: str) -> LiveTable | None:
@@ -297,11 +309,11 @@ class Introspector:
         found: dict[str, Relation | None] = {}
         scanned: dict[tuple[str, str], LiveSchema] = {}
         for name in names:
-            catalog, schema, _ = _split(name)
-            key = (catalog, schema)
+            parts = name.split(".")
+            key = (parts[0], parts[1])
             if key not in scanned:
-                wanted = [n for n in names if _split(n)[:2] == key]
-                scanned[key] = self.schema(catalog, schema, full=wanted)
+                wanted = [n for n in names if tuple(n.split(".")[:2]) == key]
+                scanned[key] = self.schema(*key, full=wanted)
             found[name] = scanned[key].relation(name)
         return found
 
@@ -512,16 +524,51 @@ class Introspector:
             )
         return tuple(found)
 
-    def _schema_exists(self, catalog: str, schema: str) -> bool:
-        """TODO(verify): that a missing *catalog* fails this query, rather than
+    def _schema_row(self, catalog: str, schema: str) -> Row | None:
+        """The schema's row, or None when it doesn't exist.
+
+        TODO(verify): that a missing *catalog* fails this query, rather than
         returning nothing — deltaplan creates schemas, never catalogs.
         https://docs.databricks.com/aws/en/sql/language-manual/information-schema/schemata
         """
         rows = self.runner.query(
-            f"SELECT schema_name FROM {_information_schema(catalog)}.schemata "
+            f"SELECT schema_name, comment FROM {_information_schema(catalog)}.schemata "
             f"WHERE schema_name = {quote_literal(schema.lower())}"
         )
-        return bool(rows)
+        return rows[0] if rows else None
+
+    def _schema_definition(self, catalog: str, schema: str, row: Row) -> Schema:
+        """The schema's comment, tags and direct grants — the same views and rules
+        as for tables, verified live (2026-09-18): privileges come back
+        underscored (`CREATE_FUNCTION`), and inherited ones say where from."""
+        literal = quote_literal(schema.lower())
+        tags = {
+            str(r["tag_name"]): str(r.get("tag_value") or "")
+            for r in self.runner.query(
+                "SELECT tag_name, tag_value "
+                f"FROM {_information_schema(catalog)}.schema_tags "
+                f"WHERE schema_name = {literal}"
+            )
+            if r.get("tag_name")
+        }
+        held: dict[str, list[str]] = {}
+        for r in self.runner.query(
+            "SELECT grantee, privilege_type, inherited_from "
+            f"FROM {_information_schema(catalog)}.schema_privileges "
+            f"WHERE schema_name = {literal}"
+        ):
+            grantee, privilege = r.get("grantee"), r.get("privilege_type")
+            if grantee is None or privilege is None:
+                continue
+            if (r.get("inherited_from") or "NONE").upper() != "NONE":
+                continue
+            held.setdefault(grantee, []).append(normalise_privilege(privilege))
+        return Schema(
+            f"{catalog}.{schema}",
+            comment=row.get("comment"),
+            tags=tuple(sorted(tags.items())),
+            grants=tuple(Grant(p, tuple(v)) for p, v in held.items()),
+        )
 
     def _view_rows(self, catalog: str, schema: str) -> dict[str, str]:
         """Each view's definition. TODO(verify): that `view_definition` is the

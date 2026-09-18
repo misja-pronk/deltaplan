@@ -150,9 +150,33 @@ TABLE_PRIVILEGES: frozenset[str] = frozenset(
 )
 #: What can be granted on a function.
 FUNCTION_PRIVILEGES: frozenset[str] = frozenset({"ALL PRIVILEGES", "EXECUTE", "MANAGE"})
+#: What can be granted on a schema — each one granted on a live workspace
+#: (2026-09-18). Refused there: CREATE VIEW (CREATE TABLE covers views), BROWSE
+#: (a catalog's), EXTERNAL USE SCHEMA and bare CREATE.
+SCHEMA_PRIVILEGES: frozenset[str] = frozenset(
+    {
+        "ALL PRIVILEGES",
+        "APPLY TAG",
+        "CREATE FUNCTION",
+        "CREATE MATERIALIZED VIEW",
+        "CREATE MODEL",
+        "CREATE TABLE",
+        "CREATE VOLUME",
+        "EXECUTE",
+        "MANAGE",
+        "MODIFY",
+        "READ VOLUME",
+        "REFRESH",
+        "SELECT",
+        "USE SCHEMA",
+        "WRITE VOLUME",
+    }
+)
 #: Every privilege deltaplan will put in a statement. The loader checks each
 #: grant against its object's own list; this is the last line, at SQL time.
-KNOWN_PRIVILEGES: frozenset[str] = TABLE_PRIVILEGES | FUNCTION_PRIVILEGES
+KNOWN_PRIVILEGES: frozenset[str] = (
+    TABLE_PRIVILEGES | FUNCTION_PRIVILEGES | SCHEMA_PRIVILEGES
+)
 
 
 def normalise_privilege(privilege: str) -> str:

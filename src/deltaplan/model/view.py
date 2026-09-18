@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TypeAlias
 
 from deltaplan.model.function import Function
+from deltaplan.model.schema import Schema
 from deltaplan.model.table import Grant, Securable, Table, sort_governance
 
 
@@ -34,7 +35,7 @@ class View(Securable):
 
 
 #: Anything a spec can describe.
-Relation: TypeAlias = Table | View | Function
+Relation: TypeAlias = Table | View | Function | Schema
 
 
 def normalise_query(query: str) -> str:

@@ -75,7 +75,7 @@ class TableFacts:
     delta_version: int | None = None
     #: Tables and views take different statements for the same idea —
     #: `ALTER VIEW … SET TAGS`, `DROP VIEW`.
-    kind: Literal["table", "view", "function"] = "table"
+    kind: Literal["table", "view", "function", "schema"] = "table"
     #: What the live table has that the model doesn't cover. See LiveTable.
     unmodelled: tuple[str, ...] = ()
     #: Whether the schema it lives in exists. A table in a fresh schema needs the
