@@ -151,6 +151,26 @@ tags in the spec are set, and tags someone else put on the column are listed as
 unmanaged and left alone — including across a rewrite, which puts them back after
 rebuilding the table.
 
+## Grants
+
+```yaml
+grants:
+  - principal: analysts
+    privileges: [SELECT]
+  - principal: etl@example.com
+    privileges: [SELECT, MODIFY]
+```
+
+A principal the spec names has **exactly** those privileges on the table: missing ones
+are granted, extra ones revoked — and the plan says so, with the `GRANT` that would
+undo each revoke. Principals the spec doesn't name are someone else's business: they are
+listed as unmanaged and never touched. Grants inherited from the schema or catalog
+aren't the table's, and are ignored.
+
+Privileges are `SELECT`, `MODIFY`, `APPLY TAG`, `MANAGE` and `ALL PRIVILEGES`. Anything
+else is an error at load time: privileges are SQL keywords, not names, so they can't be
+quoted — they are checked instead.
+
 ## Rewrites and `using`
 
 Some changes can't be made in place: a column whose type can't be widened, a struct that

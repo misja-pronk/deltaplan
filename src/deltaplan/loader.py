@@ -24,6 +24,7 @@ from deltaplan.model.table import (
     MANAGED_PROPERTY,
     Check,
     Constraint,
+    Grant,
     PrimaryKey,
     Table,
 )
@@ -37,6 +38,7 @@ from deltaplan.model.types import (
     Struct,
     render_type,
 )
+from deltaplan.sql import privilege_sql
 from deltaplan.typeparser import TypeParseError, parse_type
 
 SPEC_SUFFIXES = (".yml", ".yaml")
@@ -391,6 +393,7 @@ TABLE_KEYS = {
     "properties",
     "columns",
     "constraints",
+    "grants",
 }
 
 
@@ -470,6 +473,9 @@ def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
             _read_constraint(ctx, item)
             for item in _sequence(ctx, items["constraints"][0], "constraints")
         )
+    grants: tuple[Grant, ...] = ()
+    if "grants" in items:
+        grants = _read_grants(ctx, items["grants"][0])
 
     return Table(
         name=name,
@@ -479,7 +485,35 @@ def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
         properties=properties,
         tags=tags,
         constraints=constraints,
+        grants=grants,
     )
+
+
+def _read_grants(ctx: _Ctx, node: Node) -> tuple[Grant, ...]:
+    grants: list[Grant] = []
+    seen: set[str] = set()
+    for item in _sequence(ctx, node, "grants"):
+        entry = _mapping(ctx, item, "a grant")
+        _known_keys(entry, allowed={"principal", "privileges"}, what="a grant")
+        principal = _string(
+            ctx, _require(ctx, entry, item, "principal", "a grant"), "principal"
+        )
+        if principal in seen:
+            raise SpecError(
+                f"{principal!r} is granted twice — list its privileges once",
+                ctx.loc(item),
+            )
+        seen.add(principal)
+        privileges_node = _require(ctx, entry, item, "privileges", "a grant")
+        privileges: list[str] = []
+        for privilege_node in _sequence(ctx, privileges_node, "privileges"):
+            raw = _string(ctx, privilege_node, "privilege")
+            try:
+                privileges.append(privilege_sql(raw))
+            except ValueError as error:
+                raise SpecError(str(error), ctx.loc(privilege_node)) from error
+        grants.append(Grant(principal, tuple(privileges)))
+    return tuple(grants)
 
 
 # ---------------------------------------------------------------------------
@@ -742,6 +776,11 @@ def dump_spec(table: Table, *, catalog_variable: str | None = None) -> str:
     ]
     if constraints:
         document["constraints"] = constraints
+    if table.grants:
+        document["grants"] = [
+            {"principal": grant.principal, "privileges": list(grant.privileges)}
+            for grant in table.grants
+        ]
 
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False, width=100)
 

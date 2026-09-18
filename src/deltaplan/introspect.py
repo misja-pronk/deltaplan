@@ -22,9 +22,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
-from deltaplan.model.table import Check, Constraint, PrimaryKey, Table
+from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, Table
 from deltaplan.model.types import Column, DataType, Field, Primitive
-from deltaplan.sql import normalise_expression, quote_literal, quote_qualified
+from deltaplan.sql import (
+    normalise_expression,
+    normalise_privilege,
+    quote_literal,
+    quote_qualified,
+)
 from deltaplan.typeparser import TypeParseError, parse_type
 
 if TYPE_CHECKING:  # the SDK is only needed to talk to a workspace
@@ -99,6 +104,7 @@ class Introspector:
             ]
         tags = self._tag_rows(catalog, schema)
         constraints = self._constraint_rows(catalog, schema)
+        grants = self._grant_rows(catalog, schema)
 
         tables: list[LiveTable] = []
         skipped: list[tuple[str, str]] = []
@@ -120,6 +126,10 @@ class Introspector:
                         properties=_pairs(_json_map(detail.get("properties"))),
                         tags=tuple(sorted(tags.get(name, {}).items())),
                         constraints=tuple(constraints.get(name, ())),
+                        grants=tuple(
+                            Grant(principal, tuple(privileges))
+                            for principal, privileges in grants.get(name, {}).items()
+                        ),
                     ),
                     size_bytes=_as_int(detail.get("sizeInBytes")),
                     data_format=table_type,
@@ -233,6 +243,35 @@ class Introspector:
                 continue
             tags.setdefault((table_name, column), {})[tag] = row.get("tag_value") or ""
         return tags
+
+    def _grant_rows(self, catalog: str, schema: str) -> dict[str, dict[str, list[str]]]:
+        """Privileges granted on each table directly — not inherited from above.
+
+        A grant on the schema or catalog shows up here too, marked with where it
+        came from. Those aren't the table's to manage, so they are skipped.
+        TODO(verify): `inherited_from` values against a live workspace.
+        https://docs.databricks.com/aws/en/sql/language-manual/information-schema/table_privileges
+        """
+        rows = self.runner.query(
+            "SELECT table_name, grantee, privilege_type, inherited_from "
+            f"FROM {_information_schema(catalog)}.table_privileges "
+            f"WHERE table_schema = {quote_literal(schema)}"
+        )
+        grants: dict[str, dict[str, list[str]]] = {}
+        for row in rows:
+            table_name, grantee, privilege = (
+                row.get("table_name"),
+                row.get("grantee"),
+                row.get("privilege_type"),
+            )
+            if table_name is None or grantee is None or privilege is None:
+                continue
+            if (row.get("inherited_from") or "NONE").upper() != "NONE":
+                continue
+            grants.setdefault(table_name, {}).setdefault(grantee, []).append(
+                normalise_privilege(privilege)
+            )
+        return grants
 
     def _constraint_rows(self, catalog: str, schema: str) -> dict[str, list[Constraint]]:
         rows = self.runner.query(

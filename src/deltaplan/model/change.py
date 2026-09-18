@@ -30,11 +30,15 @@ ChangeKind: TypeAlias = Literal[
     "reorder_columns",
     "add_constraint",
     "drop_constraint",
+    "grant",
+    "revoke",
 ]
 
 #: Kinds whose `path` names something other than a column — a property key, a
 #: tag key, a principal.
-TABLE_LEVEL_KINDS: frozenset[str] = frozenset({"set_property", "set_tag"})
+TABLE_LEVEL_KINDS: frozenset[str] = frozenset(
+    {"set_property", "set_tag", "grant", "revoke"}
+)
 
 #: Whatever a change is about. Every member is hashable, so changes are too.
 ChangeValue: TypeAlias = (

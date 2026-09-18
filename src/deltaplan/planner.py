@@ -49,7 +49,7 @@ from deltaplan.model.types import (
     render_type,
     type_kind,
 )
-from deltaplan.sql import quote_ident, quote_literal, quote_qualified
+from deltaplan.sql import privilege_sql, quote_ident, quote_literal, quote_qualified
 
 STREAMING_WARNING = "breaks streaming readers — they must be restarted from scratch"
 IRREVERSIBLE_NOTE = "column mapping cannot be turned off again"
@@ -319,6 +319,12 @@ class _Planner:
         for change in finishing:
             if change not in unreachable:
                 self.plan_change(change, facts)
+        # The same goes for access. Declared grants come back through the diff
+        # above; grants to principals the spec doesn't name are put back here.
+        declared = desired.grants_map()
+        for grant in live.grants:
+            if grant.principal not in declared:
+                self._emit_grant(table_diff.table, grant.principal, grant.privileges)
         for column, tags in carried:
             if column:
                 self._emit_column_tags(table_diff.table, column, tags)
@@ -388,6 +394,10 @@ class _Planner:
                 self._add_constraint(change)
             case "drop_constraint":
                 self._drop_constraint(change)
+            case "grant":
+                self._grant(change)
+            case "revoke":
+                self._revoke(change)
             case "claim_table":
                 self._claim(change)
             case "drop_table":
@@ -396,6 +406,36 @@ class _Planner:
                 assert_never(change.kind)
 
     # -- table level -------------------------------------------------------
+    def _grant(self, change: Change) -> None:
+        privileges = change.after if isinstance(change.after, tuple) else ()
+        self._emit_grant(change.table, change.path, privileges)
+
+    def _emit_grant(
+        self, table: str, principal: str, privileges: tuple[str, ...]
+    ) -> None:
+        self.emit(
+            table,
+            f"GRANT to {principal}",
+            "meta",
+            path=principal,
+            sql=grant_sql(table, principal, privileges),
+        )
+
+    def _revoke(self, change: Change) -> None:
+        privileges = change.before if isinstance(change.before, tuple) else ()
+        self.emit(
+            change.table,
+            f"REVOKE from {change.path}",
+            "meta",
+            path=change.path,
+            sql=(
+                f"REVOKE {', '.join(privilege_sql(p) for p in privileges)} ON TABLE "
+                f"{quote_qualified(change.table)} FROM {quote_ident(change.path)}"
+            ),
+            warnings=(f"takes {', '.join(privileges)} away from {change.path}",),
+            undo_hint=grant_sql(change.table, change.path, privileges),
+        )
+
     def _claim(self, change: Change) -> None:
         self.emit(
             change.table,
@@ -451,6 +491,8 @@ class _Planner:
         for column in table.columns:
             if column.tags:
                 self._emit_column_tags(table.name, column.name, column.tags)
+        for grant in table.grants:
+            self._emit_grant(table.name, grant.principal, grant.privileges)
 
     def _table_comment(self, change: Change) -> None:
         comment = change.after
@@ -762,6 +804,14 @@ def set_tags_sql(table: str, tags: tuple[tuple[str, str], ...]) -> str:
         f"{quote_literal(key)} = {quote_literal(value)}" for key, value in tags
     )
     return f"ALTER TABLE {quote_qualified(table)} SET TAGS ({pairs})"
+
+
+def grant_sql(table: str, principal: str, privileges: tuple[str, ...]) -> str:
+    """https://docs.databricks.com/aws/en/sql/language-manual/security-grant"""
+    return (
+        f"GRANT {', '.join(privilege_sql(p) for p in privileges)} ON TABLE "
+        f"{quote_qualified(table)} TO {quote_ident(principal)}"
+    )
 
 
 def column_tags_sql(table: str, column: str, tags: tuple[tuple[str, str], ...]) -> str:

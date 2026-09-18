@@ -42,6 +42,10 @@ The mode is per schema, with the target's `mode` as the default — see
 [the project file](spec.md#the-project-file). Strict never reaches a table deltaplan
 didn't create: an unmanaged table is left alone in every mode.
 
+Access follows the same line. A principal a spec names gets exactly the privileges it
+lists; any principal a spec doesn't name is left alone. A revoke is planned like
+anything else — visible, numbered, with a warning and its undo.
+
 The same rule applies within a table. A table feature or property deltaplan doesn't
 model is shown as *"unmanaged feature, left untouched"* — never diffed away just
 because the spec is silent about it.

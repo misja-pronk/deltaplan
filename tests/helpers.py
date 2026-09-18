@@ -1,7 +1,7 @@
 """Small builders, so tests read as tables rather than as constructor calls."""
 
 from deltaplan.model.plan import Plan
-from deltaplan.model.table import Constraint, Table
+from deltaplan.model.table import Constraint, Grant, Table
 from deltaplan.model.types import Column, Field
 from deltaplan.typeparser import parse_type
 from fake_warehouse import FakeWarehouse
@@ -32,6 +32,7 @@ def table(
     properties: tuple[tuple[str, str], ...] = (),
     tags: tuple[tuple[str, str], ...] = (),
     constraints: tuple[Constraint, ...] = (),
+    grants: tuple[Grant, ...] = (),
 ) -> Table:
     return Table(
         name=name,
@@ -41,6 +42,7 @@ def table(
         properties=properties,
         tags=tags,
         constraints=constraints,
+        grants=grants,
     )
 
 
@@ -55,6 +57,7 @@ _FRAGMENTS = {
     "keys": "information_schema.key_column_usage",
     "detail": "DESCRIBE DETAIL",
     "history": "DESCRIBE HISTORY",
+    "grants": "information_schema.table_privileges",
 }
 
 

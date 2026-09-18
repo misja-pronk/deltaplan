@@ -67,6 +67,7 @@ def diff(
     changes.extend(_diff_table_metadata(desired, actual))
     changes.extend(_diff_columns(desired, actual, compare_order=compare_order))
     changes.extend(_diff_constraints(desired, actual))
+    changes.extend(_diff_grants(desired, actual))
     return tuple(changes)
 
 
@@ -103,6 +104,10 @@ def unmanaged(desired: Table, actual: Table) -> tuple[str, ...]:
                 found.append(f"tag {key} on column {live_column.name}")
     if desired.primary_key() is None and actual.primary_key() is not None:
         found.append("primary key")
+    declared = desired.grants_map()
+    for grant in actual.grants:
+        if grant.principal not in declared:
+            found.append(f"grants to {grant.principal}")
     desired_checks = {check.name for check in desired.checks()}
     for check in actual.checks():
         if check.name not in desired_checks:
@@ -349,6 +354,29 @@ def _diff_struct(
 
 
 # ---------------------------------------------------------------------------
+# grants
+# ---------------------------------------------------------------------------
+
+
+def _diff_grants(desired: Table, actual: Table) -> list[Change]:
+    """Per principal: a principal the spec names has exactly those privileges.
+
+    Principals it doesn't name are left alone — they are reported by
+    `unmanaged()`. That is the line between managing access and taking it over.
+    """
+    changes: list[Change] = []
+    live = actual.grants_map()
+    for grant in desired.grants:
+        held = set(live.get(grant.principal, ()))
+        wanted = set(grant.privileges)
+        if missing := tuple(sorted(wanted - held)):
+            changes.append(Change(desired.name, "grant", grant.principal, after=missing))
+        if extra := tuple(sorted(held - wanted)):
+            changes.append(Change(desired.name, "revoke", grant.principal, before=extra))
+    return changes
+
+
+# ---------------------------------------------------------------------------
 # constraints
 # ---------------------------------------------------------------------------
 
@@ -414,6 +442,12 @@ def is_applied(change: Change, live: Table | None) -> bool:
             return live.properties_map().get(change.path) == change.after
         case "set_tag":
             return live.tags_map().get(change.path) == change.after
+        case "grant":
+            wanted = change.after if isinstance(change.after, tuple) else ()
+            return set(wanted) <= set(live.grants_map().get(change.path, ()))
+        case "revoke":
+            gone = change.before if isinstance(change.before, tuple) else ()
+            return not set(gone) & set(live.grants_map().get(change.path, ()))
         case "set_column_tag":
             column = live.column(change.path)
             wanted = change.after if isinstance(change.after, tuple) else ()

@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Grants** (`grants:` on a table). A principal the spec names gets exactly
+  the privileges listed — granted or revoked to match, each revoke with a
+  warning and its undo; principals it doesn't name are left alone. Privileges
+  are checked against a known list, because as keywords they can't be quoted.
+  A rewrite puts back grants to principals the spec doesn't name.
 - **Column tags** (`tags:` on a column), additive like table tags. A rewrite
   puts back the table and column tags the spec doesn't declare, so rebuilding a
   table never diffs away what deltaplan doesn't manage.

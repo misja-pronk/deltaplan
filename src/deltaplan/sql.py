@@ -107,3 +107,26 @@ def _outer_parens_wrap(text: str) -> bool:
             if depth == 0:
                 return index == len(text) - 1
     return False
+
+
+#: Table privileges in Unity Catalog. They are keywords, so they can't be quoted
+#: like identifiers — which is why a privilege is checked against this list
+#: before it can reach a statement.
+#: https://docs.databricks.com/aws/en/data-governance/unity-catalog/manage-privileges/privileges
+TABLE_PRIVILEGES: frozenset[str] = frozenset(
+    {"ALL PRIVILEGES", "APPLY TAG", "MANAGE", "MODIFY", "SELECT"}
+)
+
+
+def normalise_privilege(privilege: str) -> str:
+    """`select` -> `SELECT`, `all_privileges` -> `ALL PRIVILEGES`."""
+    return " ".join(privilege.replace("_", " ").upper().split())
+
+
+def privilege_sql(privilege: str) -> str:
+    """A privilege, fit for a GRANT or REVOKE. Anything unknown is refused."""
+    normalised = normalise_privilege(privilege)
+    if normalised not in TABLE_PRIVILEGES:
+        known = ", ".join(sorted(TABLE_PRIVILEGES))
+        raise ValueError(f"unknown privilege {privilege!r} (known: {known})")
+    return normalised

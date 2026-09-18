@@ -83,6 +83,12 @@ def describe(change: Change) -> tuple[str, str]:
             return "~", (f"property {change.path} = {change.after!r}")
         case "set_tag":
             return "~", (f"tag {change.path} = {change.after!r}")
+        case "grant":
+            privileges = change.after if isinstance(change.after, tuple) else ()
+            return "+", (f"grant {', '.join(privileges)} to {change.path}")
+        case "revoke":
+            privileges = change.before if isinstance(change.before, tuple) else ()
+            return "-", (f"revoke {', '.join(privileges)} from {change.path}")
         case "set_column_tag":
             key, value = change.after if isinstance(change.after, tuple) else ("", "")
             return "~", (f"{leaf}  tag {key} = {value!r}")

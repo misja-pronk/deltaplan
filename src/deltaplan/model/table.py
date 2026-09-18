@@ -50,6 +50,21 @@ Constraint: TypeAlias = PrimaryKey | Check
 
 
 @dataclass(frozen=True, slots=True)
+class Grant:
+    """What one principal may do with a table.
+
+    A spec that names a principal manages that principal's privileges exactly;
+    principals it doesn't name are someone else's business.
+    """
+
+    principal: str
+    privileges: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "privileges", tuple(sorted(set(self.privileges))))
+
+
+@dataclass(frozen=True, slots=True)
 class Table:
     """A Delta table in Unity Catalog.
 
@@ -65,10 +80,14 @@ class Table:
     properties: tuple[tuple[str, str], ...] = ()
     tags: tuple[tuple[str, str], ...] = ()
     constraints: tuple[Constraint, ...] = ()
+    grants: tuple[Grant, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "properties", tuple(sorted(self.properties)))
         object.__setattr__(self, "tags", tuple(sorted(self.tags)))
+        object.__setattr__(
+            self, "grants", tuple(sorted(self.grants, key=lambda g: g.principal))
+        )
 
     # -- names -------------------------------------------------------------
     @property
@@ -105,6 +124,9 @@ class Table:
     def managed(self) -> bool:
         """True when deltaplan created this table and may therefore drop it."""
         return self.properties_map().get(MANAGED_PROPERTY, "").lower() == "true"
+
+    def grants_map(self) -> dict[str, tuple[str, ...]]:
+        return {grant.principal: grant.privileges for grant in self.grants}
 
     def primary_key(self) -> PrimaryKey | None:
         for constraint in self.constraints:

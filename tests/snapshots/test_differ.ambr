@@ -22,6 +22,8 @@
         comment=None,
         constraints=tuple(
         ),
+        grants=tuple(
+        ),
         name='main.sales.orders',
         properties=tuple(
         ),

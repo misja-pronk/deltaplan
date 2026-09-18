@@ -16,7 +16,7 @@ from typing import Any
 
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
-from deltaplan.model.table import Check, PrimaryKey, Table
+from deltaplan.model.table import Check, Grant, PrimaryKey, Table
 from deltaplan.model.types import Field, as_data_type, render_type
 from deltaplan.typeparser import parse_type
 
@@ -152,6 +152,7 @@ def _table_to_dict(table: Table) -> dict[str, Any]:
         "tags": dict(table.tags),
         "columns": [_field_to_dict(column) for column in table.columns],
         "constraints": [_value(constraint) for constraint in table.constraints],
+        "grants": {grant.principal: list(grant.privileges) for grant in table.grants},
     }
 
 
@@ -257,7 +258,7 @@ def _value_from(kind: str, raw: Any) -> Any:
             return parse_type(str(raw))
         case "add_constraint" | "drop_constraint":
             return _constraint_from_dict(raw)
-        case "set_cluster_by" | "reorder_columns" | "set_column_tag":
+        case "set_cluster_by" | "reorder_columns" | "set_column_tag" | "grant" | "revoke":
             return tuple(str(item) for item in raw)
         case _:
             return raw
@@ -293,5 +294,9 @@ def _table_from_dict(entry: dict[str, Any]) -> Table:
         tags=tuple(sorted(entry.get("tags", {}).items())),
         constraints=tuple(
             _constraint_from_dict(item) for item in entry.get("constraints", ())
+        ),
+        grants=tuple(
+            Grant(principal, tuple(privileges))
+            for principal, privileges in entry.get("grants", {}).items()
         ),
     )

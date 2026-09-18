@@ -23,7 +23,7 @@ import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 
-from deltaplan.model.table import Check, Constraint, PrimaryKey, Table
+from deltaplan.model.table import Check, Constraint, Grant, PrimaryKey, Table
 from deltaplan.model.types import Array, DataType, Field, Map, Struct
 from deltaplan.typeparser import parse_type
 
@@ -106,6 +106,8 @@ class FakeWarehouse:
             return self._comment_on_table(flat)
         if upper.startswith("ALTER TABLE"):
             return self._alter_table(flat)
+        if upper.startswith("GRANT ") or upper.startswith("REVOKE "):
+            return self._grant(flat)
         raise FakeSqlError(f"the fake warehouse does not know this statement: {flat}")
 
     # -- reads -------------------------------------------------------------
@@ -155,6 +157,18 @@ class FakeWarehouse:
                 for table in tables
                 for column in table.columns
                 for key, value in column.tags
+            )
+        if "information_schema.table_privileges" in flat:
+            return tuple(
+                {
+                    "table_name": table.short_name,
+                    "grantee": grant.principal,
+                    "privilege_type": privilege,
+                    "inherited_from": "NONE",
+                }
+                for table in tables
+                for grant in table.grants
+                for privilege in grant.privileges
             )
         if "information_schema.table_tags" in flat:
             return tuple(
@@ -272,6 +286,28 @@ class FakeWarehouse:
             raise FakeSqlError(f"cannot read: {flat}")
         table = self._table(_unquote(match.group(1)))
         self._store(_apply_alter(table, match.group(2)))
+        return ()
+
+    def _grant(self, flat: str) -> tuple[Row, ...]:
+        match = re.fullmatch(
+            r"(GRANT|REVOKE) (.+) ON TABLE (\S+) (?:TO|FROM) (\S+)", flat
+        )
+        if match is None:
+            raise FakeSqlError(f"cannot read: {flat}")
+        verb, privileges, name, principal = match.groups()
+        table = self._table(_unquote(name))
+        who = _unquote(principal)
+        held = dict(table.grants_map())
+        changed = {p.strip() for p in privileges.split(",")}
+        current = set(held.get(who, ()))
+        current = current | changed if verb == "GRANT" else current - changed
+        if current:
+            held[who] = tuple(current)
+        else:
+            held.pop(who, None)
+        self._store(
+            replace(table, grants=tuple(Grant(p, tuple(v)) for p, v in held.items()))
+        )
         return ()
 
     # -- plumbing ----------------------------------------------------------
