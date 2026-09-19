@@ -139,6 +139,17 @@ def test_validate_reports_the_file_and_line(project: Path) -> None:
     assert "unknown key 'typo'" in result.output
 
 
+def test_paths_are_shown_from_where_you_are(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (project / "tables" / "orders.yml").write_text(
+        "table: main.sales.orders\ncolumns:\n  - name: a\n    typo: int\n"
+    )
+    monkeypatch.chdir(project)
+    result = runner.invoke(app, ["validate"])
+    assert result.output.startswith("tables/orders.yml:4:5: unknown key 'typo'")
+
+
 def test_validate_fails_on_a_lint_error(project: Path) -> None:
     spec = project / "tables" / "orders.yml"
     spec.write_text(

@@ -669,7 +669,7 @@ def _project(config: Path | None) -> Project:
 def _optional_project(config: Path | None) -> Project | None:
     """`import` works without a project; everything else needs one."""
     try:
-        path = config or find_project_file(Path.cwd())
+        path = config or _from_here(find_project_file(Path.cwd()))
     except FileNotFoundError:
         return None
     try:
@@ -677,6 +677,15 @@ def _optional_project(config: Path | None) -> Project | None:
     except SpecError as error:
         err.print(f"[red]{error}[/]")
         raise typer.Exit(1) from error
+
+
+def _from_here(path: Path) -> Path:
+    """A path relative to the working directory when it is under it, so the
+    spec paths in messages read `tables/orders.yml:6:5`, not the whole disk."""
+    try:
+        return path.relative_to(Path.cwd())
+    except ValueError:
+        return path
 
 
 def _target(project: Project, name: str | None) -> Target:
