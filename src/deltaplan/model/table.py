@@ -193,6 +193,8 @@ class Securable:
     properties: tuple[tuple[str, str], ...]
     tags: tuple[tuple[str, str], ...]
     grants: tuple[Grant, ...]
+    removed_properties: tuple[str, ...]
+    removed_tags: tuple[str, ...]
 
     @property
     def parts(self) -> tuple[str, ...]:
@@ -267,6 +269,10 @@ class Table(Securable):
     hooks: Hooks | None = field(default=None, compare=False)
     #: The table's previous full name, while a rename is still to be applied.
     renamed_from: str | None = field(default=None, compare=False)
+    #: What the spec says must not be there: `tags: {pii: null}`. Spec-only —
+    #: a live object never has any — so they take no part in comparing.
+    removed_properties: tuple[str, ...] = field(default=(), compare=False)
+    removed_tags: tuple[str, ...] = field(default=(), compare=False)
 
     def __post_init__(self) -> None:
         sort_governance(self)

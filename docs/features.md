@@ -111,7 +111,8 @@ Liquid clustering keys, or `auto` to let Databricks choose them.
 
 Table tags, column tags and grants, per principal. A principal the spec names gets
 exactly those privileges. One it doesn't name is someone else's business: it's
-reported, never touched.
+reported, never touched. The same goes for a tag the spec doesn't mention, so removing
+one takes a `null`.
 
 ```yaml title="tables/customers.yml"
 --8<-- "assets/screens/feature-tags-and-grants.yml"
@@ -119,7 +120,8 @@ reported, never touched.
 
 ![Tags and grants](assets/screens/feature-tags-and-grants.svg)
 
-[Column tags →](spec.md#column-tags) · [Grants →](spec.md#grants)
+[Column tags →](spec.md#column-tags) · [Removing a tag →](spec.md#removing-a-tag-or-a-property) ·
+[Grants →](spec.md#grants)
 
 ## Masks and row filters
 

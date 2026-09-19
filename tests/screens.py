@@ -642,13 +642,14 @@ def feature_clustering(studio: Studio) -> None:
 def feature_tags_and_grants(studio: Studio) -> None:
     before = """\
         table: ${catalog}.sales.customers
+        tags: {legacy: "true"}
         columns:
           - {name: customer_id, type: bigint}
           - {name: email, type: string}
     """
     after = """\
         table: ${catalog}.sales.customers
-        tags: {domain: crm}
+        tags: {domain: crm, legacy: null}
         grants:
           - {principal: analysts, privileges: [SELECT]}
           - {principal: etl, privileges: [SELECT, MODIFY]}

@@ -163,8 +163,30 @@ def _diff_governance(desired: Securable, actual: Securable) -> list[Change]:
             changes.append(
                 Change(desired.name, "set_tag", key, live_tags.get(key), value)
             )
+    changes.extend(_removals(desired, actual))
     changes.extend(_diff_grants(desired, actual))
     return changes
+
+
+def _removals(desired: Securable, actual: Securable) -> list[Change]:
+    """What the spec says must not be there (`tags: {pii: null}`) and is.
+
+    The one way a spec removes a property or tag: leaving it out only stops
+    managing it, because deltaplan can't tell that from someone else's.
+    """
+    live_properties, live_tags = actual.properties_map(), actual.tags_map()
+    return [
+        *(
+            Change(desired.name, "unset_property", key, live_properties[key], None)
+            for key in desired.removed_properties
+            if key in live_properties
+        ),
+        *(
+            Change(desired.name, "unset_tag", key, live_tags[key], None)
+            for key in desired.removed_tags
+            if key in live_tags
+        ),
+    ]
 
 
 def unmanaged_properties(
@@ -241,11 +263,11 @@ def unmanaged_function(desired: Function, actual: Function) -> tuple[str, ...]:
 
 def _unmanaged_governance(desired: Securable, actual: Securable) -> list[str]:
     found: list[str] = []
-    declared_properties = desired.properties_map()
+    declared_properties = {*desired.properties_map(), *desired.removed_properties}
     for key in sorted(actual.properties_map()):
         if key not in declared_properties and not is_bookkeeping(key):
             found.append(f"property {key}")
-    declared_tags = desired.tags_map()
+    declared_tags = {*desired.tags_map(), *desired.removed_tags}
     for key in sorted(actual.tags_map()):
         if key not in declared_tags:
             found.append(f"tag {key}")
@@ -281,7 +303,7 @@ def spent_renames(desired: Table, actual: Table) -> tuple[str, ...]:
 def unmanaged(desired: Table, actual: Table) -> tuple[str, ...]:
     """Live things the spec says nothing about. Reported, never touched."""
     found: list[str] = []
-    desired_properties = desired.properties_map()
+    desired_properties = {*desired.properties_map(), *desired.removed_properties}
     for key, value in sorted(actual.properties_map().items()):
         if (
             key not in desired_properties
@@ -289,13 +311,13 @@ def unmanaged(desired: Table, actual: Table) -> tuple[str, ...]:
             and not is_platform_default(key, value)
         ):
             found.append(f"property {key}")
-    desired_tags = desired.tags_map()
+    desired_tags = {*desired.tags_map(), *desired.removed_tags}
     for key in sorted(actual.tags_map()):
         if key not in desired_tags:
             found.append(f"tag {key}")
     for live_column in actual.columns:
         column = desired.column(live_column.name)
-        declared = dict(column.tags) if column else {}
+        declared = {*dict(column.tags), *column.removed_tags} if column else set()
         for key, _ in live_column.tags:
             if key not in declared:
                 found.append(f"tag {key} on column {live_column.name}")
@@ -368,6 +390,7 @@ def _diff_table_metadata(desired: Table, actual: Table) -> list[Change]:
                     after=value,
                 )
             )
+    changes.extend(_removals(desired, actual))
     return changes
 
 
@@ -495,15 +518,22 @@ def _diff_column_tags(table: str, desired: Field, actual: Field) -> list[Change]
     """Column tags, additively: set what the spec names, leave the rest."""
     live = dict(actual.tags)
     return [
-        Change(
-            table,
-            "set_column_tag",
-            desired.name,
-            before=(key, live[key]) if key in live else None,
-            after=(key, value),
-        )
-        for key, value in desired.tags
-        if live.get(key) != value
+        *(
+            Change(
+                table,
+                "set_column_tag",
+                desired.name,
+                before=(key, live[key]) if key in live else None,
+                after=(key, value),
+            )
+            for key, value in desired.tags
+            if live.get(key) != value
+        ),
+        *(
+            Change(table, "unset_column_tag", desired.name, before=(key, live[key]))
+            for key in desired.removed_tags
+            if key in live
+        ),
     ]
 
 
@@ -712,6 +742,10 @@ def is_applied(change: Change, live: Relation | None) -> bool:
             return live.properties_map().get(change.path) == change.after
         case "set_tag":
             return live.tags_map().get(change.path) == change.after
+        case "unset_property":
+            return change.path not in live.properties_map()
+        case "unset_tag":
+            return change.path not in live.tags_map()
         case "grant":
             wanted = change.after if isinstance(change.after, tuple) else ()
             return set(wanted) <= set(live.grants_map().get(change.path, ()))
@@ -767,6 +801,10 @@ def _is_applied_to_table(change: Change, live: Table) -> bool:
             column = live.column(change.path)
             wanted = change.after if isinstance(change.after, tuple) else ()
             return column is not None and tuple(wanted) in column.tags
+        case "unset_column_tag":
+            column = live.column(change.path)
+            key = change.before[0] if isinstance(change.before, tuple) else ""
+            return column is None or key not in dict(column.tags)
         case "add_column":
             return type_at(live, change.path) is not None
         case "drop_column":

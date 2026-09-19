@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Removing a tag or property**: `tags: {pii: null}` in a spec means it must
+  not be there, and plans `UNSET TAGS` / `UNSET TBLPROPERTIES` with the undo.
+  Leaving a key out still only stops managing it. Tables, columns, views,
+  schemas and volumes; YAML only. Verified live.
+
 ## [0.1.0a5] - 2026-09-19
 
 Every assumption deltaplan makes about Databricks that a workspace can check is

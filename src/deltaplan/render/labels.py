@@ -126,6 +126,10 @@ def describe(change: Change) -> tuple[str, str]:
             return "~", (f"property {change.path} = {change.after!r}")
         case "set_tag":
             return "~", (f"tag {change.path} = {change.after!r}")
+        case "unset_property":
+            return "-", (f"property {change.path}")
+        case "unset_tag":
+            return "-", (f"tag {change.path}")
         case "set_mask":
             mask = change.after
             name = mask.function if isinstance(mask, Mask) else "?"
@@ -155,6 +159,9 @@ def describe(change: Change) -> tuple[str, str]:
         case "set_column_tag":
             key, value = change.after if isinstance(change.after, tuple) else ("", "")
             return "~", (f"{leaf}  tag {key} = {value!r}")
+        case "unset_column_tag":
+            key = change.before[0] if isinstance(change.before, tuple) else ""
+            return "-", (f"{leaf}  tag {key}")
         case "reorder_columns":
             order = change.after if isinstance(change.after, tuple) else ()
             return "~", (f"column order [{', '.join(order)}]")

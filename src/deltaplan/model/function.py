@@ -35,9 +35,11 @@ class Function(Securable):
     body: str
     comment: str | None = None
     grants: tuple[Grant, ...] = ()
-    # A function takes neither; the fields exist so it shares Securable's code.
+    # A function takes none of these; the fields exist so it shares Securable's code.
     properties: tuple[tuple[str, str], ...] = ()
     tags: tuple[tuple[str, str], ...] = ()
+    removed_properties: tuple[str, ...] = ()
+    removed_tags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         sort_governance(self)

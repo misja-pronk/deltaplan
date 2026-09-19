@@ -12,7 +12,7 @@ https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from deltaplan.model.table import Grant, Securable, sort_governance
 
@@ -27,6 +27,10 @@ class Volume(Securable):
     grants: tuple[Grant, ...] = ()
     # A volume spec takes none; the field exists so it shares Securable's code.
     properties: tuple[tuple[str, str], ...] = ()
+    #: What the spec says must not be there: `tags: {pii: null}`. Spec-only —
+    #: a live object never has any — so they take no part in comparing.
+    removed_properties: tuple[str, ...] = field(default=(), compare=False)
+    removed_tags: tuple[str, ...] = field(default=(), compare=False)
 
     def __post_init__(self) -> None:
         sort_governance(self)

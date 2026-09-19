@@ -287,11 +287,11 @@ class FakeWarehouse:
             self.volumes[volume.name] = replace(volume, comment=comment)
             return ()
         if upper.startswith("ALTER VOLUME"):
-            match = re.fullmatch(r"ALTER VOLUME (\S+) SET TAGS \((.*)\)", flat)
+            match = re.fullmatch(r"ALTER VOLUME (\S+) (SET|UNSET) TAGS \((.*)\)", flat)
             if match is None:
                 raise FakeSqlError(f"cannot read: {flat}")
             volume = self._volume(_unquote(match.group(1)))
-            tags = dict(volume.tags) | _pairs(match.group(2))
+            tags = _retag(dict(volume.tags), match.group(2), match.group(3))
             self.volumes[volume.name] = replace(volume, tags=tuple(sorted(tags.items())))
             return ()
         if upper.startswith("COMMENT ON SCHEMA"):
@@ -303,12 +303,12 @@ class FakeWarehouse:
             self.schema_defs[name] = replace(self._schema_def(name), comment=comment)
             return ()
         if upper.startswith("ALTER SCHEMA"):
-            match = re.fullmatch(r"ALTER SCHEMA (\S+) SET TAGS \((.*)\)", flat)
+            match = re.fullmatch(r"ALTER SCHEMA (\S+) (SET|UNSET) TAGS \((.*)\)", flat)
             if match is None:
                 raise FakeSqlError(f"cannot read: {flat}")
             name = _unquote(match.group(1)).lower()
             current = self._schema_def(name)
-            tags = dict(current.tags) | _pairs(match.group(2))
+            tags = _retag(dict(current.tags), match.group(2), match.group(3))
             self.schema_defs[name] = replace(current, tags=tuple(sorted(tags.items())))
             return ()
         if upper.startswith("DROP SCHEMA"):
@@ -878,17 +878,20 @@ class FakeWarehouse:
         return ()
 
     def _alter_view(self, flat: str) -> tuple[Row, ...]:
-        match = re.fullmatch(r"ALTER VIEW (\S+) SET (TBLPROPERTIES|TAGS) \((.*)\)", flat)
+        match = re.fullmatch(
+            r"ALTER VIEW (\S+) (SET|UNSET) (TBLPROPERTIES|TAGS) \((.*)\)", flat
+        )
         if match is None:
             raise FakeSqlError(f"the fake warehouse does not know this: {flat}")
         view = self._view(_unquote(match.group(1)))
-        added = _pairs(match.group(3))
-        if match.group(2) == "TAGS":
-            view = replace(view, tags=tuple((dict(view.tags) | added).items()))
-        else:
+        verb, what, listed = match.group(2), match.group(3), match.group(4)
+        if what == "TAGS":
             view = replace(
-                view, properties=tuple((dict(view.properties) | added).items())
+                view, tags=tuple(_retag(dict(view.tags), verb, listed).items())
             )
+        else:
+            properties = _retag(dict(view.properties), verb, listed)
+            view = replace(view, properties=tuple(properties.items()))
         self.views[view.name] = view
         return ()
 
@@ -1035,6 +1038,28 @@ def _apply_alter(table: Table, clause: str) -> Table:
     if match := re.fullmatch(r"SET TAGS \((.*)\)", clause):
         return replace(
             table, tags=tuple((dict(table.tags) | _pairs(match.group(1))).items())
+        )
+    if match := re.fullmatch(r"UNSET (TAGS|TBLPROPERTIES) \((.*)\)", clause):
+        # Removing what isn't there is a no-op — verified live.
+        if match.group(1) == "TAGS":
+            return replace(
+                table,
+                tags=tuple(_retag(dict(table.tags), "UNSET", match.group(2)).items()),
+            )
+        properties = _retag(dict(table.properties), "UNSET", match.group(2))
+        return replace(table, properties=tuple(properties.items()))
+    if match := re.fullmatch(r"ALTER COLUMN (\S+) UNSET TAGS \((.*)\)", clause):
+        path = _unquote(match.group(1))
+        listed = match.group(2)
+        return _edit_container(
+            table,
+            path,
+            _amend(
+                _leaf(path),
+                lambda f: replace(
+                    f, tags=tuple(_retag(dict(f.tags), "UNSET", listed).items())
+                ),
+            ),
         )
     if match := re.fullmatch(r"CLUSTER BY \((.*)\)", clause):
         # Naming keys turns AUTO off — verified live.
@@ -1435,6 +1460,16 @@ def _unliteral(text: str) -> str:
 
 def _idents(text: str) -> Iterable[str]:
     return [_unquote(part) for part in text.split(",") if part.strip()]
+
+
+def _retag(current: dict[str, str], verb: str, listed: str) -> dict[str, str]:
+    """SET adds `'k' = 'v'` pairs; UNSET removes `'k'` keys, present or not."""
+    if verb == "SET":
+        return current | _pairs(listed)
+    keys = {_unliteral(key) for key in re.findall(r"'(?:[^'\\]|\\.|'')*'", listed)}
+    if not keys:
+        raise FakeSqlError(f"no keys in: {listed}")
+    return {key: value for key, value in current.items() if key not in keys}
 
 
 def _pairs(text: str) -> dict[str, str]:

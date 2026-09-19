@@ -691,6 +691,8 @@ class _Planner:
                 self._tag(change)
             case "set_column_tag":
                 self._column_tag(change)
+            case "unset_property" | "unset_tag" | "unset_column_tag":
+                self._unset(change)
             case "add_column":
                 self._add_column(change, facts)
             case "drop_column":
@@ -1205,6 +1207,42 @@ class _Planner:
             path=change.path,
             sql=set_tags_sql(change.table, ((change.path, value),), self._object),
         )
+
+    def _unset(self, change: Change) -> None:
+        """What a spec says must not be there: `tags: {pii: null}`. Removing
+        something already gone is a no-op in Databricks (verified live), so a
+        resume is safe; the undo puts back the value it had."""
+        name = quote_qualified(change.table)
+        if change.kind == "unset_column_tag":
+            key, value = change.before if isinstance(change.before, tuple) else ("", "")
+            self.emit(
+                change.table,
+                "UNSET COLUMN TAGS",
+                "meta",
+                path=change.path,
+                sql=(
+                    f"ALTER TABLE {name} ALTER COLUMN {quote_ident(change.path)} "
+                    f"UNSET TAGS ({quote_literal(key)})"
+                ),
+                undo_hint=column_tags_sql(change.table, change.path, ((key, value),)),
+            )
+            return
+        before = change.before if isinstance(change.before, str) else ""
+        if change.kind == "unset_tag":
+            sql = f"ALTER {self._object} {name} UNSET TAGS ({quote_literal(change.path)})"
+            undo = set_tags_sql(change.table, ((change.path, before),), self._object)
+            title = "UNSET TAGS"
+        else:
+            sql = (
+                f"ALTER {self._object} {name} "
+                f"UNSET TBLPROPERTIES ({quote_literal(change.path)})"
+            )
+            undo = (
+                f"ALTER {self._object} {name} SET TBLPROPERTIES "
+                f"({quote_literal(change.path)} = {quote_literal(before)})"
+            )
+            title = "UNSET TBLPROPERTIES"
+        self.emit(change.table, title, "meta", path=change.path, sql=sql, undo_hint=undo)
 
     def _column_tag(self, change: Change) -> None:
         key, value = change.after if isinstance(change.after, tuple) else ("", "")

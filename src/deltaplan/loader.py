@@ -25,6 +25,7 @@ from deltaplan.model.function import Function, Parameter
 from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
     MAINTAINED_PROPERTIES,
+    MANAGED_PROPERTY,
     PREREQUISITE_PROPERTIES,
     Check,
     Constraint,
@@ -340,6 +341,47 @@ def _string_map(ctx: _Ctx, node: Node, what: str) -> tuple[tuple[str, str], ...]
     )
 
 
+def _settable_map(
+    ctx: _Ctx, node: Node, what: str
+) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...]]:
+    """Tags or properties: what to set, and what must not be there.
+
+    `pii: null` (or `~`) removes a key — leaving it out only stops managing it.
+    An empty value is an error rather than a removal, so a line typed halfway
+    can't delete a tag.
+    """
+    pairs: list[tuple[str, str]] = []
+    removed: list[str] = []
+    for key, (value_node, _) in _mapping(ctx, node, what).items():
+        if (
+            isinstance(value_node, ScalarNode)
+            and value_node.tag == "tag:yaml.org,2002:null"
+        ):
+            if str(value_node.value).lower() not in {"null", "~"}:
+                raise SpecError(
+                    f"{what}: {key!r} has no value — give one, or write `null` to "
+                    "remove it",
+                    ctx.loc(value_node),
+                )
+            if key == MANAGED_PROPERTY:
+                raise SpecError(
+                    f"{key} can't be removed: it is how deltaplan knows a table "
+                    "is its own",
+                    ctx.loc(value_node),
+                )
+            removed.append(key)
+            continue
+        pairs.append((key, _string(ctx, value_node, f"{what} value for {key!r}")))
+    return tuple(pairs), tuple(removed)
+
+
+def _settable(
+    pairs: tuple[tuple[str, str], ...], removed: tuple[str, ...]
+) -> dict[str, str | None]:
+    """The other way round: a map with `null` for what must not be there."""
+    return {**dict(pairs), **dict.fromkeys(removed)}
+
+
 def _string_list(ctx: _Ctx, node: Node, what: str) -> tuple[str, ...]:
     return tuple(
         _string(ctx, item, f"{what} entry") for item in _sequence(ctx, node, what)
@@ -452,8 +494,9 @@ def _read_field(ctx: _Ctx, node: Node) -> Field:
     if "using" in items:
         using = _string(ctx, items["using"][0], f"using of {name!r}")
     tags: tuple[tuple[str, str], ...] = ()
+    removed_tags: tuple[str, ...] = ()
     if "tags" in items:
-        tags = _string_map(ctx, items["tags"][0], f"tags of {name!r}")
+        tags, removed_tags = _settable_map(ctx, items["tags"][0], f"tags of {name!r}")
     mask = None
     if "mask" in items:
         mask = _read_mask(ctx, items["mask"][0])
@@ -474,6 +517,7 @@ def _read_field(ctx: _Ctx, node: Node) -> Field:
         renamed_from=renamed_from,
         using=using,
         tags=tags,
+        removed_tags=removed_tags,
         mask=mask,
         identity=identity,
         generated=generated,
@@ -710,12 +754,13 @@ def _read_volume_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Volume:
     name = _string(ctx, items["volume"][0], "volume name")
     comment = _string(ctx, items["comment"][0], "comment") if "comment" in items else None
     tags: tuple[tuple[str, str], ...] = ()
+    removed_tags: tuple[str, ...] = ()
     if "tags" in items:
-        tags = _string_map(ctx, items["tags"][0], "tags")
+        tags, removed_tags = _settable_map(ctx, items["tags"][0], "tags")
     grants: tuple[Grant, ...] = ()
     if "grants" in items:
         grants = _read_grants(ctx, items["grants"][0], allowed=VOLUME_PRIVILEGES)
-    return Volume(name, comment, tags, grants)
+    return Volume(name, comment, tags, grants, removed_tags=removed_tags)
 
 
 def _read_schema_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Schema:
@@ -723,12 +768,13 @@ def _read_schema_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Schema:
     name = _string(ctx, items["schema"][0], "schema name")
     comment = _string(ctx, items["comment"][0], "comment") if "comment" in items else None
     tags: tuple[tuple[str, str], ...] = ()
+    removed_tags: tuple[str, ...] = ()
     if "tags" in items:
-        tags = _string_map(ctx, items["tags"][0], "tags")
+        tags, removed_tags = _settable_map(ctx, items["tags"][0], "tags")
     grants: tuple[Grant, ...] = ()
     if "grants" in items:
         grants = _read_grants(ctx, items["grants"][0], allowed=SCHEMA_PRIVILEGES)
-    return Schema(name, comment, tags, grants)
+    return Schema(name, comment, tags, grants, removed_tags=removed_tags)
 
 
 def _read_function_spec(
@@ -774,15 +820,28 @@ def _read_view(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Vie
     if "comment" in items:
         comment = _string(ctx, items["comment"][0], "view comment")
     properties: tuple[tuple[str, str], ...] = ()
+    removed_properties: tuple[str, ...] = ()
     if "properties" in items:
-        properties = _string_map(ctx, items["properties"][0], "properties")
+        properties, removed_properties = _settable_map(
+            ctx, items["properties"][0], "properties"
+        )
     tags: tuple[tuple[str, str], ...] = ()
+    removed_tags: tuple[str, ...] = ()
     if "tags" in items:
-        tags = _string_map(ctx, items["tags"][0], "tags")
+        tags, removed_tags = _settable_map(ctx, items["tags"][0], "tags")
     grants: tuple[Grant, ...] = ()
     if "grants" in items:
         grants = _read_grants(ctx, items["grants"][0])
-    return View(name, query, comment, properties, tags, grants)
+    return View(
+        name,
+        query,
+        comment,
+        properties,
+        tags,
+        grants,
+        removed_properties=removed_properties,
+        removed_tags=removed_tags,
+    )
 
 
 def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Table:
@@ -814,11 +873,15 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
         else:
             cluster_by = _string_list(ctx, cluster_node, "cluster_by")
     properties: tuple[tuple[str, str], ...] = ()
+    removed_properties: tuple[str, ...] = ()
     if "properties" in items:
-        properties = _string_map(ctx, items["properties"][0], "properties")
+        properties, removed_properties = _settable_map(
+            ctx, items["properties"][0], "properties"
+        )
     tags: tuple[tuple[str, str], ...] = ()
+    removed_tags: tuple[str, ...] = ()
     if "tags" in items:
-        tags = _string_map(ctx, items["tags"][0], "tags")
+        tags, removed_tags = _settable_map(ctx, items["tags"][0], "tags")
     constraints: tuple[Constraint, ...] = ()
     if "constraints" in items:
         constraints = tuple(
@@ -864,6 +927,8 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
         row_filter=row_filter,
         hooks=hooks,
         renamed_from=renamed_from,
+        removed_properties=removed_properties,
+        removed_tags=removed_tags,
     )
 
 
@@ -1437,11 +1502,13 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
         document["cluster_by"] = "auto"
     elif table.cluster_by:
         document["cluster_by"] = list(table.cluster_by)
-    if table.tags:
-        document["tags"] = dict(table.tags)
+    if table.tags or table.removed_tags:
+        document["tags"] = _settable(table.tags, table.removed_tags)
     properties = spec_properties(table)
-    if properties:
-        document["properties"] = properties
+    if properties or table.removed_properties:
+        document["properties"] = _settable(
+            tuple(properties.items()), table.removed_properties
+        )
     document["columns"] = [_column_document(column) for column in table.columns]
     constraints = [
         constraint
@@ -1475,8 +1542,8 @@ def _dump_securable(key: str, securable: Schema | Volume, name: str) -> str:
     document: dict[str, object] = {key: name}
     if securable.comment is not None:
         document["comment"] = securable.comment
-    if securable.tags:
-        document["tags"] = dict(securable.tags)
+    if securable.tags or securable.removed_tags:
+        document["tags"] = _settable(securable.tags, securable.removed_tags)
     if securable.grants:
         document["grants"] = [
             {"principal": grant.principal, "privileges": list(grant.privileges)}
@@ -1512,11 +1579,11 @@ def _dump_view(view: View, name: str) -> str:
     document: dict[str, object] = {"view": name}
     if view.comment is not None:
         document["comment"] = view.comment
-    properties = {k: v for k, v in view.properties if not is_bookkeeping(k)}
-    if properties:
-        document["properties"] = properties
-    if view.tags:
-        document["tags"] = dict(view.tags)
+    properties = tuple((k, v) for k, v in view.properties if not is_bookkeeping(k))
+    if properties or view.removed_properties:
+        document["properties"] = _settable(properties, view.removed_properties)
+    if view.tags or view.removed_tags:
+        document["tags"] = _settable(view.tags, view.removed_tags)
     if view.grants:
         document["grants"] = [
             {"principal": grant.principal, "privileges": list(grant.privileges)}
@@ -1550,8 +1617,8 @@ def _column_document(column: Field) -> dict[str, object]:
         rendered["nullable"] = False
     if column.comment is not None:
         rendered["comment"] = column.comment
-    if column.tags:
-        rendered["tags"] = dict(column.tags)
+    if column.tags or column.removed_tags:
+        rendered["tags"] = _settable(column.tags, column.removed_tags)
     if column.identity is not None:
         identity = column.identity
         default_identity = identity.start == 1 and identity.increment == 1

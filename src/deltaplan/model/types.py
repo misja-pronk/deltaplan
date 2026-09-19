@@ -151,6 +151,8 @@ class Field:
     #: Unity Catalog tags on a column. Top-level columns only; stored sorted, as
     #: the unordered map they are.
     tags: tuple[tuple[str, str], ...] = ()
+    #: Tags the spec says must not be on the column: `tags: {pii: null}`.
+    removed_tags: tuple[str, ...] = field(default=(), compare=False)
     #: A column mask. Top-level columns only.
     mask: Mask | None = None
     #: How the column gets a value it wasn't given. At most one of the three;

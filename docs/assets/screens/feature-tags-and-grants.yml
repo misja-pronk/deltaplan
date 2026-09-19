@@ -1,5 +1,5 @@
 table: ${catalog}.sales.customers
-tags: {domain: crm}
+tags: {domain: crm, legacy: null}
 grants:
   - {principal: analysts, privileges: [SELECT]}
   - {principal: etl, privileges: [SELECT, MODIFY]}

@@ -113,6 +113,11 @@ def _grants(allowed: Iterable[str]) -> Schema:
 
 
 STRING_MAP: Schema = {"type": "object", "additionalProperties": {"type": "string"}}
+#: Tags and properties: a value sets a key, `null` says it must not be there.
+SETTABLE_MAP: Schema = {
+    "type": "object",
+    "additionalProperties": {"type": ["string", "null"]},
+}
 NAMES: Schema = {"type": "array", "items": {"type": "string"}}
 
 
@@ -175,7 +180,7 @@ def spec_schema() -> Schema:
                 "How to fill it from the rest of the row: for a rewrite's conversion, "
                 "or a new column's backfill."
             ),
-            "tags": STRING_MAP,
+            "tags": SETTABLE_MAP,
             "mask": {
                 "description": "A column mask: a function name, or with using_columns.",
                 "oneOf": [
@@ -265,8 +270,8 @@ def spec_schema() -> Schema:
                 "description": "Liquid clustering keys, or `auto`.",
                 "oneOf": [NAMES, {"type": "string", "pattern": "^[Aa][Uu][Tt][Oo]$"}],
             },
-            "tags": STRING_MAP,
-            "properties": STRING_MAP,
+            "tags": SETTABLE_MAP,
+            "properties": SETTABLE_MAP,
             "columns": {
                 "type": "array",
                 "items": {"$ref": "#/definitions/field"},
@@ -296,8 +301,8 @@ def spec_schema() -> Schema:
             "view": _text("catalog.schema.view"),
             "query": _text("The view's query, kept as written."),
             "comment": {"type": "string"},
-            "tags": STRING_MAP,
-            "properties": STRING_MAP,
+            "tags": SETTABLE_MAP,
+            "properties": SETTABLE_MAP,
             "grants": _grants(TABLE_PRIVILEGES),
         },
         required={"view", "query"},
@@ -328,7 +333,7 @@ def spec_schema() -> Schema:
         {
             "schema": _text("catalog.schema"),
             "comment": {"type": "string"},
-            "tags": STRING_MAP,
+            "tags": SETTABLE_MAP,
             "grants": _grants(SCHEMA_PRIVILEGES),
         },
         required={"schema"},
@@ -339,7 +344,7 @@ def spec_schema() -> Schema:
         {
             "volume": _text("catalog.schema.volume — a managed volume"),
             "comment": {"type": "string"},
-            "tags": STRING_MAP,
+            "tags": SETTABLE_MAP,
             "grants": _grants(VOLUME_PRIVILEGES),
         },
         required={"volume"},

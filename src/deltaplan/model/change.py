@@ -32,8 +32,11 @@ ChangeKind: TypeAlias = Literal[
     "set_table_comment",
     "set_cluster_by",
     "set_property",
+    "unset_property",
     "set_tag",
+    "unset_tag",
     "set_column_tag",
+    "unset_column_tag",
     "set_mask",
     "set_row_filter",
     "set_default",
@@ -62,7 +65,9 @@ CREATE_KINDS: frozenset[str] = frozenset(
 TABLE_LEVEL_KINDS: frozenset[str] = frozenset(
     {
         "set_property",
+        "unset_property",
         "set_tag",
+        "unset_tag",
         "grant",
         "revoke",
         "set_row_filter",

@@ -289,3 +289,46 @@ def test_a_volume_spec_reads_back(
     assert again.empty, [
         (c.kind, c.path, c.after) for d in again.diffs for c in d.changes
     ]
+
+
+def test_null_removes_a_tag_and_a_property(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """`tags: {pii: null}` plans UNSET TAGS / UNSET TBLPROPERTIES, and removing
+    what isn't there is a no-op, so the plan converges and re-running is safe.
+    https://docs.databricks.com/aws/en/database-objects/tags
+    """
+    email = col("email", "string")
+    tagged = table(
+        col("id", "bigint"),
+        Field(email.name, email.type, tags=(("pii", "email"),)),
+        name=f"{schema}.people",
+        tags=(("domain", "crm"), ("legacy", "true")),
+        properties=(("team", "crm"),),
+    )
+    apply(planned([tagged], introspector), runner, introspector)
+
+    removed = replace(
+        tagged,
+        columns=(
+            tagged.columns[0],
+            Field(email.name, email.type, removed_tags=("pii",)),
+        ),
+        tags=(("domain", "crm"),),
+        removed_tags=("legacy",),
+        properties=(),
+        removed_properties=("team",),
+    )
+    plan = planned([removed], introspector)
+    assert {s.title for s in plan.steps} == {
+        "UNSET TAGS",
+        "UNSET COLUMN TAGS",
+        "UNSET TBLPROPERTIES",
+    }
+    apply(plan, runner, introspector)
+    assert planned([removed], introspector).empty
+    live = introspector.table(tagged.name)
+    assert live is not None
+    assert dict(live.table.tags) == {"domain": "crm"}
+    assert live.table.columns[1].tags == ()
+    assert "team" not in live.table.properties_map()

@@ -8,7 +8,7 @@ whatever its query returns, so a view spec declares the query, not the columns.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypeAlias
 
 from deltaplan.model.function import Function
@@ -27,6 +27,10 @@ class View(Securable):
     properties: tuple[tuple[str, str], ...] = ()
     tags: tuple[tuple[str, str], ...] = ()
     grants: tuple[Grant, ...] = ()
+    #: What the spec says must not be there: `tags: {pii: null}`. Spec-only —
+    #: a live object never has any — so they take no part in comparing.
+    removed_properties: tuple[str, ...] = field(default=(), compare=False)
+    removed_tags: tuple[str, ...] = field(default=(), compare=False)
 
     def __post_init__(self) -> None:
         sort_governance(self)

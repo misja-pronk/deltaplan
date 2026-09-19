@@ -244,6 +244,30 @@ tags in the spec are set, and tags someone else put on the column are listed as
 unmanaged and left alone — including across a rewrite, which puts them back after
 rebuilding the table.
 
+## Removing a tag or a property
+
+Leaving a tag or property out of a spec doesn't remove it: deltaplan can't tell "I stopped
+managing this" from "someone else set this", so it reports the key as unmanaged and
+leaves it alone. To remove one, say so with `null`:
+
+```yaml
+tags:
+  domain: sales
+  legacy: null                  # must not be there
+properties:
+  delta.enableChangeDataFeed: null
+columns:
+  - name: email
+    type: string
+    tags: {pii: null}
+```
+
+The plan shows each as `- tag legacy`, with the statement that would put it back as its
+undo. It works for tags on tables, columns, views, schemas and volumes, and properties
+on tables and views. A key that is already gone plans nothing, and an empty value
+(`legacy:`) is an error rather than a removal, so a line typed halfway can't delete a
+tag. `deltaplan.managed` can't be removed: it is how deltaplan knows a table is its own.
+
 ## Identity, generated and default columns
 
 ```yaml
@@ -574,5 +598,6 @@ and it can't be dropped and made again, so deltaplan refuses such a change and s
 
 Properties, tags and constraints that exist on the live table but aren't in the spec are
 reported as **unmanaged** and never diffed away — deltaplan can't tell "I stopped
-managing this" from "someone else owns this", so it doesn't guess. The same goes for
+managing this" from "someone else owns this", so it doesn't guess. To remove a tag or
+property, [say `null`](#removing-a-tag-or-a-property). The same goes for
 tables in the schema that no spec describes, and for views and non-Delta tables.

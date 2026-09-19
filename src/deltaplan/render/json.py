@@ -434,7 +434,14 @@ def _value_from(kind: str, raw: Any) -> Any:
             return _constraint_from_dict(raw)
         case "set_cluster_by" if isinstance(raw, str):
             return raw  # "auto"
-        case "set_cluster_by" | "reorder_columns" | "set_column_tag" | "grant" | "revoke":
+        case (
+            "set_cluster_by"
+            | "reorder_columns"
+            | "set_column_tag"
+            | "unset_column_tag"
+            | "grant"
+            | "revoke"
+        ):
             return tuple(str(item) for item in raw)
         case _:
             return raw

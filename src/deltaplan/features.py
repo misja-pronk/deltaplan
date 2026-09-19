@@ -185,6 +185,14 @@ FEATURES: tuple[Feature, ...] = (
     ),
     Feature(
         "Tables",
+        "Removing a tag or property (`null`)",
+        True,
+        False,
+        _table(tail="\nALTER TABLE main.sales.orders UNSET TAGS ('pii');"),
+        "a SQL spec says what is there; `pii: null` in YAML says what isn't",
+    ),
+    Feature(
+        "Tables",
         "Column renames (`renamed_from`)",
         True,
         False,
