@@ -631,14 +631,14 @@ class _Planner:
         # rest of the shape is put back with ordinary ALTERs — worked out by the
         # differ rather than by a second hand-rolled list.
         finishing = compute_changes(desired, ctas_result(desired))
-        # TODO(verify): whether REPLACE keeps column and table tags. Assuming it
-        # doesn't, the tags the spec *doesn't* declare are put back as they were —
-        # a rewrite must not diff away what deltaplan doesn't manage.
+        # REPLACE keeps the table's tags and grants, and a column's tags while
+        # it keeps its name (verified live). The ones the spec doesn't declare
+        # are put back all the same: it costs a statement, and it covers a column
+        # renamed by the same rewrite — a rewrite must not diff away what
+        # deltaplan doesn't manage.
         carried = _unmanaged_tags(desired, live)
-        unreachable = [change for change in finishing if needs_rewrite(change)]
         for change in finishing:
-            if change not in unreachable:
-                self.plan_change(change, facts)
+            self.plan_change(change, facts)
         # Constraints the spec doesn't declare are put back too: a query result
         # carries none.
         declared_checks = {check.name.casefold() for check in desired.checks()}
@@ -670,25 +670,6 @@ class _Planner:
                     sql=set_tags_sql(table_diff.table, tags),
                     note="put back after the rewrite, as the table had them",
                 )
-        if unreachable:
-            # A rewrite builds the new table out of a query, and a query result
-            # has no required fields inside a struct. There is no ALTER for it
-            # either, so say so rather than planning something that can't work.
-            # TODO(verify): whether any runtime can set NOT NULL on a nested
-            # field after the fact.
-            paths = ", ".join(change.path for change in unreachable)
-            self.emit(
-                table_diff.table,
-                "UNREACHABLE",
-                "rewrite",
-                sql=None,
-                note=(
-                    f"a rewrite cannot make {paths} NOT NULL: the new table is "
-                    "built from a query, and a query result has no required "
-                    "fields inside a struct. Drop `nullable: false` there, or "
-                    "rewrite the table by hand"
-                ),
-            )
         self.emit(
             table_diff.table,
             "DROP staging",
@@ -1361,14 +1342,6 @@ class _Planner:
         )
 
     def _set_nullable(self, change: Change, facts: TableFacts) -> None:
-        if needs_rewrite(change):
-            self._emit_rewrite(
-                change,
-                facts,
-                title="REWRITE",
-                note="nullability of a nested field cannot be altered in place",
-            )
-            return
         if change.after is False:
             self._emit_set_not_null(change, facts, warnings=(NOT_NULL_WARNING,))
             return
@@ -1758,16 +1731,11 @@ def needs_rewrite(change: Change) -> bool:
     The one place that decides. `plan_table` asks it up front, because a table
     that needs a rewrite is rebuilt whole rather than patched change by change.
     """
-    match change.kind:
-        case "change_type":
-            # A map key widens in place like any other field — verified live.
-            return not widens(change.before, change.after)
-        case "set_nullable":
-            # TODO(verify): no runtime we know of can alter a nested field's
-            # nullability in place.
-            return change.nested
-        case _:
-            return False
+    # A nested field's nullability is an ordinary ALTER, SET NOT NULL and DROP
+    # NOT NULL alike — verified live, as is widening a map key in place.
+    if change.kind == "change_type":
+        return not widens(change.before, change.after)
+    return False
 
 
 def _rewrites(table_diff: TableDiff) -> bool:

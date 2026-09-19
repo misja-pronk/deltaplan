@@ -415,7 +415,21 @@ def test_what_deltaplan_refuses_to_invent(
     assert "using:" in (unrunnable[0].note or "")
 
 
-def test_a_nested_not_null_cannot_be_reached_by_a_rewrite() -> None:
+def test_a_nested_not_null_is_set_in_place() -> None:
+    """SET NOT NULL and DROP NOT NULL work on a struct's field — verified live."""
+    required = table(
+        *[c for c in LIVE.columns if c.name != "address"],
+        col("address", "struct<street:string not null,old_zip:string>"),
+        name=NAME,
+        comment=LIVE.comment,
+    )
+    fake, plan = plan_against(required, LIVE)
+    assert [s.title for s in plan.steps] == ["SET NOT NULL"]
+    run(plan, fake)
+    converge(LIVE, live_now(fake))
+
+
+def test_a_nested_not_null_is_put_back_after_a_rewrite() -> None:
     desired = table(
         *[c for c in LIVE.columns if c.name not in {"amount", "address"}],
         col("amount", "string"),  # forces the rewrite
@@ -423,7 +437,5 @@ def test_a_nested_not_null_cannot_be_reached_by_a_rewrite() -> None:
         name=NAME,
         comment=LIVE.comment,
     )
-    _, plan = plan_against(desired, LIVE)
-    unreachable = [step for step in plan.steps if step.title == "UNREACHABLE"]
-    assert len(unreachable) == 1
-    assert "address.street" in (unreachable[0].note or "")
+    fake = converge(desired, LIVE)
+    assert "address" in fake.tables[NAME].column_names

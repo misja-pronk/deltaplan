@@ -111,11 +111,6 @@ can't — a struct becoming an array, a map whose shape moved — it says so and
     classed `destructive`, names what it drops, and `apply` refuses it without
     `--allow-destructive`.
 
-!!! warning "One thing a rewrite cannot do"
-    It cannot make a field *inside a struct* `NOT NULL`, because the new table is built
-    from a query and a query result has no required nested fields. deltaplan refuses the
-    plan rather than silently dropping the constraint.
-
 ## When something goes wrong
 
 DDL is not transactional across statements, so deltaplan makes no rollback promise. It

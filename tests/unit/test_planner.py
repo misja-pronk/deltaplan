@@ -203,14 +203,15 @@ def test_a_kind_change_is_a_rewrite() -> None:
     assert only(plan_of(desired, live)).risk == "rewrite"
 
 
-def test_not_null_on_a_nested_field_is_a_rewrite() -> None:
-    # TODO(verify): no runtime we know of can alter a nested field's nullability
-    # in place; planned as a rewrite rather than a step that fails at apply time.
+def test_not_null_on_a_nested_field_is_an_alter() -> None:
+    # Verified live: SET NOT NULL takes a struct field's path, and a row whose
+    # struct is NULL counts as a NULL field — which is what the precheck counts.
     live = table(col("address", "struct<zip:string>"))
     desired = table(col("address", "struct<zip:string not null>"))
     step = only(plan_of(desired, live))
-    assert step.risk == "rewrite"
-    assert step.note is not None and "nested field" in step.note
+    assert step.risk == "meta"
+    assert step.sql is not None and "`address`.`zip` SET NOT NULL" in step.sql
+    assert step.precheck is not None and "`address`.`zip` IS NULL" in step.precheck
 
 
 def test_dropping_a_column_is_destructive_and_needs_column_mapping() -> None:
@@ -418,11 +419,10 @@ def test_needs_rewrite_for_type_changes(before: str, after: str, expected: bool)
     assert [needs_rewrite(change) for change in changes] == [expected]
 
 
-def test_needs_rewrite_for_nested_nullability() -> None:
+def test_nullability_never_needs_a_rewrite() -> None:
     live = table(col("a", "struct<b:string>"))
     desired = table(col("a", "struct<b:string not null>"))
-    assert [needs_rewrite(c) for c in diff(desired, live)] == [True]
-    # Top-level nullability is an ordinary ALTER.
+    assert [needs_rewrite(c) for c in diff(desired, live)] == [False]
     assert [
         needs_rewrite(c)
         for c in diff(table(col("a", "int", nullable=False)), table(col("a", "int")))

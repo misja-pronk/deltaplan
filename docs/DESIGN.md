@@ -113,6 +113,8 @@ There is no state file; Unity Catalog is the state.
 
 Nested-field rules to verify against current Databricks docs and encode as tests: add nested field (meta), rename/drop nested (feature), widen nested (feature), reorder (meta, opt-in diff), `SET NOT NULL` on nested (unsupported → rewrite or error), map key change (rewrite).
 
+> **Verified live (2026-09-19), two of these differ:** `SET NOT NULL` and `DROP NOT NULL` on a struct's field are ordinary `ALTER`s (meta), and a map key widens in place like any other field — only a key change that isn't a widening is a rewrite. `tests/integration/test_live_assumptions.py` and `test_live_round_trip.py` hold the evidence.
+
 ## Failure model
 
 DDL is not transactional across statements. No rollback promise.

@@ -86,8 +86,8 @@ Two departures worth knowing: the design's single `CREATE OR REPLACE TABLE …
 AS SELECT` is staged in two statements, because a self-referencing RTAS is
 unverified (TODO(verify) in `replace_table_sql`) and staging makes the expensive
 step repeatable; and `using:` is a new spec hint for conversions deltaplan won't
-invent. A rewrite cannot set NOT NULL on a nested field — it refuses rather than
-dropping the constraint.
+invent. A nested field's NOT NULL is an ordinary ALTER (verified live, against
+the design's guess), so a rewrite puts it back like everything else.
 
 **The rest of the design's safety model is in too**: ownership claims (a spec
 for someone else's table plans a visible `claim_table`), strict schemas (managed
