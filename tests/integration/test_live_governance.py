@@ -13,6 +13,7 @@ the statement, and reads back what was written.
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 
 import pytest
 
@@ -21,7 +22,7 @@ from deltaplan.history import MemoryHistory
 from deltaplan.introspect import Introspector, WarehouseRunner
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.plan import Plan
-from deltaplan.model.table import Grant, Table
+from deltaplan.model.table import ForeignKey, Grant, PrimaryKey, RowFilter, Table
 from deltaplan.model.types import Field, Mask, Primitive
 from deltaplan.model.view import Relation, View
 from deltaplan.planning import plan_tables
@@ -72,7 +73,8 @@ def test_a_view_reads_back_as_its_spec(
 ) -> None:
     """The load-bearing assumption behind view diffs: view_definition is the
     query as written. If Unity Catalog rewrote it, every plan would show a
-    replace that isn't one."""
+    replace that isn't one. A view's properties come from SHOW TBLPROPERTIES,
+    whose columns are `key` and `value`."""
     base = table(
         col("id", "bigint"), col("amount", "decimal(18,2)"), name=f"{schema}.orders"
     )
@@ -80,6 +82,7 @@ def test_a_view_reads_back_as_its_spec(
         f"{schema}.big_orders",
         f"SELECT id, amount FROM {quote_qualified(base.name)} WHERE amount > 1000",
         comment="Orders over 1000",
+        properties=(("team", "sales"),),
         tags=(("domain", "sales"),),
     )
     apply(planned([base, view], introspector), runner, introspector)
@@ -100,6 +103,56 @@ def test_a_mask_is_set_and_reads_back(
     )
     apply(planned([spec], introspector), runner, introspector)
     assert planned([spec], introspector).empty, "the mask must read back"
+
+
+def test_a_row_filter_set_at_creation_reads_back(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """CREATE TABLE puts WITH ROW FILTER after TBLPROPERTIES."""
+    only_eu = Function(
+        f"{schema}.only_eu",
+        (Parameter("region", Primitive("string")),),
+        Primitive("boolean"),
+        "region = 'eu'",
+    )
+    spec = replace(
+        table(col("id", "bigint"), col("region", "string"), name=f"{schema}.sales"),
+        comment="Filtered",
+        row_filter=RowFilter(only_eu.name, ("region",)),
+    )
+    plan = planned([spec, only_eu], introspector)
+    [create] = [step for step in plan.steps if step.title == "CREATE TABLE sales"]
+    assert "WITH ROW FILTER" in (create.sql or "")
+    apply(plan, runner, introspector)
+    assert planned([spec, only_eu], introspector).empty
+
+
+def test_a_foreign_key_reads_back(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """Foreign keys come from referential_constraints, and the referenced key's
+    columns from key_column_usage.
+    https://docs.databricks.com/aws/en/sql/language-manual/information-schema/referential_constraints
+    """
+    customers = table(
+        col("customer_id", "bigint", nullable=False),
+        name=f"{schema}.customers",
+        constraints=(PrimaryKey(("customer_id",), "customers_pk"),),
+    )
+    orders = table(
+        col("order_id", "bigint"),
+        col("customer_id", "bigint"),
+        name=f"{schema}.orders",
+        constraints=(
+            ForeignKey(
+                ("customer_id",), customers.name, ("customer_id",), "orders_customer_fk"
+            ),
+        ),
+    )
+    apply(planned([customers, orders], introspector), runner, introspector)
+    live = introspector.table(orders.name)
+    assert live is not None and live.table.foreign_keys() == orders.foreign_keys()
+    assert planned([customers, orders], introspector).empty
 
 
 def test_a_function_reads_back_as_its_spec(

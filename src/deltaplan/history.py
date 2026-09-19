@@ -196,7 +196,8 @@ class DeltaHistory:
         """
         # `held` rather than `lock` as the alias: LOCK is a keyword in enough
         # dialects to be worth avoiding.
-        # TODO(verify): MERGE and the INTERVAL literal against a live warehouse.
+        # MERGE and the INTERVAL literal are verified live by the lock tests in
+        # `test_live_apply.py`.
         self.runner.query(
             f"MERGE INTO {self._table('lock')} AS held "
             f"USING (SELECT {quote_literal(target)} AS id) AS candidate "

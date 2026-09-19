@@ -794,8 +794,9 @@ class _Planner:
     def _creation_only(self, change: Change) -> None:
         """Identity and generated columns exist only from table creation.
 
-        TODO(verify): that neither can be added to, or changed on, an existing
-        table with ALTER. https://docs.databricks.com/aws/en/delta/generated-columns
+        Verified live: `ADD COLUMN … GENERATED ALWAYS AS` is a syntax error, for
+        an identity and an expression alike.
+        https://docs.databricks.com/aws/en/delta/generated-columns
         """
         what = "an identity" if change.kind == "set_identity" else "a generated column"
         self.emit(
@@ -987,8 +988,9 @@ class _Planner:
     def _rename_table(self, change: Change) -> None:
         old = change.before
         assert isinstance(old, str)
-        # TODO(verify): that RENAME TO takes a fully qualified name in the same
-        # schema. https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-alter-table
+        # RENAME TO takes a fully qualified name — verified live by
+        # `test_a_table_is_renamed_with_its_data`.
+        # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-alter-table
         self.emit(
             change.table,
             "RENAME TABLE",
@@ -1036,9 +1038,9 @@ class _Planner:
             for grant in function.grants:
                 self._emit_grant(function.name, grant.principal, grant.privileges)
             return
-        # TODO(verify): whether CREATE OR REPLACE FUNCTION keeps the function's
-        # grants. Put them back as they were, as for a view, so the answer doesn't
-        # matter; the spec's own grant changes follow as their own steps.
+        # CREATE OR REPLACE FUNCTION drops the function's grants (verified live),
+        # so they are put back as they were, as for a view; the spec's own grant
+        # changes follow as their own steps.
         # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create-sql-function
         assert isinstance(previous, Function)
         change_index = self._change
@@ -1080,10 +1082,11 @@ class _Planner:
             undo_hint=create_view_sql(previous),
             note="readers see the new definition from the moment it runs",
         )
-        # TODO(verify): whether CREATE OR REPLACE VIEW keeps the view's tags and
-        # grants. Put them back as they were, so the answer doesn't matter; the
-        # spec's own changes to them follow as their own steps. These belong to
-        # the view rather than the change, so a resume runs them again.
+        # CREATE OR REPLACE VIEW drops the view's tags, grants and properties
+        # (verified live). Properties are carried in the statement above; tags
+        # and grants are put back as they were, and the spec's own changes to
+        # them follow as their own steps. These belong to the view rather than
+        # the change, so a resume runs them again.
         change_index = self._change
         self._change = -1
         if previous.tags:
@@ -1115,8 +1118,8 @@ class _Planner:
             "destructive",
             sql=f"DROP TABLE {quote_qualified(change.table)}",
             est_bytes=facts.size_bytes,
-            # TODO(verify): UNDROP covers managed tables for a retention window
-            # (seven days at the time of writing).
+            # UNDROP brings a dropped managed table back — verified live — for
+            # as long as Unity Catalog keeps it (seven days, per the docs).
             # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-undrop-table
             undo_hint=f"UNDROP TABLE {quote_qualified(change.table)}",
         )
@@ -1132,9 +1135,10 @@ class _Planner:
             sql=create_table_sql(table),
             undo_hint=f"DROP TABLE {quote_qualified(table.name)}",
         )
-        # Tags and CHECK constraints are not part of CREATE TABLE.
-        # TODO(verify): recent runtimes may accept inline CHECK constraints; we
-        # do not rely on it. https://docs.databricks.com/aws/en/tables/constraints
+        # Tags and CHECK constraints are not part of CREATE TABLE: an inline
+        # CHECK is refused ("Only PRIMARY KEY and FOREIGN KEY constraints are
+        # currently supported" — verified live).
+        # https://docs.databricks.com/aws/en/tables/constraints
         for check in table.checks():
             self._emit_check(table.name, check)
         for key in table.foreign_keys():
@@ -1493,7 +1497,7 @@ def column_path_sql(path: str) -> str:
 def set_tags_sql(
     table: str, tags: tuple[tuple[str, str], ...], kind: str = "TABLE"
 ) -> str:
-    """TODO(verify): tag syntax against a live workspace.
+    """Verified live for tables, views, schemas and volumes.
     https://docs.databricks.com/aws/en/database-objects/tags
     """
     pairs = ", ".join(
@@ -1588,7 +1592,7 @@ def create_function_sql(function: Function, *, replace: bool = False) -> str:
 
 
 def column_tags_sql(table: str, column: str, tags: tuple[tuple[str, str], ...]) -> str:
-    """TODO(verify): column tag syntax against a live workspace.
+    """Verified live.
     https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-alter-table-manage-column
     """
     pairs = ", ".join(f"{quote_literal(k)} = {quote_literal(v)}" for k, v in tags)
@@ -1632,7 +1636,7 @@ def create_table_sql(table: Table) -> str:
         sql.append(f"COMMENT {quote_literal(table.comment)}")
     sql.append(f"TBLPROPERTIES (\n{rendered_properties}\n)")
     if table.row_filter is not None:
-        # TODO(verify): clause placement against a live workspace.
+        # After TBLPROPERTIES — verified live.
         sql.append(f"WITH ROW FILTER {row_filter_sql(table.row_filter)}")
     return "\n".join(sql)
 
@@ -1810,7 +1814,8 @@ def staging_postcheck(table: str, staging: str, projection: Projection) -> str:
     NULL without it. Counting NULLs before and after catches the second case
     before the original table is touched. It sees top-level values only — a
     field lost inside a rebuilt struct doesn't make the struct NULL.
-    TODO(verify): that SQL warehouses run with ANSI mode on by default.
+    SQL warehouses run with ANSI mode on (verified live), so a cast that can't
+    convert a value fails the statement instead.
     https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-ansi-compliance
     """
     source, copy = quote_qualified(table), quote_qualified(staging)
@@ -1917,7 +1922,9 @@ def replace_table_sql(
     Replacing rather than dropping and recreating is what keeps the table's
     identity and its Delta history — which is what makes the recorded restore
     point mean anything.
-    TODO(verify): that REPLACE preserves history far enough back to RESTORE.
+    Verified live: after a REPLACE, `RESTORE TABLE … TO VERSION AS OF` the
+    version before it brings back the old columns, types and rows.
+    https://docs.databricks.com/aws/en/delta/history
     """
     if source is None:
         return create_table_sql(table).replace(

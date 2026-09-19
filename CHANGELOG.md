@@ -6,6 +6,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+Found by settling the `TODO(verify)` list against a live workspace:
+
+- **`plan --clone` left a backup a strict schema would drop.** A shallow clone
+  copies the table's properties, ownership marker included, so the next plan
+  saw the backup as a managed table whose spec was gone and planned
+  `drop_table`. The clone is now made with `deltaplan.managed = 'false'`.
+- **Two integer-to-decimal widenings Delta refuses were planned in place.**
+  Delta widens `tinyint`, `smallint` and `int` only to a decimal with at least
+  10 integer digits, and `bigint` to at least 20 — so `tinyint` to
+  `decimal(5,0)` and `bigint` to `decimal(19,0)` failed at apply. They are
+  rewrites now.
+- **A materialized view's storage table was read as an ordinary table**, so
+  `import` wrote a spec for it. `__materialization_…` tables are skipped now,
+  like the view itself.
+
+### Changed
+
+- **A nested field's `NOT NULL` is an `ALTER`**, set or dropped in place, rather
+  than a rewrite; and a rewrite puts it back afterwards instead of refusing.
+- **A map key widens in place**, like any other field.
+- Every assumption the plans rest on that could be checked live now has a live
+  test (`tests/integration/test_live_assumptions.py`); two `TODO(verify)`s are
+  left — host-only auth, and `CLUSTER BY AUTO` on a workspace without predictive
+  optimization — which this workspace can't settle.
+
 ## [0.1.0a4] - 2026-09-19
 
 Fixes found by dogfooding: a schema built by hand the way real ones end up,

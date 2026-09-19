@@ -83,9 +83,9 @@ rebuilt whole rather than patched: stage the converted data, REPLACE the table
 from the staging table (identity and history kept, no empty window), put back
 what a query result can't carry with ordinary ALTERs, drop the staging table.
 Two departures worth knowing: the design's single `CREATE OR REPLACE TABLE …
-AS SELECT` is staged in two statements, because a self-referencing RTAS is
-unverified (TODO(verify) in `replace_table_sql`) and staging makes the expensive
-step repeatable; and `using:` is a new spec hint for conversions deltaplan won't
+AS SELECT` is staged in two statements, because staging makes the expensive
+step repeatable and checkable before the table is touched (a self-referencing
+RTAS does work — `test_live_assumptions.py` runs one); and `using:` is a new spec hint for conversions deltaplan won't
 invent. A nested field's NOT NULL is an ordinary ALTER (verified live, against
 the design's guess), so a rewrite puts it back like everything else.
 
@@ -138,10 +138,11 @@ worktree` of the commit under test — editing files mid-run mixes old and new
 modules. Before building on a Databricks behaviour, probe it on the workspace
 in a throwaway `deltaplan_probe_*` schema and drop the schema after.
 
-What remains is verification, not construction: nothing has run against a real
-workspace. Every `TODO(verify)` in `src/` names an assumption the live suite in
-`tests/integration/` is written to settle — run it (`uv run pytest -m
-integration`) before trusting any of this with production tables.
+The `TODO(verify)` list was settled against a live workspace on 2026-09-19
+(`tests/integration/test_live_assumptions.py`). Two remain, which that
+workspace couldn't settle: host-only auth in `cli.py`, and `CLUSTER BY AUTO`
+without predictive optimization. A new Databricks assumption still gets a
+`TODO(verify)` until a live test settles it.
 
 1. ~~Scaffold: `pyproject.toml` (uv, src layout, Apache-2.0), ruff, ty, pytest, GitHub Actions for lint + unit tests, README stub, move `DESIGN.md` to `docs/`.~~ **Done.**
 2. `model/types.py` + `typeparser.py`: type tree and parser for Databricks type strings incl. nested struct/array/map, decimal, backticked field names, `NOT NULL` and comments inside structs. Round-trip tests.

@@ -1097,8 +1097,8 @@ def load_specs(project: Project, target: Target) -> tuple[LoadedSpec, ...]:
 # linting
 # ---------------------------------------------------------------------------
 
-# Liquid clustering takes at most four columns.
-# TODO(verify): confirm against a live workspace; the limit has moved before.
+# Liquid clustering takes at most four columns — verified live
+# (DELTA_CLUSTER_BY_INVALID_NUM_COLUMNS). The limit has moved before.
 # https://docs.databricks.com/aws/en/delta/clustering
 MAX_CLUSTER_COLUMNS = 4
 
@@ -1224,8 +1224,9 @@ def validate_table(table: Table, where: str) -> tuple[Diagnostic, ...]:
                 "alone or as catalog.schema.table"
             )
         elif old[:2] != table.name.split(".")[:2]:
-            # TODO(verify): Unity Catalog renames a table only within its schema.
-            # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-alter-table
+            # Unity Catalog can move a table to another schema of the same
+            # catalog (verified live), but deltaplan plans a schema at a time: a
+            # table renamed from elsewhere would be read as missing and created.
             error(
                 "renamed_from must be in the same schema: a rename can't move a "
                 "table to another schema or catalog"

@@ -121,7 +121,7 @@ def diff_function(desired: Function, actual: Function | None) -> tuple[Change, .
 
 
 def _function_shape(function: Function) -> tuple[object, ...]:
-    """TODO(verify): that routine_definition comes back as the body was written."""
+    """routine_definition comes back as the body was written — verified live."""
     return (
         tuple((p.name.casefold(), p.type) for p in function.parameters),
         function.returns,

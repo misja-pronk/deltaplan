@@ -43,8 +43,8 @@ def normalise_query(query: str) -> str:
     """A view's query, as compared across a diff.
 
     Whitespace runs collapse and a trailing semicolon goes; beyond that the
-    comparison is textual. TODO(verify): whether Unity Catalog stores
-    `view_definition` exactly as written — if it rewrites it, every plan would
-    show a change that isn't one.
+    comparison is textual. Unity Catalog stores `view_definition` as written —
+    verified live by `test_a_view_reads_back_as_its_spec`; if that ever changes,
+    every plan shows a change that isn't one.
     """
     return " ".join(query.split()).rstrip(";").strip()

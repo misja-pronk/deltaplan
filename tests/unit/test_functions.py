@@ -148,8 +148,9 @@ def test_functions_are_read_with_their_parameters_in_order() -> None:
     """Parameters come back by ordinal position, and only direct grants count —
     the same rule as for tables.
 
-    TODO(verify): the column names of routines, parameters and
-    routine_privileges, and that specific_name is the routine's name.
+    The column names of routines, parameters and routine_privileges, and
+    specific_name being the routine's name, are verified live by
+    `test_a_function_reads_back_as_its_spec`.
     https://docs.databricks.com/aws/en/sql/language-manual/information-schema/parameters
     """
     runner = fake_runner(

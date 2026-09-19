@@ -434,7 +434,7 @@ class Introspector:
         return columns, features
 
     def _tag_rows(self, catalog: str, schema: str) -> dict[str, dict[str, str]]:
-        # TODO(verify): table_tags column names against a live workspace.
+        # Column names verified live.
         # https://docs.databricks.com/aws/en/database-objects/tags
         rows = self.runner.query(
             "SELECT table_name, tag_name, tag_value "
@@ -453,7 +453,7 @@ class Introspector:
     def _column_tag_rows(
         self, catalog: str, schema: str
     ) -> dict[tuple[str, str], dict[str, str]]:
-        # TODO(verify): column_tags column names against a live workspace.
+        # Column names verified live.
         # https://docs.databricks.com/aws/en/sql/language-manual/information-schema/column_tags
         rows = self.runner.query(
             "SELECT table_name, column_name, tag_name, tag_value "
@@ -477,8 +477,9 @@ class Introspector:
     ) -> tuple[Function, ...]:
         """The SQL functions in a schema. Python UDFs aren't modelled and are skipped.
 
-        TODO(verify): routines, parameters and routine_privileges column names,
-        and that `specific_name` is the routine's name (no overloading in UC).
+        The column names of routines, parameters and routine_privileges are
+        verified live, and so is `specific_name` being the routine's name (Unity
+        Catalog has no overloading).
         https://docs.databricks.com/aws/en/sql/language-manual/information-schema/routines
         """
         del table_grants
@@ -609,8 +610,9 @@ class Introspector:
     def _schema_row(self, catalog: str, schema: str) -> Row | None:
         """The schema's row, or None when it doesn't exist.
 
-        TODO(verify): that a missing *catalog* fails this query, rather than
-        returning nothing — deltaplan creates schemas, never catalogs.
+        A missing *catalog* fails this query (TABLE_OR_VIEW_NOT_FOUND, verified
+        live) rather than returning nothing — deltaplan creates schemas, never
+        catalogs.
         https://docs.databricks.com/aws/en/sql/language-manual/information-schema/schemata
         """
         rows = self.runner.query(
@@ -653,8 +655,8 @@ class Introspector:
         )
 
     def _view_rows(self, catalog: str, schema: str) -> dict[str, str]:
-        """Each view's definition. TODO(verify): that `view_definition` is the
-        query as written — see `normalise_query`.
+        """Each view's definition: `view_definition` is the query as written —
+        verified live; see `normalise_query`.
         https://docs.databricks.com/aws/en/sql/language-manual/information-schema/views
         """
         rows = self.runner.query(
@@ -670,7 +672,7 @@ class Introspector:
 
     def _view_properties(self, name: str) -> tuple[tuple[str, str], ...]:
         """A view's properties — DESCRIBE DETAIL is for tables only.
-        TODO(verify): SHOW TBLPROPERTIES column names against a live workspace.
+        Its columns are `key` and `value` — verified live.
         """
         rows = self.runner.query(f"SHOW TBLPROPERTIES {quote_qualified(name)}")
         return _pairs(
@@ -722,7 +724,7 @@ class Introspector:
 
         A grant on the schema or catalog shows up here too, marked with where it
         came from. Those aren't the table's to manage, so they are skipped.
-        TODO(verify): `inherited_from` values against a live workspace.
+        Verified live: a direct grant says `NONE`, one on the schema `SCHEMA`.
         https://docs.databricks.com/aws/en/sql/language-manual/information-schema/table_privileges
         """
         rows = self.runner.query(
@@ -818,9 +820,8 @@ class Introspector:
     ) -> dict[str, tuple[str, tuple[str, ...]]]:
         """Foreign key name -> (referenced table, referenced columns).
 
-        TODO(verify): referential_constraints column names against a live
-        workspace, and that the referenced key's columns are found in its own
-        schema's key_column_usage.
+        referential_constraints' column names, and the referenced key's columns
+        in its own schema's key_column_usage, are verified live.
         https://docs.databricks.com/aws/en/sql/language-manual/information-schema/referential_constraints
         """
         rows = self.runner.query(
