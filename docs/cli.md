@@ -137,9 +137,9 @@ no rollback:
 
 `--allow-destructive` is required for any step in the `destructive` class; without it
 `apply` refuses before running anything at all. A plan containing a step deltaplan
-couldn't generate — a conversion it won't invent, a nested `NOT NULL` a rewrite can't
-reach — is refused the same way, naming the step and what it needs. A restore point — the table's Delta
-version before the step — is recorded for every destructive step, so `RESTORE TABLE …
+couldn't generate — a conversion it won't invent, a change a generated column
+blocks — is refused the same way, naming the step and what it needs. A restore point —
+the table's Delta version before the step — is recorded for every destructive step, so `RESTORE TABLE …
 TO VERSION AS OF n` is one command.
 
 ### History

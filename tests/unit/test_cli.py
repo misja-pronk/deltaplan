@@ -107,10 +107,11 @@ def live(monkeypatch: pytest.MonkeyPatch) -> FakeRunner:
 # ---------------------------------------------------------------------------
 
 
-def test_version_command_prints_the_package_version() -> None:
-    result = runner.invoke(app, ["version"])
+@pytest.mark.parametrize("args", [["version"], ["--version"]])
+def test_version_prints_the_package_version(args: list[str]) -> None:
+    result = runner.invoke(app, args)
     assert result.exit_code == 0
-    assert f"deltaplan {package_version()}" in result.stdout
+    assert result.stdout == f"deltaplan {package_version()}\n"
 
 
 def test_bare_invocation_shows_help() -> None:

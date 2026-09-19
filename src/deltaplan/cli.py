@@ -106,8 +106,24 @@ class Format(StrEnum):
     json = "json"
 
 
+def _print_version(value: bool) -> None:
+    if value:
+        typer.echo(f"deltaplan {package_version()}")
+        raise typer.Exit
+
+
 @app.callback()
-def cli() -> None:
+def cli(
+    _version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            is_eager=True,
+            callback=_print_version,
+            help="Print the deltaplan version and exit.",
+        ),
+    ] = False,
+) -> None:
     # Registering a callback keeps this a command *group* — without it Typer
     # collapses a one-command app into that single command.
     pass
