@@ -210,3 +210,21 @@ def test_a_before_hook_is_shown_before_the_changes() -> None:
     text = plan_text(plan)
     numbers = [line.split(".")[0].strip() for line in text.splitlines() if ". " in line]
     assert numbers == ["1", "2", "3"], text
+
+
+def test_a_claim_belongs_to_the_table() -> None:
+    """Its path is the property `deltaplan.managed`, which isn't a column."""
+    from deltaplan.differ import ownership
+
+    live = table(col("id", "bigint"), name=TABLE)
+    desired = table(col("id", "bigint"))
+    [claim] = ownership(desired, live)
+    assert claim.column == "" and not claim.nested
+    plan = build_plan(
+        [TableDiff(TABLE, (claim,), TableFacts(TABLE, exists=True))],
+        target="dev",
+        tool_version="0.1.0",
+        spec_hash="spec",
+        state_fingerprint="live",
+    )
+    assert "~ deltaplan" not in plan_text(plan)

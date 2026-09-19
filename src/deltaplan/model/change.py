@@ -60,7 +60,15 @@ CREATE_KINDS: frozenset[str] = frozenset(
 #: Kinds whose `path` names something other than a column — a property key, a
 #: tag key, a principal.
 TABLE_LEVEL_KINDS: frozenset[str] = frozenset(
-    {"set_property", "set_tag", "grant", "revoke", "set_row_filter", "rename_table"}
+    {
+        "set_property",
+        "set_tag",
+        "grant",
+        "revoke",
+        "set_row_filter",
+        "rename_table",
+        "claim_table",
+    }
 )
 
 #: Whatever a change is about. Every member is hashable, so changes are too.
@@ -122,4 +130,6 @@ class Change:
 
     @property
     def nested(self) -> bool:
-        return "." in self.path
+        # A table-level path may have dots in it — `delta.enableChangeDataFeed`
+        # — without being inside anything.
+        return self.kind not in TABLE_LEVEL_KINDS and "." in self.path

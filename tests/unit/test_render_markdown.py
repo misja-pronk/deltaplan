@@ -150,3 +150,15 @@ def test_an_undo_hint_keeps_its_quoted_names() -> None:
     hint = "RESTORE TABLE `main`.`sales`.`orders` TO VERSION AS OF 17"
     plan = replace(plan, steps=tuple(replace(s, undo_hint=hint) for s in plan.steps))
     assert f"undo: `` {hint} ``" in render_markdown(plan)
+
+
+def test_a_dotted_property_is_not_inside_a_column() -> None:
+    live = table(col("id", "bigint"), name=NAME)
+    desired = table(
+        col("id", "bigint"),
+        name=NAME,
+        properties=(("delta.enableChangeDataFeed", "true"),),
+    )
+    _, plan = plan_against(desired, live)
+    rendered = render_markdown(plan)
+    assert "```diff\n~ property delta.enableChangeDataFeed = 'true'\n```" in rendered
