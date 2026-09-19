@@ -27,7 +27,7 @@ jobs:
     outputs:
       version: ${{ steps.read.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # to tell whether the tagged commit is on main
       - id: read
@@ -55,8 +55,8 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run ruff format --check .
@@ -72,8 +72,8 @@ jobs:
       contents: write # the GitHub release, and moving `v0`
       id-token: write # PyPI Trusted Publishing (OIDC)
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - name: Build
         run: uv build
       - name: Publish to PyPI

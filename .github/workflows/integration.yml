@@ -35,8 +35,8 @@ jobs:
       DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
       DELTAPLAN_TEST_CATALOG: ${{ secrets.DELTAPLAN_TEST_CATALOG }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - id: creds
