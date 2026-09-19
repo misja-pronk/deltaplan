@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0a5] - 2026-09-19
+
+Every assumption deltaplan makes about Databricks that a workspace can check is
+now checked by a live test, and the docs have a tour and a feature gallery with
+the CLI's real output. The live suite passes 53 of 53.
+
 ### Fixed
 
 Found by settling the `TODO(verify)` list against a live workspace:
