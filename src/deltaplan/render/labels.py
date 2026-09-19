@@ -186,16 +186,18 @@ def _type_change(change: Change) -> str:
 
 
 def _constraint_label(constraint: object) -> str:
+    """What the constraint says, then its name if it has one:
+    `CHECK (amount > 0) positive_amount`, `PRIMARY KEY (order_id)`."""
     if isinstance(constraint, Check):
-        return f"{constraint.name} CHECK"
+        return f"CHECK ({constraint.expression}) {constraint.name}"
     if isinstance(constraint, PrimaryKey):
-        columns = ", ".join(constraint.columns)
-        return f"{constraint.name or 'primary key'} PRIMARY KEY ({columns})"
-    if isinstance(constraint, ForeignKey):
-        columns = ", ".join(constraint.columns)
-        referenced = ", ".join(constraint.referenced_columns)
-        return (
-            f"{constraint.name or 'foreign key'} FOREIGN KEY ({columns}) → "
-            f"{display_name(constraint.references)} ({referenced})"
+        label = f"PRIMARY KEY ({', '.join(constraint.columns)})"
+    elif isinstance(constraint, ForeignKey):
+        label = (
+            f"FOREIGN KEY ({', '.join(constraint.columns)}) → "
+            f"{display_name(constraint.references)} "
+            f"({', '.join(constraint.referenced_columns)})"
         )
-    return "unknown"
+    else:
+        return "unknown"
+    return f"{label} {constraint.name}" if constraint.name else label

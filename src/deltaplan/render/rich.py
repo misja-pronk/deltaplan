@@ -132,7 +132,7 @@ def _render_table(plan: Plan, diff: TableDiff, console: Console, offset: int) ->
 
     numbered = list(enumerate(diff.changes, start=offset))
     shown: set[int] = set()
-    for column, changes in _group_by_column(numbered).items():
+    for column, changes in _group_by_column(numbered):
         if not column:
             # Table-level changes — comment, clustering, properties, tags,
             # constraints — sit directly under the table, not inside a column.
@@ -196,11 +196,16 @@ def _table_header(diff: TableDiff) -> Text:
 
 def _group_by_column(
     changes: Iterable[tuple[int, Change]],
-) -> dict[str, list[tuple[int, Change]]]:
-    grouped: dict[str, list[tuple[int, Change]]] = {}
+) -> list[tuple[str, list[tuple[int, Change]]]]:
+    """Runs of changes to the same column, in plan order — so the step numbers
+    read 1, 2, 3 down the page, even when a grant follows a column's changes."""
+    groups: list[tuple[str, list[tuple[int, Change]]]] = []
     for index, change in changes:
-        grouped.setdefault(change.column, []).append((index, change))
-    return grouped
+        if groups and groups[-1][0] == change.column:
+            groups[-1][1].append((index, change))
+        else:
+            groups.append((change.column, [(index, change)]))
+    return groups
 
 
 def _render_change(

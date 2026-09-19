@@ -143,3 +143,40 @@ def test_step_numbers_line_up_past_nine() -> None:
     steps = [line for line in text.splitlines() if "ADD COLUMN" in line]
     assert {line.index("ADD COLUMN") for line in steps} == {8}, text
     assert steps[0].startswith("     1. ") and steps[9].startswith("    10. ")
+
+
+def test_steps_read_in_order_down_the_page() -> None:
+    """A grant comes after the columns' changes in the plan, so it is shown
+    there too — not hoisted up with the table's tags, out of step order."""
+    from deltaplan.model.table import Grant
+
+    live = table(col("id", "bigint"), col("email", "string"), name=TABLE)
+    email = col("email", "string")
+    desired = table(
+        col("id", "bigint"),
+        type(email)(email.name, email.type, tags=(("pii", "email"),)),
+        tags=(("domain", "crm"),),
+        grants=(Grant("analysts", ("SELECT",)),),
+    )
+    text = plan_text(plan_for(desired, live))
+    numbers = [line.split(".")[0].strip() for line in text.splitlines() if ". " in line]
+    assert numbers == ["1", "2", "3"], text
+
+
+def test_constraints_say_what_they_are() -> None:
+    from deltaplan.model.table import ForeignKey
+
+    live = table(col("id", "bigint", nullable=False), col("c", "bigint"), name=TABLE)
+    desired = table(
+        col("id", "bigint", nullable=False),
+        col("c", "bigint"),
+        constraints=(
+            PrimaryKey(("id",)),
+            Check("positive", "id > 0"),
+            ForeignKey(("c",), "main.sales.customers", ("id",), "orders_c_fk"),
+        ),
+    )
+    text = plan_text(plan_for(desired, live))
+    assert "+ constraint PRIMARY KEY (id)\n" in text
+    assert "+ constraint CHECK (id > 0) positive\n" in text
+    assert "+ constraint FOREIGN KEY (c) → sales.customers (id) orders_c_fk\n" in text
