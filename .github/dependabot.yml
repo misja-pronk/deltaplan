@@ -1,0 +1,18 @@
+# Keeps the workflows' actions and the locked dependencies current. Dependabot's
+# pull requests get no secrets, so the live suite skips on them; ci still runs.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      dependencies:
+        patterns: ["*"]

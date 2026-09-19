@@ -2,9 +2,24 @@
 
 Thanks for your interest! Issues and pull requests are very welcome.
 
-`deltaplan` is pre-alpha: the read-only milestone (`validate`, `import`, `plan`) is
-still being built. [`docs/DESIGN.md`](docs/DESIGN.md) is the source of truth — if the
-code and the design disagree, that is a bug in one of them, so please say which.
+`deltaplan` is alpha: every milestone in the design is built and checked against a live
+workspace, and the spec format may still change. [`docs/DESIGN.md`](docs/DESIGN.md) is the
+source of truth — if the code and the design disagree, that is a bug in one of them, so
+please say which.
+
+## How changes land
+
+`main` is protected: every change is a pull request, merged once its checks pass.
+
+- **`ci`** — lint, types, the unit tests on Python 3.11–3.14 and macOS, the docs in
+  strict mode, the wheel, and the workflows. These are required.
+- **`integration`** — the live suite, against a real workspace, on every pull request
+  and nightly. It takes about 40 minutes and isn't required, so read it before merging
+  anything that changes what deltaplan sends to Databricks.
+
+Run `mise run check` before pushing; it is the `ci` gate minus the matrix. If you
+changed anything a user sees in the terminal, `mise run screens` remakes the docs'
+pictures, and the check fails until you do.
 
 ## Toolchain
 
@@ -98,30 +113,34 @@ documentation in its docstring. There is a fuller description in
 
 ## Releasing
 
-Releases are **version-driven**: the `version` in `pyproject.toml` is the single
-source of truth, and merging a bump to `main` ships it. No manual tagging.
+A release is a tag. The version in `pyproject.toml` says what it is; pushing the matching
+tag ships it.
 
-1. On a branch, bump the version:
+1. In a pull request, bump the version and move the changelog notes under it:
 
    ```sh
-   uv version --bump patch   # or: minor / major — edits pyproject.toml + uv.lock
+   uv version 0.1.0a7          # or: uv version --bump patch / minor / major
    ```
 
-2. In `CHANGELOG.md`, rename the `## [Unreleased]` heading to `## [X.Y.Z]` (the
-   new version) and start a fresh, empty `## [Unreleased]` above it. Those notes
-   become the GitHub release body.
-3. Open a PR. When it merges to `main`, the [`release`](.github/workflows/release.yml)
-   workflow builds the wheel + sdist, publishes to **PyPI** (via Trusted Publishing —
-   no API token), and creates the **`vX.Y.Z`** tag and GitHub release.
+   In `CHANGELOG.md`, rename `## [Unreleased]` to `## [0.1.0a7] - <date>` and start a
+   fresh, empty `## [Unreleased]` above it. Merge it once `ci` passes.
 
-A merge that doesn't change the version is a no-op, and a version that's already
-tagged or already on PyPI is skipped — so the workflow is safe to re-run.
+2. Tag the merged commit on `main` and push the tag:
 
-> **One-time setup.** Releasing is deliberately dormant until deltaplan is public.
-> Two things switch it on: a [PyPI Trusted Publisher](https://docs.pypi.org/trusted-publishers/)
-> for repository `misja-pronk/deltaplan`, workflow `release.yml`, environment `pypi`
-> (at <https://pypi.org/manage/account/publishing/>), and the repository variable
-> `RELEASE_ENABLED=true`.
+   ```sh
+   git switch main && git pull
+   git tag v0.1.0a7
+   git push origin v0.1.0a7
+   ```
+
+The [`release`](.github/workflows/release.yml) workflow checks that the tag matches the
+version and sits on `main`, runs the gate once more on that commit, publishes to **PyPI**
+(Trusted Publishing — no API token), and creates the GitHub release with the changelog's
+notes. A version with `a`, `b` or `rc` is marked a pre-release. The GitHub Action's `v0`
+tag moves to every 0.x release, so `uses: misja-pronk/deltaplan@v0` follows the newest.
+
+If the tag doesn't match the version, nothing is published: delete the tag
+(`git push origin :refs/tags/v0.1.0a7`), fix, and tag again.
 
 ## Previewing the docs
 

@@ -1,22 +1,34 @@
 name: integration
 
-# The integration suite talks to a real workspace: it creates an ephemeral
-# schema, runs against it, and drops it again. It runs nightly (and on demand)
-# rather than per-PR, because it needs credentials and a warm SQL warehouse.
+# The live suite: every assumption deltaplan makes about Databricks, checked
+# against a real workspace. Each test creates a throwaway schema and drops it.
+# It runs on every pull request, nightly (Databricks changes too), and on demand.
+# It takes about 40 minutes and isn't a required check — read it before merging
+# anything that changes what deltaplan sends to Databricks.
 #
-# Setup: add the repository secrets DATABRICKS_HOST, DATABRICKS_TOKEN,
-# DATABRICKS_WAREHOUSE_ID and DELTAPLAN_TEST_CATALOG. Without them the job
-# skips instead of failing, so forks stay green.
+# Credentials live in the `databricks-test` environment (Settings → Environments):
+# the secrets DATABRICKS_HOST, DATABRICKS_TOKEN, DATABRICKS_WAREHOUSE_ID and
+# DELTAPLAN_TEST_CATALOG. A pull request from a fork gets none of them, so there
+# the suite skips rather than fails.
 
 on:
+  pull_request:
+    paths-ignore: ["docs/**", "**.md", "mkdocs.yml"]
   schedule:
     - cron: "0 3 * * *" # 03:00 UTC nightly
   workflow_dispatch:
+
+concurrency:
+  # A new push to a pull request makes its running suite moot.
+  group: integration-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   integration:
     name: integration (live workspace)
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: databricks-test
     env:
       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
@@ -38,4 +50,4 @@ jobs:
           fi
       - name: Tests (pytest -m integration)
         if: steps.creds.outputs.present == 'true'
-        run: uv run pytest -m integration
+        run: uv run pytest -m integration -rA

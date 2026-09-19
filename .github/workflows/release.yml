@@ -1,27 +1,20 @@
 name: release
 
-# Version-driven releases — the package version is the single source of truth.
-# To cut a release:
-#   1. uv version --bump {patch|minor|major}   # edits pyproject.toml + uv.lock
-#   2. move the CHANGELOG "[Unreleased]" notes under a "## [x.y.z]" heading
-#   3. open a PR and merge to main
-# On that merge this workflow checks whether the version is already released; if
-# not, it builds the wheel + sdist, publishes to PyPI, and creates the matching
-# `vX.Y.Z` git tag + GitHub release (notes pulled from the CHANGELOG). A push that
-# doesn't change the version is a no-op.
+# A release is a tag. Bump `version` in pyproject.toml (and move the CHANGELOG's
+# [Unreleased] notes under it) in a pull request; once it is merged, tag that
+# commit and push the tag:
 #
-# One-time setup, both required before the first release (until then the repo
-# variable keeps this workflow dormant, so pre-1.0 scaffolding is never shipped):
-#   * configure a PyPI Trusted Publisher (no API token needed) for
-#     repo: misja-pronk/deltaplan · workflow: release.yml · environment: pypi
-#     at https://pypi.org/manage/account/publishing/
-#   * set the repository variable RELEASE_ENABLED=true
-#     (Settings → Secrets and variables → Actions → Variables)
+#   git tag v0.1.0a7 && git push origin v0.1.0a7
+#
+# This workflow checks the tag matches the version and sits on main, runs the
+# gate on that commit, publishes to PyPI with Trusted Publishing (repository
+# misja-pronk/deltaplan, workflow release.yml, environment pypi — no token), and
+# creates the GitHub release with the CHANGELOG's notes. The Action's `v0` tag
+# then moves to the release, so `uses: misja-pronk/deltaplan@v0` follows it.
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    tags: ["v*.*.*"] # not `v0`, which this workflow moves itself
 
 concurrency:
   group: release
@@ -29,55 +22,54 @@ concurrency:
 
 jobs:
   check:
-    name: detect version bump
+    name: check the tag
     runs-on: ubuntu-latest
     outputs:
-      should_release: ${{ steps.decide.outputs.should_release }}
       version: ${{ steps.read.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # need the tags to tell whether this version shipped
+          fetch-depth: 0 # to tell whether the tagged commit is on main
       - id: read
-        name: Read the project version
+        name: The tag must match the version, on main
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          v=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-          echo "Project version: $v"
-      - id: decide
-        name: Already released?
-        run: |
-          version="${{ steps.read.outputs.version }}"
-          if [ "${{ vars.RELEASE_ENABLED }}" != "true" ]; then
-            echo "RELEASE_ENABLED is not set to 'true' — releases are still disabled."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG doesn't match pyproject.toml's version $version — tag v$version, or bump the version first"
+            exit 1
           fi
-          released=false
-          if git rev-parse "v$version" >/dev/null 2>&1; then
-            echo "git tag v$version already exists"; released=true
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$TAG isn't on main — tag a commit that was merged"
+            exit 1
           fi
-          code=$(curl -fsS -o /dev/null -w "%{http_code}" \
-            "https://pypi.org/pypi/deltaplan/$version/json" || echo 000)
-          if [ "$code" = "200" ]; then
-            echo "deltaplan $version is already on PyPI"; released=true
+          if curl -fsS -o /dev/null "https://pypi.org/pypi/deltaplan/$version/json"; then
+            echo "::error::deltaplan $version is already on PyPI"
+            exit 1
           fi
-          if [ "$released" = "true" ]; then
-            echo "Nothing to release for $version."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Will release $version."
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  gate:
+    name: gate
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run ty check
+      - run: uv run pytest tests/unit
 
   release:
     name: publish v${{ needs.check.outputs.version }}
-    needs: check
-    if: needs.check.outputs.should_release == 'true'
+    needs: [check, gate]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      contents: write # create the tag + GitHub release
+      contents: write # the GitHub release, and moving `v0`
       id-token: write # PyPI Trusted Publishing (OIDC)
     steps:
       - uses: actions/checkout@v4
@@ -87,29 +79,31 @@ jobs:
       - name: Publish to PyPI
         run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/
       - name: Release notes from CHANGELOG
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
         run: |
-          version="${{ needs.check.outputs.version }}"
-          awk -v v="$version" '
+          awk -v v="$VERSION" '
             index($0, "## [" v "]") == 1 { f=1; next }
             f && index($0, "## [") == 1 { exit }
             f { print }
           ' CHANGELOG.md > notes.md || true
-      - name: Create the tag + GitHub release
+      - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+          TAG: ${{ github.ref_name }}
         run: |
-          version="${{ needs.check.outputs.version }}"
-          args=(--title "v$version" --target "$GITHUB_SHA")
+          args=(--title "$TAG" --verify-tag)
           if [ -s notes.md ]; then args+=(--notes-file notes.md); else args+=(--generate-notes); fi
           # 0.1.0a1, 0.2.0rc1 … are PEP 440 pre-releases: say so on GitHub too.
-          if [[ "$version" =~ (a|b|rc)[0-9]+$ ]]; then args+=(--prerelease); fi
-          gh release create "v$version" dist/* "${args[@]}"
+          if [[ "$VERSION" =~ (a|b|rc)[0-9]+$ ]]; then args+=(--prerelease); fi
+          gh release create "$TAG" dist/* "${args[@]}"
       - name: Move the major-version tag the GitHub Action is used by
-        # `uses: misja-pronk/deltaplan@v0` follows the latest 0.x release —
-        # a final one: nobody pinned to @v0 should get an alpha by surprise.
-        if: ${{ !contains(needs.check.outputs.version, 'a') && !contains(needs.check.outputs.version, 'b') && !contains(needs.check.outputs.version, 'rc') }}
+        # `uses: misja-pronk/deltaplan@v0` follows the newest 0.x release. While
+        # every release is an alpha, that is the newest alpha.
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
         run: |
-          version="${{ needs.check.outputs.version }}"
-          major="v${version%%.*}"
+          major="v${VERSION%%.*}"
           git tag -f "$major" "$GITHUB_SHA"
           git push -f origin "refs/tags/$major"

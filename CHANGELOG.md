@@ -8,6 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The GitHub Action applies**: `command: apply` plans, puts the plan in the
+  job summary and runs exactly that plan, with the deltaplan of the action's
+  own version; `allow-destructive: true` lets it drop. `@v0` now follows the
+  newest 0.x release, alphas included — it didn't exist before.
 - **A first `import` writes `deltaplan.yml`**: in a directory without a
   project, `deltaplan import main.crm` also writes the project file — one
   target, `dev`, whose catalog is the one imported from, so the specs say
@@ -35,6 +39,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   not be there, and plans `UNSET TAGS` / `UNSET TBLPROPERTIES` with the undo.
   Leaving a key out still only stops managing it. Tables, columns, views,
   schemas and volumes; YAML only. Verified live.
+
+### Changed
+
+- **Releases are cut by pushing a tag** (`v0.1.0a7`) that matches the version
+  in `pyproject.toml`; the workflow checks it, runs the gate, and publishes.
 
 ## [0.1.0a5] - 2026-09-19
 
