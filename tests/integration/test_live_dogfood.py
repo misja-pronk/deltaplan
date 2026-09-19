@@ -15,7 +15,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from messy_schema import statements
 
 from deltaplan.executor import Executor
 from deltaplan.history import MemoryHistory
@@ -27,6 +26,7 @@ from deltaplan.model.types import Field, Primitive
 from deltaplan.model.view import Relation
 from deltaplan.planning import plan_tables
 from deltaplan.typeparser import parse_type
+from messy_schema import statements
 
 pytestmark = pytest.mark.integration
 
