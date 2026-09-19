@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0a6] - 2026-09-19
+
+What an engineer replacing a setup notebook needs: `deltaplan apply` in one
+go, a first `import` that sets up the project, owners, partitioning, and
+removing a tag or property. The GitHub Action applies too. The first release
+cut from a tag, after the live suite passed on its pull request.
+
 ### Added
 
 - **The GitHub Action applies**: `command: apply` plans, puts the plan in the
