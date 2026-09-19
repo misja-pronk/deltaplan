@@ -132,6 +132,13 @@ details from `SHOW CREATE TABLE` because `information_schema.columns` doesn't
 report identity, generation or defaults on a live workspace. Introspection
 reads only described tables in full and runs per-table queries in parallel.
 
+**The docs' terminal pictures are real output**: `tests/screens.py` runs the CLI
+against the fake warehouse and records SVGs into `docs/assets/screens/`, and
+`test_screens.py` fails when one is stale — `mise run screens` remakes them.
+Anything a user sees gets a scene; a new feature gets a section in
+`docs/features.md`. Writing the scenes found six output bugs, so look at the
+pictures, not just the diff.
+
 **Live verification is done by hand** (`uv run pytest -m integration` with the
 workspace env; see memory for its details). Run it from a separate `git
 worktree` of the commit under test — editing files mid-run mixes old and new
