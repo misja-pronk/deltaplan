@@ -12,6 +12,19 @@
 - Every Databricks behaviour assumption gets a test and a link to the docs in the test docstring. If unsure about a behaviour, say so and add a `TODO(verify)` — do not guess.
 - Small PR-sized commits, conventional commit messages.
 
+## How changes land
+
+`main` is protected: every change is a pull request, and the nine `ci` checks must
+pass (they enforce for admins too). `integration` — the live suite against the
+workspace, ~40 minutes — runs on every pull request that touches code, and nightly;
+it isn't required, so read it before merging anything that changes the SQL deltaplan
+sends. Its credentials are GitHub environment secrets in `databricks-test`.
+
+A release is a tag: bump `version` in `pyproject.toml` and move the CHANGELOG's
+`[Unreleased]` notes under it in a PR, then push `vX.Y.Z`. **The owner tags releases
+themselves** — prepare the bump PR and give them the command. CONTRIBUTING.md has the
+details.
+
 ## Layout
 
 ```
@@ -139,11 +152,20 @@ Anything a user sees gets a scene; a new feature gets a section in
 `docs/features.md`. Writing the scenes found six output bugs, so look at the
 pictures, not just the diff.
 
-**Live verification is done by hand** (`uv run pytest -m integration` with the
-workspace env; see memory for its details). Run it from a separate `git
-worktree` of the commit under test — editing files mid-run mixes old and new
-modules. Before building on a Databricks behaviour, probe it on the workspace
-in a throwaway `deltaplan_probe_*` schema and drop the schema after.
+**Since 0.1.0a6** (the feature set the owner settled on after a competitor survey):
+`deltaplan apply` without a plan file — plan, show, ask, run — and `--select`; a first
+`import` writes `deltaplan.yml`; owners; partitioning, including the move to liquid
+clustering; removing a tag or property with `null`; `command: apply` in the Action.
+**The scope is closed**: deltaplan is for engineers who need tables in Databricks,
+not a governance suite. Deliberately skipped, with reasons in the memory
+`product-focus`: policy rules in `validate`, a `protect:` flag, a breaking-change
+flag, a `restore` command, ABAC, catalogs, external tables.
+
+**Live verification** runs in CI on every pull request (`integration.yml`), and by
+hand with `uv run pytest -m integration` and the workspace env (see memory). By hand,
+run it from a separate `git worktree` of the commit under test — editing files mid-run
+mixes old and new modules. Before building on a Databricks behaviour, probe it on the
+workspace in a throwaway `deltaplan_probe_*` schema and drop the schema after.
 
 The `TODO(verify)` list was settled against a live workspace on 2026-09-19
 (`tests/integration/test_live_assumptions.py`). Two remain, which that
