@@ -226,14 +226,17 @@ class _Planner:
             table,
             "CLONE backup",
             "meta",
+            # A clone copies the table's properties, ownership marker included:
+            # left alone, the backup would look like a managed table whose spec
+            # is gone, and a strict schema would plan to drop it. Verified live,
+            # as is that the clone stays readable after the table is replaced.
+            # https://docs.databricks.com/aws/en/delta/clone
             sql=(
                 f"CREATE OR REPLACE TABLE {quote_qualified(backup)} "
-                f"SHALLOW CLONE {quote_qualified(table)}"
+                f"SHALLOW CLONE {quote_qualified(table)} "
+                f"TBLPROPERTIES ({quote_literal(MANAGED_PROPERTY)} = 'false')"
             ),
             undo_hint=f"the table as it was is readable at {backup}",
-            # TODO(verify): that a shallow clone stays readable after the source
-            # is replaced, until VACUUM removes the files it points at.
-            # https://docs.databricks.com/aws/en/delta/clone
             note=(
                 "a shallow clone copies no data: it points at the table's current "
                 "files, so it lasts until a VACUUM removes them"

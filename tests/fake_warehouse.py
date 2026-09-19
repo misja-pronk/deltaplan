@@ -646,10 +646,20 @@ class FakeWarehouse:
         stripped = statement.strip()
         replacing = stripped.upper().startswith("CREATE OR REPLACE TABLE")
         if match := re.fullmatch(
-            r"CREATE OR REPLACE TABLE (\S+) SHALLOW CLONE (\S+)", stripped
+            r"CREATE OR REPLACE TABLE (\S+) SHALLOW CLONE (\S+)"
+            r"(?: TBLPROPERTIES \((.*)\))?",
+            stripped,
         ):
+            # A clone copies the source's properties; TBLPROPERTIES overrides
+            # them — both verified live.
             source = self._table(_unquote(match.group(2)))
-            clone = replace(source, name=_unquote(match.group(1)))
+            overrides = _pairs(match.group(3)) if match.group(3) else {}
+            properties = dict(source.properties) | overrides
+            clone = replace(
+                source,
+                name=_unquote(match.group(1)),
+                properties=tuple(properties.items()),
+            )
             self.tables[clone.name] = clone
             self.versions[clone.name] = 0
             return ()

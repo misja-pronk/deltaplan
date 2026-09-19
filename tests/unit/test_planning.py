@@ -160,6 +160,19 @@ def test_clone_comes_before_the_first_risky_step_only() -> None:
     assert fake.tables["main.sales.orders"].column_names == ("id",)
 
 
+def test_a_backup_is_not_mistaken_for_a_managed_table() -> None:
+    """A clone copies the ownership marker with the rest of the properties, so
+    left alone a strict schema would plan to drop the backup on the next run."""
+    live = table(
+        col("id", "bigint"), col("a", "int"), name="main.sales.orders", properties=MANAGED
+    )
+    desired = table(col("id", "bigint"), name="main.sales.orders")
+    fake = FakeWarehouse.of(live)
+    run(planned([desired], fake, strict=True, clone=True), fake)
+    after = planned([desired], fake, strict=True)
+    assert [c.kind for d in after.diffs for c in d.changes] == []
+
+
 def test_no_clone_unless_asked() -> None:
     live = table(
         col("id", "bigint"), col("a", "int"), name="main.sales.orders", properties=MANAGED
