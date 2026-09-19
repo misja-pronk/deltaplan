@@ -54,3 +54,11 @@
   );
   margin: 1.2rem 0 1.6rem;
 }
+
+/* The PR comment in the tour, framed like one. */
+.md-typeset .dp-comment {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 8px;
+  padding: 0 1.2rem 0.6rem;
+  margin: 1.2rem 0;
+}

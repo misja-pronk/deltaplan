@@ -59,6 +59,11 @@ markdown_extensions:
       anchor_linenums: true
   - pymdownx.inlinehilite
   - pymdownx.superfences
+  # Quotes the files tests/screens.py writes next to its pictures, so the spec
+  # beside a plan is the spec that produced it.
+  - pymdownx.snippets:
+      base_path: [docs]
+      check_paths: true
   - pymdownx.details
   - pymdownx.tabbed:
       alternate_style: true
@@ -80,6 +85,8 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Guide:
+      - A tour: tour.md
+      - Feature gallery: features.md
       - Writing a spec: spec.md
       - YAML and SQL specs: formats.md
       - Editor support: editors.md

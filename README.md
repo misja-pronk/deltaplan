@@ -13,16 +13,19 @@ then apply it.
 
 > **Status: alpha.** Every milestone in the design is built — plan, apply (rewrites
 > included), drift, the GitHub Action, and governance (tags, grants, masks, row filters,
-> views, SQL functions). It is tested offline against a fake warehouse; the live suite
-> has only just started running against a real workspace, and has already caught one
-> wrong assumption. Try it on a dev catalog, not production.
+> views, SQL functions). It is tested offline against a fake warehouse, and every
+> assumption it makes about Databricks is checked by a live suite against a real
+> workspace. Try it on a dev catalog before production.
 
 ```sh
 uv tool install --prerelease allow deltaplan   # or: pip install --pre deltaplan
 ```
 
-**[Read the docs →](https://misja-pronk.github.io/deltaplan/)** — the spec format, the
-commands, and the safety model. [`docs/DESIGN.md`](docs/DESIGN.md) is the source of truth.
+**[Take the tour →](https://misja-pronk.github.io/deltaplan/tour/)** — one project from
+nothing to a reviewed pull request, every step shown — or browse the
+[feature gallery](https://misja-pronk.github.io/deltaplan/features/). The
+[docs](https://misja-pronk.github.io/deltaplan/) have the spec format, the commands, and
+the safety model. [`docs/DESIGN.md`](docs/DESIGN.md) is the source of truth.
 
 ## The spec
 
@@ -60,29 +63,13 @@ everything — [the list](https://misja-pronk.github.io/deltaplan/formats/) says
 
 ## The plan
 
-```
-sales.orders   ~ update  (412 GB)
-  ~ amount  DECIMAL(10,2) → (18,2)
-    1. enable typeWidening        [feature]
-    2. ALTER COLUMN TYPE          [meta]
-  ~ address
-    + zip STRING
-    3. ADD COLUMN address.zip     [meta]
-  → customer_ref (was cust_id)
-    4. enable columnMapping       [feature]
-       ⚠ breaks streaming readers
-    5. RENAME COLUMN              [meta]
-  - legacy_flag
-    6. DROP COLUMN                [destructive]
-
-Plan: 0 add, 1 change, 0 destroy · 6 steps · 0 rewrites · 1 warning
-```
+![A deltaplan plan: a rename, a widening, a backfilled NOT NULL column, a nested field, a CHECK and a grant, each with its numbered, risk-labelled steps](https://misja-pronk.github.io/deltaplan/assets/screens/tour-plan-change.svg)
 
 ## Why
 
 - **Delta-aware.** Metadata-only, needs-a-table-feature, and full-rewrite are different
   things, and the plan says which one you're about to do — before you do it.
-- **Safe by default.** Only tables deltaplan created are ever drop candidates;
+- **Safe by default.** Only tables deltaplan manages are ever drop candidates;
   everything else is reported as unmanaged and left untouched. Destructive steps need
   `--allow-destructive`, and a stale plan is refused.
 - **No state file.** Unity Catalog is the state.

@@ -109,6 +109,24 @@ the code, keep the test, and remove the `TODO(verify)` it settled — and if the
 warehouse agreed with the wrong assumption, fix the fake too, so the offline suite stops
 agreeing with it.
 
+## The docs' pictures
+
+Every terminal on the docs site is deltaplan's own output. `tests/screens.py` writes a
+small project for each scene, applies its "before" specs through the CLI into the fake
+warehouse, runs the command the page shows, and records what the CLI printed as an SVG.
+The spec files a page quotes are written alongside, so the YAML next to a plan is the
+YAML that made it.
+
+`test_screens.py` fails when a picture no longer matches what the CLI prints. After
+changing anything a user sees, remake them and look at the diff:
+
+```sh
+mise run screens
+```
+
+A new feature earns a scene in the [feature gallery](features.md): add it to
+`tests/screens.py` and a section to `docs/features.md`.
+
 ## Where a new test goes
 
 | You changed | Test it in |
@@ -117,3 +135,4 @@ agreeing with it.
 | The SQL a step generates | `tests/unit/test_convergence.py` — teach the fake the statement |
 | The executor, history, locking | `tests/unit/test_executor.py` with `MemoryHistory` |
 | An assumption about what Databricks does | `tests/integration/`, with the docs link |
+| Anything a user sees in the terminal | a scene in `tests/screens.py`, then `mise run screens` |

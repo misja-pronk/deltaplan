@@ -2,16 +2,21 @@
 
 Declarative, Terraform-style `plan` / `apply` for Databricks SQL tables — Unity Catalog and Delta.
 
-!!! warning "Pre-alpha"
-    Every milestone in the design is built: planning, applying (rewrites included),
-    drift detection, the [GitHub Action](ci.md), and governance — column tags, grants,
-    masks, row filters and views. What hasn't happened yet is a run against a real
-    workspace; see [testing](testing.md). [DESIGN.md](DESIGN.md) is the source of truth.
+!!! warning "Alpha"
+    Every milestone in the design is built, and the assumptions deltaplan makes about
+    Databricks are checked by a live test suite against a real workspace — see
+    [testing](testing.md). It is still an alpha: try it on dev before production, and
+    expect the spec format to change before the first stable release.
 
-Describe the tables you want in YAML, diff that against live Unity Catalog, review a
-plan, then apply it. deltaplan knows which Delta changes are metadata-only, which need
+Describe the tables you want in YAML or SQL, diff that against live Unity Catalog, review
+a plan, then apply it. deltaplan knows which Delta changes are metadata-only, which need
 a table feature enabled first, and which force a rewrite — and it says so before it
 touches anything.
+
+![A deltaplan plan](assets/screens/tour-plan-change.svg)
+
+[Take the tour](tour.md){ .md-button .md-button--primary }
+[See every feature](features.md){ .md-button }
 
 <hr class="dp-rule">
 
@@ -21,7 +26,7 @@ touches anything.
   tree, numbered steps, risk labels, and size hints on anything that rewrites.
 - **Delta-aware planning** — metadata-only vs. table-feature vs. rewrite is a
   classification the planner makes explicit, not a surprise at apply time.
-- **Safe by default** — only tables deltaplan created can ever be drop candidates.
+- **Safe by default** — only tables deltaplan manages can ever be drop candidates.
   Everything else is reported as unmanaged and left alone; destructive steps need
   `--allow-destructive`.
 - **No state file** — Unity Catalog *is* the state. Nothing to sync, nothing to corrupt.
@@ -32,48 +37,10 @@ touches anything.
 - **Fits your stack** — Python-native, Apache-2.0, and happy next to Databricks Asset
   Bundles.
 
-## A spec
-
-```yaml
-table: ${catalog}.sales.orders
-comment: Order facts
-cluster_by: [order_date]
-columns:
-  - name: order_id
-    type: bigint
-    nullable: false
-  - name: customer_ref
-    type: string
-    renamed_from: cust_id
-  - name: address
-    type:
-      struct:
-        - {name: street, type: string}
-        - {name: zip, type: string}
-```
-
-## The plan it produces
-
-```
-sales.orders   ~ update  (412 GB)
-  ~ amount  DECIMAL(10,2) → (18,2)
-    1. enable typeWidening        [feature]
-    2. ALTER COLUMN TYPE          [meta]
-  ~ address
-    + zip STRING
-    3. ADD COLUMN address.zip     [meta]
-  → customer_ref (was cust_id)
-    4. enable columnMapping       [feature]
-       ⚠ breaks streaming readers
-    5. RENAME COLUMN              [meta]
-  - legacy_flag
-    6. DROP COLUMN                [destructive]
-
-Plan: 0 add, 1 change, 0 destroy · 6 steps · 0 rewrites · 1 warning
-```
-
 ## Next steps
 
+- [A tour](tour.md) — one project from nothing to a reviewed pull request, in ten minutes.
+- [Feature gallery](features.md) — every kind of change, with its spec and its plan.
 - [Installation](installation.md) — install with uvx, uv tool, or pipx.
 - [Writing a spec](spec.md) — the YAML format, types, and renames.
 - [Commands](cli.md) — `validate`, `import`, `plan`, `apply`, `drift`.
