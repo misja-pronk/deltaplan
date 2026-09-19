@@ -139,3 +139,14 @@ def test_kept_and_unmanaged_tables_are_listed() -> None:
     rendered = render_markdown(plan)
     assert "**Kept:** `sales.retired`" in rendered
     assert "Unmanaged, left untouched: `sales.theirs`" in rendered
+
+
+def test_an_undo_hint_keeps_its_quoted_names() -> None:
+    """The hint quotes every name in backticks; inside a one-backtick span the
+    first of them ends the span and GitHub shows the rest as broken text."""
+    from dataclasses import replace
+
+    _, plan = plan_against(DESIRED, LIVE)
+    hint = "RESTORE TABLE `main`.`sales`.`orders` TO VERSION AS OF 17"
+    plan = replace(plan, steps=tuple(replace(s, undo_hint=hint) for s in plan.steps))
+    assert f"undo: `` {hint} ``" in render_markdown(plan)

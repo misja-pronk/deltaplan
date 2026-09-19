@@ -11,6 +11,8 @@ it posted last time and update it, rather than adding a new one on every push.
 
 from __future__ import annotations
 
+import re
+
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Step, TableDiff
 from deltaplan.render.labels import describe, display_name, human_bytes, table_verb
@@ -81,9 +83,8 @@ def _render_summary_only(plan: Plan, heading: str) -> str:
         if diff.changes:
             symbol, verb = table_verb({change.kind for change in diff.changes})
             count = len(plan.steps_for(diff.table))
-            lines.append(
-                f"| `{_cell(display_name(diff.table))}` | {symbol} {verb} | {count} |"
-            )
+            name = _code(_cell(display_name(diff.table)))
+            lines.append(f"| {name} | {symbol} {verb} | {count} |")
     lines += [
         "",
         "> [!NOTE]\n> The full plan is too long for a comment. "
@@ -99,7 +100,7 @@ def _render_summary_only(plan: Plan, heading: str) -> str:
 
 def _title(plan: Plan, heading: str) -> str:
     status = RISK_ICON[plan.highest_risk] if plan.steps else "✅"
-    return f"### {status} deltaplan {heading} · `{_cell(plan.target)}`"
+    return f"### {status} deltaplan {heading} · {_code(_cell(plan.target))}"
 
 
 def _alerts(plan: Plan) -> list[str]:
@@ -108,7 +109,7 @@ def _alerts(plan: Plan) -> list[str]:
     destructive = [step for step in plan.steps if step.risk == "destructive"]
     if destructive:
         listed = ", ".join(
-            f"{step.id} ({step.title} on `{display_name(step.table)}`)"
+            f"{step.id} ({step.title} on {_code(display_name(step.table))})"
             for step in destructive
         )
         lines += [
@@ -129,7 +130,7 @@ def _alerts(plan: Plan) -> list[str]:
                 ),
                 None,
             )
-            sizes.append(f"`{display_name(name)}`" + (f" ({size})" if size else ""))
+            sizes.append(_code(display_name(name)) + (f" ({size})" if size else ""))
         lines += [
             "> [!WARNING]",
             f"> Rewrites the data of {', '.join(sizes)}. "
@@ -166,7 +167,7 @@ def _table_block(plan: Plan, diff: TableDiff, *, include_sql: bool) -> list[str]
             lines += _sql_block(steps)
 
     if diff.unmanaged:
-        listed = ", ".join(f"`{_cell(item)}`" for item in diff.unmanaged)
+        listed = ", ".join(_code(_cell(item)) for item in diff.unmanaged)
         lines += [f"<sub>Left untouched (unmanaged): {listed}</sub>", ""]
     for note in diff.notes:
         lines += [f"<sub>{_html(note)}</sub>", ""]
@@ -198,7 +199,7 @@ def _step_row(step: Step) -> str:
     if step.note:
         notes.append(step.note)
     if step.undo_hint:
-        notes.append(f"undo: `{_cell(step.undo_hint)}`")
+        notes.append(f"undo: {_code(_cell(step.undo_hint))}")
     return (
         f"| {step.id} | {_cell(step.title)} | {RISK_BADGE[step.risk]} | "
         f"{'<br>'.join(_cell(note) for note in notes)} |"
@@ -235,16 +236,16 @@ def _left_alone(plan: Plan) -> list[str]:
         for note in diff.notes
     ]
     for name, note in quiet:
-        lines += [f"<sub>`{display_name(name)}`: {_html(note)}</sub>", ""]
+        lines += [f"<sub>{_code(display_name(name))}: {_html(note)}</sub>", ""]
     if plan.orphaned_tables:
-        names = ", ".join(f"`{display_name(n)}`" for n in plan.orphaned_tables)
+        names = ", ".join(_code(display_name(n)) for n in plan.orphaned_tables)
         lines += [
             f"**Kept:** {names} — created by deltaplan, no longer in any spec. "
             "The schema is additive, so they stay.",
             "",
         ]
     if plan.unmanaged_tables:
-        names = ", ".join(f"`{display_name(n)}`" for n in plan.unmanaged_tables)
+        names = ", ".join(_code(display_name(n)) for n in plan.unmanaged_tables)
         lines += [f"<sub>Unmanaged, left untouched: {names}</sub>", ""]
     return lines
 
@@ -254,6 +255,17 @@ def _footer(plan: Plan) -> str:
         f"<sub>deltaplan {_cell(plan.tool_version)} · specs `{plan.spec_hash}` · "
         f"live state `{plan.state_fingerprint}`</sub>"
     )
+
+
+def _code(text: str) -> str:
+    """Inline code that survives backticks in it — an undo hint quotes every name,
+    and `RESTORE TABLE `a`.`b`` would end the span at the first one. CommonMark:
+    a longer fence than any run inside, padded with a space it strips again."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    if not longest:
+        return f"`{text}`"
+    fence = "`" * (longest + 1)
+    return f"{fence} {text} {fence}"
 
 
 def _cell(text: str) -> str:
