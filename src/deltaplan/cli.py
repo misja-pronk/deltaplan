@@ -8,6 +8,7 @@ that write to a workspace.
 import json
 import os
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -45,7 +46,7 @@ from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_json
 from deltaplan.render.json import loads as plan_loads
 from deltaplan.render.markdown import render_markdown
-from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, render_plan
+from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, number_width, render_plan
 from deltaplan.spec_schema import MODELINE, project_schema, spec_schema
 from deltaplan.sqlspec import dump_sql_spec, sql_cannot_say
 
@@ -551,7 +552,7 @@ def apply(
         runner=runner,
         introspector=Introspector(runner),
         history=history,
-        observer=_show_step,
+        observer=partial(_show_step, width=number_width(built)),
     )
     try:
         result = executor.apply(built, allow_destructive=allow_destructive)
@@ -564,15 +565,15 @@ def apply(
         raise typer.Exit(1)
 
 
-def _show_step(step: Step, status: Status, note: str | None) -> None:
+def _show_step(step: Step, status: Status, note: str | None, *, width: int = 1) -> None:
     colour = {"succeeded": "green", "skipped": "dim", "failed": "red"}[status]
     label = {"succeeded": "ok", "skipped": "skipped", "failed": "failed"}[status]
     line = (
-        f"  [dim]{step.id}.[/] {step.title.ljust(TITLE_WIDTH)} "
+        f"  [dim]{step.id:>{width}}.[/] {step.title.ljust(TITLE_WIDTH)} "
         f"[{RISK_STYLE[step.risk]}]\\[{step.risk}][/] [{colour}]{label}[/]"
     )
     if status == "skipped" and note:
-        line += f" [dim]({note})[/]"
+        line += f" [dim]({escape(note)})[/]"
     out.print(line)
     if status == "failed" and note:
         err.print(f"     [red]{escape(note)}[/]")

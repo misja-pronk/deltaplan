@@ -96,7 +96,7 @@ def test_rewrites_show_their_size_and_why(snapshot: SnapshotAssertion) -> None:
     )
     assert "[rewrite]" in rendered
     assert "(412 GB)" in rendered
-    assert "1 rewrites" in rendered
+    assert "1 rewrite " in rendered
     assert rendered == snapshot
 
 
@@ -134,3 +134,12 @@ def test_human_bytes() -> None:
     assert human_bytes(1536) == "1.5 KB"
     assert human_bytes(442_381_631_488) == "412 GB"
     assert human_bytes(1_125_899_906_842_624) == "1024 TB"
+
+
+def test_step_numbers_line_up_past_nine() -> None:
+    live = table(col("id", "bigint"), name=TABLE)
+    desired = table(col("id", "bigint"), *(col(f"c{i}", "int") for i in range(11)))
+    text = plan_text(plan_for(desired, live))
+    steps = [line for line in text.splitlines() if "ADD COLUMN" in line]
+    assert {line.index("ADD COLUMN") for line in steps} == {8}, text
+    assert steps[0].startswith("     1. ") and steps[9].startswith("    10. ")

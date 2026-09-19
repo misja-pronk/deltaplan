@@ -131,12 +131,15 @@ class Summary:
     warnings: int
 
     def __str__(self) -> str:
-        warnings = "warning" if self.warnings == 1 else "warnings"
         return (
             f"Plan: {self.add} add, {self.change} change, {self.destroy} destroy"
-            f" · {self.steps} steps · {self.rewrites} rewrites"
-            f" · {self.warnings} {warnings}"
+            f" · {_count(self.steps, 'step')} · {_count(self.rewrites, 'rewrite')}"
+            f" · {_count(self.warnings, 'warning')}"
         )
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
 @dataclass(frozen=True, slots=True)

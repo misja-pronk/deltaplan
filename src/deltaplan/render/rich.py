@@ -120,9 +120,15 @@ def plan_text(plan: Plan, *, width: int = 100) -> str:
 # ---------------------------------------------------------------------------
 
 
+def number_width(plan: Plan) -> int:
+    """Digits in the plan's last step number: step 9 lines up with step 10."""
+    return len(str(len(plan.steps)))
+
+
 def _render_table(plan: Plan, diff: TableDiff, console: Console, offset: int) -> None:
     """One table's block. `offset` is where its changes start in the plan."""
     console.print(_table_header(diff))
+    width = number_width(plan)
 
     numbered = list(enumerate(diff.changes, start=offset))
     shown: set[int] = set()
@@ -150,7 +156,7 @@ def _render_table(plan: Plan, diff: TableDiff, console: Console, offset: int) ->
     if rest:
         console.print(_line(1, "↻", Text(_rest_label(rest))))
         for step in rest:
-            _render_step(step, console, indent=2)
+            _render_step(step, console, indent=2, width=width)
 
     for item in diff.unmanaged:
         console.print(Text(f"  · {item} — unmanaged, left untouched", style="dim"))
@@ -212,7 +218,7 @@ def _render_change(
     # implement is the column itself or something nested inside it.
     printed: set[int] = set()
     for step in plan.steps_for_change(index):
-        _render_step(step, console, indent=2)
+        _render_step(step, console, indent=2, width=number_width(plan))
         printed.add(step.id)
     return printed
 
@@ -224,9 +230,9 @@ def _line(indent: int, marker: str, label: Text) -> Text:
     return line
 
 
-def _render_step(step: Step, console: Console, *, indent: int) -> None:
+def _render_step(step: Step, console: Console, *, indent: int, width: int) -> None:
     line = Text("  " * indent)
-    line.append(f"{step.id}. ", style="dim")
+    line.append(f"{step.id:>{width}}. ", style="dim")
     line.append(step.title.ljust(TITLE_WIDTH) + " ")
     line.append(f"[{step.risk}]", style=RISK_STYLE[step.risk])
     size = human_bytes(step.est_bytes) if step.risk == "rewrite" else None
@@ -234,7 +240,7 @@ def _render_step(step: Step, console: Console, *, indent: int) -> None:
         line.append(f"  ({size})", style="dim")
     console.print(line)
     # Warnings and notes hang under the step's text, past its number.
-    hanging = "  " * indent + "   "
+    hanging = "  " * indent + " " * (width + 2)
     for warning in step.warnings:
         console.print(Text(f"{hanging}⚠ {warning}", style="yellow"))
     if step.note:
