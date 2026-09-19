@@ -10,8 +10,8 @@ jobs:
     name: lint + types
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - run: uv sync
@@ -34,8 +34,8 @@ jobs:
           - os: macos-latest
             python-version: "3.14"
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       # unit tests only — the integration suite needs a live workspace and runs
@@ -47,7 +47,7 @@ jobs:
     name: workflows (actionlint)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The installer from actionlint's own README; it fetches a release binary.
       # https://github.com/rhysd/actionlint/blob/main/docs/install.md
       - name: Install actionlint
@@ -59,8 +59,8 @@ jobs:
     name: docs (strict build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       # mkdocs lives in the `docs` dependency group, which a plain sync skips
@@ -72,15 +72,15 @@ jobs:
     name: build (wheel + sdist)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - run: uv build
       - name: Smoke-test the built wheel on 3.11
         run: |
           uv venv /tmp/smoke -p 3.11
           uv pip install --python /tmp/smoke/bin/python dist/*.whl
           /tmp/smoke/bin/deltaplan --version
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/*
