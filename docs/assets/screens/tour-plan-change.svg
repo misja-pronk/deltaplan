@@ -1,0 +1,183 @@
+<svg class="rich-terminal" viewBox="0 0 994 782.0" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .dp-tour-plan-change-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .dp-tour-plan-change-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .dp-tour-plan-change-r1 { fill: #98a84b;font-weight: bold }
+.dp-tour-plan-change-r2 { fill: #c5c8c6;font-weight: bold }
+.dp-tour-plan-change-r3 { fill: #c5c8c6 }
+.dp-tour-plan-change-r4 { fill: #d0b344;font-weight: bold }
+.dp-tour-plan-change-r5 { fill: #868887;font-weight: bold }
+.dp-tour-plan-change-r6 { fill: #68a0b3 }
+.dp-tour-plan-change-r7 { fill: #868887 }
+.dp-tour-plan-change-r8 { fill: #d0b344 }
+.dp-tour-plan-change-r9 { fill: #98a84b }
+.dp-tour-plan-change-r10 { fill: #98729f }
+    </style>
+
+    <defs>
+    <clipPath id="dp-tour-plan-change-clip-terminal">
+      <rect x="0" y="0" width="975.0" height="731.0" />
+    </clipPath>
+    <clipPath id="dp-tour-plan-change-line-0">
+    <rect x="0" y="1.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-1">
+    <rect x="0" y="25.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-2">
+    <rect x="0" y="50.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-3">
+    <rect x="0" y="74.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-4">
+    <rect x="0" y="99.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-5">
+    <rect x="0" y="123.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-6">
+    <rect x="0" y="147.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-7">
+    <rect x="0" y="172.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-8">
+    <rect x="0" y="196.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-9">
+    <rect x="0" y="221.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-10">
+    <rect x="0" y="245.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-11">
+    <rect x="0" y="269.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-12">
+    <rect x="0" y="294.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-13">
+    <rect x="0" y="318.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-14">
+    <rect x="0" y="343.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-15">
+    <rect x="0" y="367.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-16">
+    <rect x="0" y="391.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-17">
+    <rect x="0" y="416.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-18">
+    <rect x="0" y="440.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-19">
+    <rect x="0" y="465.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-20">
+    <rect x="0" y="489.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-21">
+    <rect x="0" y="513.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-22">
+    <rect x="0" y="538.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-23">
+    <rect x="0" y="562.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-24">
+    <rect x="0" y="587.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-25">
+    <rect x="0" y="611.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-26">
+    <rect x="0" y="635.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-27">
+    <rect x="0" y="660.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-plan-change-line-28">
+    <rect x="0" y="684.7" width="976" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="992" height="780" rx="8"/><text class="dp-tour-plan-change-title" fill="#c5c8c6" text-anchor="middle" x="496" y="27">deltaplan</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+        
+    <g transform="translate(9, 41)" clip-path="url(#dp-tour-plan-change-clip-terminal)">
+    
+    <g class="dp-tour-plan-change-matrix">
+    <text class="dp-tour-plan-change-r1" x="0" y="20" textLength="24.4" clip-path="url(#dp-tour-plan-change-line-0)">$&#160;</text><text class="dp-tour-plan-change-r2" x="24.4" y="20" textLength="329.4" clip-path="url(#dp-tour-plan-change-line-0)">deltaplan&#160;plan&#160;-o&#160;plan.json</text><text class="dp-tour-plan-change-r3" x="976" y="20" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-0)">
+</text><text class="dp-tour-plan-change-r2" x="0" y="44.4" textLength="183" clip-path="url(#dp-tour-plan-change-line-1)">sales.orders&#160;&#160;&#160;</text><text class="dp-tour-plan-change-r4" x="183" y="44.4" textLength="97.6" clip-path="url(#dp-tour-plan-change-line-1)">~&#160;update</text><text class="dp-tour-plan-change-r5" x="280.6" y="44.4" textLength="122" clip-path="url(#dp-tour-plan-change-line-1)">&#160;&#160;(412&#160;GB)</text><text class="dp-tour-plan-change-r3" x="976" y="44.4" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-1)">
+</text><text class="dp-tour-plan-change-r6" x="24.4" y="68.8" textLength="24.4" clip-path="url(#dp-tour-plan-change-line-2)">→&#160;</text><text class="dp-tour-plan-change-r3" x="48.8" y="68.8" textLength="317.2" clip-path="url(#dp-tour-plan-change-line-2)">customer_ref&#160;(was&#160;cust_id)</text><text class="dp-tour-plan-change-r3" x="976" y="68.8" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-2)">
+</text><text class="dp-tour-plan-change-r7" x="48.8" y="93.2" textLength="48.8" clip-path="url(#dp-tour-plan-change-line-3)">&#160;1.&#160;</text><text class="dp-tour-plan-change-r3" x="97.6" y="93.2" textLength="353.8" clip-path="url(#dp-tour-plan-change-line-3)">enable&#160;columnMapping&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-plan-change-r8" x="451.4" y="93.2" textLength="109.8" clip-path="url(#dp-tour-plan-change-line-3)">[feature]</text><text class="dp-tour-plan-change-r3" x="976" y="93.2" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-3)">
+</text><text class="dp-tour-plan-change-r8" x="0" y="117.6" textLength="878.4" clip-path="url(#dp-tour-plan-change-line-4)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;⚠&#160;breaks&#160;streaming&#160;readers&#160;—&#160;they&#160;must&#160;be&#160;restarted&#160;from&#160;scratch</text><text class="dp-tour-plan-change-r3" x="976" y="117.6" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-4)">
+</text><text class="dp-tour-plan-change-r7" x="0" y="142" textLength="622.2" clip-path="url(#dp-tour-plan-change-line-5)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;·&#160;column&#160;mapping&#160;cannot&#160;be&#160;turned&#160;off&#160;again</text><text class="dp-tour-plan-change-r3" x="976" y="142" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-5)">
+</text><text class="dp-tour-plan-change-r7" x="48.8" y="166.4" textLength="48.8" clip-path="url(#dp-tour-plan-change-line-6)">&#160;2.&#160;</text><text class="dp-tour-plan-change-r3" x="97.6" y="166.4" textLength="353.8" clip-path="url(#dp-tour-plan-change-line-6)">RENAME&#160;COLUMN&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-plan-change-r7" x="451.4" y="166.4" textLength="73.2" clip-path="url(#dp-tour-plan-change-line-6)">[meta]</text><text class="dp-tour-plan-change-r3" x="976" y="166.4" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-6)">
+</text><text class="dp-tour-plan-change-r8" x="24.4" y="190.8" textLength="24.4" clip-path="url(#dp-tour-plan-change-line-7)">~&#160;</text><text class="dp-tour-plan-change-r3" x="48.8" y="190.8" textLength="366" clip-path="url(#dp-tour-plan-change-line-7)">customer_ref&#160;&#160;tag&#160;pii&#160;=&#160;&#x27;true&#x27;</text><text class="dp-tour-plan-change-r3" x="976" y="190.8" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-7)">
+</text><text class="dp-tour-plan-change-r7" x="48.8" y="215.2" textLength="48.8" clip-path="url(#dp-tour-plan-change-line-8)">&#160;3.&#160;</text><text class="dp-tour-plan-change-r3" x="97.6" y="215.2" textLength="353.8" clip-path="url(#dp-tour-plan-change-line-8)">SET&#160;COLUMN&#160;TAGS&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-plan-change-r7" x="451.4" y="215.2" textLength="73.2" clip-path="url(#dp-tour-plan-change-line-8)">[meta]</text><text class="dp-tour-plan-change-r3" x="976" y="215.2" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-8)">
+</text><text class="dp-tour-plan-change-r8" x="24.4" y="239.6" textLength="24.4" clip-path="url(#dp-tour-plan-change-line-9)">~&#160;</text><text class="dp-tour-plan-change-r3" x="48.8" y="239.6" textLength="366" clip-path="url(#dp-tour-plan-change-line-9)">amount&#160;&#160;DECIMAL(10,2)&#160;→&#160;(18,2)</text><text class="dp-tour-plan-change-r3" x="976" y="239.6" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-9)">
+</text><text class="dp-tour-plan-change-r7" x="48.8" y="264" textLength="48.8" clip-path="url(#dp-tour-plan-change-line-10)">&#160;4.&#160;</text><text class="dp-tour-plan-change-r3" x="97.6" y="264" textLength="353.8" clip-path="url(#dp-tour-plan-change-line-10)">enable&#160;typeWidening&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-plan-change-r8" x="451.4" y="264" textLength="109.8" clip-path="url(#dp-tour-plan-change-line-10)">[feature]</text><text class="dp-tour-plan-change-r3" x="976" y="264" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-10)">
+</text><text class="dp-tour-plan-change-r7" x="0" y="288.4" textLength="878.4" clip-path="url(#dp-tour-plan-change-line-11)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;·&#160;raises&#160;the&#160;table&#x27;s&#160;protocol&#160;version;&#160;older&#160;clients&#160;lose&#160;access</text><text class="dp-tour-plan-change-r3" x="976" y="288.4" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-11)">
+</text><text class="dp-tour-plan-change-r7" x="48.8" y="312.8" textLength="48.8" clip-path="url(#dp-tour-plan-change-line-12)">&#160;5.&#160;</text><text class="dp-tour-plan-change-r3" x="97.6" y="312.8" textLength="353.8" clip-path="url(#dp-tour-plan-change-line-12)">ALTER&#160;COLUMN&#160;TYPE&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-plan-change-r7" x="451.4" y="312.8" textLength="73.2" clip-path="url(#dp-tour-plan-change-line-12)">[meta]</text><text class="dp-tour-plan-change-r3" x="976" y="312.8" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-12)">
+</text><text class="dp-tour-plan-change-r9" x="24.4" y="337.2" textLength="24.4" clip-path="url(#dp-tour-plan-change-line-13)">+&#160;</text><text class="dp-tour-plan-change-r3" x="48.8" y="337.2" textLength="158.6" clip-path="url(#dp-tour-plan-change-line-13)">status&#160;STRING</text><text class="dp-tour-plan-change-r3" x="976" y="337.2" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-13)">
+</text><text class="dp-tour-plan-change-r7" x="48.8" y="361.6" textLength="48.8" clip-path="url(#dp-tour-plan-change-line-14)">&#160;6.&#160;</text><text class="dp-tour-plan-change-r3" x="97.6" y="361.6" textLength="353.8" clip-path="url(#dp-tour-plan-change-line-14)">ADD&#160;COLUMN&#160;status&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-plan-change-r7" x="451.4" y="361.6" textLength="73.2" clip-path="url(#dp-tour-plan-change-line-14)">[meta]</text><text class="dp-tour-plan-change-r3" x="976" y="361.6" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-14)">
+</text><text class="dp-tour-plan-change-r7" x="48.8" y="386" textLength="48.8" clip-path="url(#dp-tour-plan-change-line-15)">&#160;7.&#160;</text><text class="dp-tour-plan-change-r3" x="97.6" y="386" textLength="353.8" clip-path="url(#dp-tour-plan-change-line-15)">BACKFILL&#160;status&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-plan-change-r10" x="451.4" y="386" textLength="109.8" clip-path="url(#dp-tour-plan-change-line-15)">[rewrite]</text><text class="dp-tour-plan-change-r7" x="561.2" y="386" textLength="122" clip-path="url(#dp-tour-plan-change-line-15)">&#160;&#160;(412&#160;GB)</text><text class="dp-tour-plan-change-r3" x="976" y="386" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-15)">
+</text><text class="dp-tour-plan-change-r7" x="0" y="410.4" textLength="805.2" clip-path="url(#dp-tour-plan-change-line-16)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;·&#160;rewrites&#160;the&#160;files&#160;holding&#160;rows&#160;it&#160;fills;&#160;safe&#160;to&#160;repeat</text><text class="dp-tour-plan-change-r3" x="976" y="410.4" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-16)">
+</text><text class="dp-tour-plan-change-r7" x="48.8" y="434.8" textLength="48.8" clip-path="url(#dp-tour-plan-change-line-17)">&#160;8.&#160;</text><text class="dp-tour-plan-change-r3" x="97.6" y="434.8" textLength="353.8" clip-path="url(#dp-tour-plan-change-line-17)">SET&#160;NOT&#160;NULL&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-plan-change-r7" x="451.4" y="434.8" textLength="73.2" clip-path="url(#dp-tour-plan-change-line-17)">[meta]</text><text class="dp-tour-plan-change-r3" x="976" y="434.8" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-17)">
+</text><text class="dp-tour-plan-change-r8" x="24.4" y="459.2" textLength="24.4" clip-path="url(#dp-tour-plan-change-line-18)">~&#160;</text><text class="dp-tour-plan-change-r3" x="48.8" y="459.2" textLength="85.4" clip-path="url(#dp-tour-plan-change-line-18)">address</text><text class="dp-tour-plan-change-r3" x="976" y="459.2" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-18)">
+</text><text class="dp-tour-plan-change-r9" x="48.8" y="483.6" textLength="24.4" clip-path="url(#dp-tour-plan-change-line-19)">+&#160;</text><text class="dp-tour-plan-change-r3" x="73.2" y="483.6" textLength="170.8" clip-path="url(#dp-tour-plan-change-line-19)">country&#160;STRING</text><text class="dp-tour-plan-change-r3" x="976" y="483.6" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-19)">
+</text><text class="dp-tour-plan-change-r7" x="48.8" y="508" textLength="48.8" clip-path="url(#dp-tour-plan-change-line-20)">&#160;9.&#160;</text><text class="dp-tour-plan-change-r3" x="97.6" y="508" textLength="353.8" clip-path="url(#dp-tour-plan-change-line-20)">ADD&#160;COLUMN&#160;address.country&#160;&#160;&#160;</text><text class="dp-tour-plan-change-r7" x="451.4" y="508" textLength="73.2" clip-path="url(#dp-tour-plan-change-line-20)">[meta]</text><text class="dp-tour-plan-change-r3" x="976" y="508" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-20)">
+</text><text class="dp-tour-plan-change-r9" x="24.4" y="532.4" textLength="24.4" clip-path="url(#dp-tour-plan-change-line-21)">+&#160;</text><text class="dp-tour-plan-change-r3" x="48.8" y="532.4" textLength="561.2" clip-path="url(#dp-tour-plan-change-line-21)">constraint&#160;CHECK&#160;(amount&#160;&gt;=&#160;0)&#160;positive_amount</text><text class="dp-tour-plan-change-r3" x="976" y="532.4" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-21)">
+</text><text class="dp-tour-plan-change-r7" x="48.8" y="556.8" textLength="48.8" clip-path="url(#dp-tour-plan-change-line-22)">10.&#160;</text><text class="dp-tour-plan-change-r3" x="97.6" y="556.8" textLength="451.4" clip-path="url(#dp-tour-plan-change-line-22)">ADD&#160;CONSTRAINT&#160;positive_amount&#160;CHECK&#160;</text><text class="dp-tour-plan-change-r7" x="549" y="556.8" textLength="73.2" clip-path="url(#dp-tour-plan-change-line-22)">[meta]</text><text class="dp-tour-plan-change-r3" x="976" y="556.8" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-22)">
+</text><text class="dp-tour-plan-change-r8" x="0" y="581.2" textLength="878.4" clip-path="url(#dp-tour-plan-change-line-23)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;⚠&#160;Databricks&#160;validates&#160;every&#160;existing&#160;row,&#160;which&#160;scans&#160;the&#160;table</text><text class="dp-tour-plan-change-r3" x="976" y="581.2" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-23)">
+</text><text class="dp-tour-plan-change-r9" x="24.4" y="605.6" textLength="24.4" clip-path="url(#dp-tour-plan-change-line-24)">+&#160;</text><text class="dp-tour-plan-change-r3" x="48.8" y="605.6" textLength="292.8" clip-path="url(#dp-tour-plan-change-line-24)">grant&#160;SELECT&#160;to&#160;analysts</text><text class="dp-tour-plan-change-r3" x="976" y="605.6" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-24)">
+</text><text class="dp-tour-plan-change-r7" x="48.8" y="630" textLength="48.8" clip-path="url(#dp-tour-plan-change-line-25)">11.&#160;</text><text class="dp-tour-plan-change-r3" x="97.6" y="630" textLength="353.8" clip-path="url(#dp-tour-plan-change-line-25)">GRANT&#160;to&#160;analysts&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-plan-change-r7" x="451.4" y="630" textLength="73.2" clip-path="url(#dp-tour-plan-change-line-25)">[meta]</text><text class="dp-tour-plan-change-r3" x="976" y="630" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-25)">
+</text><text class="dp-tour-plan-change-r3" x="976" y="654.4" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-26)">
+</text><text class="dp-tour-plan-change-r2" x="0" y="678.8" textLength="829.6" clip-path="url(#dp-tour-plan-change-line-27)">Plan:&#160;0&#160;add,&#160;1&#160;change,&#160;0&#160;destroy&#160;·&#160;11&#160;steps&#160;·&#160;1&#160;rewrite&#160;·&#160;2&#160;warnings</text><text class="dp-tour-plan-change-r3" x="976" y="678.8" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-27)">
+</text><text class="dp-tour-plan-change-r3" x="976" y="703.2" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-28)">
+</text><text class="dp-tour-plan-change-r9" x="0" y="727.6" textLength="61" clip-path="url(#dp-tour-plan-change-line-29)">Wrote</text><text class="dp-tour-plan-change-r3" x="61" y="727.6" textLength="122" clip-path="url(#dp-tour-plan-change-line-29)">&#160;plan.json</text><text class="dp-tour-plan-change-r3" x="976" y="727.6" textLength="12.2" clip-path="url(#dp-tour-plan-change-line-29)">
+</text>
+    </g>
+    </g>
+</svg>

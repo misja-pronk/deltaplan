@@ -1,0 +1,12 @@
+table: ${catalog}.sales.orders
+columns:
+  - {name: order_id, type: bigint, nullable: false}
+  - name: region
+    type: string
+    nullable: false
+    using: "'unknown'"
+  - name: address
+    type:
+      struct:
+        - {name: street, type: string}
+        - {name: zip, type: string, nullable: false}

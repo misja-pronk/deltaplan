@@ -1,0 +1,23 @@
+table: ${catalog}.sales.orders
+comment: Order facts, one row per order
+cluster_by: [order_date]
+tags:
+  domain: sales
+columns:
+  - name: order_id
+    type: bigint
+    nullable: false
+  - name: order_date
+    type: date
+    nullable: false
+  - name: cust_id
+    type: string
+  - name: amount
+    type: decimal(10,2)
+  - name: address
+    type:
+      struct:
+        - {name: street, type: string}
+        - {name: zip, type: string}
+constraints:
+  - primary_key: [order_id]

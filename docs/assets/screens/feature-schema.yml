@@ -1,0 +1,5 @@
+schema: ${catalog}.sales
+comment: Sales data
+tags: {domain: sales}
+grants:
+  - {principal: analysts, privileges: [USE SCHEMA, SELECT]}

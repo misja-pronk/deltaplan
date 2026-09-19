@@ -1,0 +1,97 @@
+<svg class="rich-terminal" viewBox="0 0 994 269.6" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .dp-tour-apply-create-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .dp-tour-apply-create-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .dp-tour-apply-create-r1 { fill: #98a84b;font-weight: bold }
+.dp-tour-apply-create-r2 { fill: #c5c8c6;font-weight: bold }
+.dp-tour-apply-create-r3 { fill: #c5c8c6 }
+.dp-tour-apply-create-r4 { fill: #68a0b3;font-weight: bold }
+.dp-tour-apply-create-r5 { fill: #868887 }
+.dp-tour-apply-create-r6 { fill: #4e707b;font-weight: bold }
+.dp-tour-apply-create-r7 { fill: #868887;font-weight: bold }
+.dp-tour-apply-create-r8 { fill: #98a84b }
+    </style>
+
+    <defs>
+    <clipPath id="dp-tour-apply-create-clip-terminal">
+      <rect x="0" y="0" width="975.0" height="218.6" />
+    </clipPath>
+    <clipPath id="dp-tour-apply-create-line-0">
+    <rect x="0" y="1.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-apply-create-line-1">
+    <rect x="0" y="25.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-apply-create-line-2">
+    <rect x="0" y="50.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-apply-create-line-3">
+    <rect x="0" y="74.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-apply-create-line-4">
+    <rect x="0" y="99.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-apply-create-line-5">
+    <rect x="0" y="123.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-apply-create-line-6">
+    <rect x="0" y="147.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-tour-apply-create-line-7">
+    <rect x="0" y="172.3" width="976" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="992" height="267.6" rx="8"/><text class="dp-tour-apply-create-title" fill="#c5c8c6" text-anchor="middle" x="496" y="27">deltaplan</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+        
+    <g transform="translate(9, 41)" clip-path="url(#dp-tour-apply-create-clip-terminal)">
+    
+    <g class="dp-tour-apply-create-matrix">
+    <text class="dp-tour-apply-create-r1" x="0" y="20" textLength="24.4" clip-path="url(#dp-tour-apply-create-line-0)">$&#160;</text><text class="dp-tour-apply-create-r2" x="24.4" y="20" textLength="305" clip-path="url(#dp-tour-apply-create-line-0)">deltaplan&#160;apply&#160;plan.json</text><text class="dp-tour-apply-create-r3" x="976" y="20" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-0)">
+</text><text class="dp-tour-apply-create-r2" x="0" y="44.4" textLength="36.6" clip-path="url(#dp-tour-apply-create-line-1)">dev</text><text class="dp-tour-apply-create-r3" x="36.6" y="44.4" textLength="36.6" clip-path="url(#dp-tour-apply-create-line-1)">&#160;·&#160;</text><text class="dp-tour-apply-create-r4" x="73.2" y="44.4" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-1)">5</text><text class="dp-tour-apply-create-r3" x="85.4" y="44.4" textLength="268.4" clip-path="url(#dp-tour-apply-create-line-1)">&#160;steps&#160;·&#160;highest&#160;risk&#160;</text><text class="dp-tour-apply-create-r5" x="353.8" y="44.4" textLength="48.8" clip-path="url(#dp-tour-apply-create-line-1)">meta</text><text class="dp-tour-apply-create-r3" x="976" y="44.4" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-1)">
+</text><text class="dp-tour-apply-create-r6" x="24.4" y="68.8" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-2)">1</text><text class="dp-tour-apply-create-r5" x="36.6" y="68.8" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-2)">.</text><text class="dp-tour-apply-create-r3" x="48.8" y="68.8" textLength="366" clip-path="url(#dp-tour-apply-create-line-2)">&#160;CREATE&#160;SCHEMA&#160;sales&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-apply-create-r7" x="414.8" y="68.8" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-2)">[</text><text class="dp-tour-apply-create-r5" x="427" y="68.8" textLength="48.8" clip-path="url(#dp-tour-apply-create-line-2)">meta</text><text class="dp-tour-apply-create-r7" x="475.8" y="68.8" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-2)">]</text><text class="dp-tour-apply-create-r8" x="500.2" y="68.8" textLength="24.4" clip-path="url(#dp-tour-apply-create-line-2)">ok</text><text class="dp-tour-apply-create-r3" x="976" y="68.8" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-2)">
+</text><text class="dp-tour-apply-create-r6" x="24.4" y="93.2" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-3)">2</text><text class="dp-tour-apply-create-r5" x="36.6" y="93.2" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-3)">.</text><text class="dp-tour-apply-create-r3" x="48.8" y="93.2" textLength="366" clip-path="url(#dp-tour-apply-create-line-3)">&#160;CREATE&#160;TABLE&#160;customers&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-apply-create-r7" x="414.8" y="93.2" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-3)">[</text><text class="dp-tour-apply-create-r5" x="427" y="93.2" textLength="48.8" clip-path="url(#dp-tour-apply-create-line-3)">meta</text><text class="dp-tour-apply-create-r7" x="475.8" y="93.2" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-3)">]</text><text class="dp-tour-apply-create-r8" x="500.2" y="93.2" textLength="24.4" clip-path="url(#dp-tour-apply-create-line-3)">ok</text><text class="dp-tour-apply-create-r3" x="976" y="93.2" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-3)">
+</text><text class="dp-tour-apply-create-r6" x="24.4" y="117.6" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-4)">3</text><text class="dp-tour-apply-create-r5" x="36.6" y="117.6" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-4)">.</text><text class="dp-tour-apply-create-r3" x="48.8" y="117.6" textLength="366" clip-path="url(#dp-tour-apply-create-line-4)">&#160;CREATE&#160;TABLE&#160;orders&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-apply-create-r7" x="414.8" y="117.6" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-4)">[</text><text class="dp-tour-apply-create-r5" x="427" y="117.6" textLength="48.8" clip-path="url(#dp-tour-apply-create-line-4)">meta</text><text class="dp-tour-apply-create-r7" x="475.8" y="117.6" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-4)">]</text><text class="dp-tour-apply-create-r8" x="500.2" y="117.6" textLength="24.4" clip-path="url(#dp-tour-apply-create-line-4)">ok</text><text class="dp-tour-apply-create-r3" x="976" y="117.6" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-4)">
+</text><text class="dp-tour-apply-create-r6" x="24.4" y="142" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-5)">4</text><text class="dp-tour-apply-create-r5" x="36.6" y="142" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-5)">.</text><text class="dp-tour-apply-create-r3" x="48.8" y="142" textLength="366" clip-path="url(#dp-tour-apply-create-line-5)">&#160;SET&#160;TAGS&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-apply-create-r7" x="414.8" y="142" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-5)">[</text><text class="dp-tour-apply-create-r5" x="427" y="142" textLength="48.8" clip-path="url(#dp-tour-apply-create-line-5)">meta</text><text class="dp-tour-apply-create-r7" x="475.8" y="142" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-5)">]</text><text class="dp-tour-apply-create-r8" x="500.2" y="142" textLength="24.4" clip-path="url(#dp-tour-apply-create-line-5)">ok</text><text class="dp-tour-apply-create-r3" x="976" y="142" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-5)">
+</text><text class="dp-tour-apply-create-r6" x="24.4" y="166.4" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-6)">5</text><text class="dp-tour-apply-create-r5" x="36.6" y="166.4" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-6)">.</text><text class="dp-tour-apply-create-r3" x="48.8" y="166.4" textLength="366" clip-path="url(#dp-tour-apply-create-line-6)">&#160;CREATE&#160;VIEW&#160;big_orders&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-tour-apply-create-r7" x="414.8" y="166.4" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-6)">[</text><text class="dp-tour-apply-create-r5" x="427" y="166.4" textLength="48.8" clip-path="url(#dp-tour-apply-create-line-6)">meta</text><text class="dp-tour-apply-create-r7" x="475.8" y="166.4" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-6)">]</text><text class="dp-tour-apply-create-r8" x="500.2" y="166.4" textLength="24.4" clip-path="url(#dp-tour-apply-create-line-6)">ok</text><text class="dp-tour-apply-create-r3" x="976" y="166.4" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-6)">
+</text><text class="dp-tour-apply-create-r3" x="976" y="190.8" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-7)">
+</text><text class="dp-tour-apply-create-r8" x="0" y="215.2" textLength="85.4" clip-path="url(#dp-tour-apply-create-line-8)">Applied</text><text class="dp-tour-apply-create-r4" x="97.6" y="215.2" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-8)">5</text><text class="dp-tour-apply-create-r3" x="109.8" y="215.2" textLength="195.2" clip-path="url(#dp-tour-apply-create-line-8)">&#160;steps,&#160;skipped&#160;</text><text class="dp-tour-apply-create-r4" x="305" y="215.2" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-8)">0</text><text class="dp-tour-apply-create-r3" x="317.2" y="215.2" textLength="85.4" clip-path="url(#dp-tour-apply-create-line-8)">&#160;·&#160;run&#160;</text><text class="dp-tour-apply-create-r2" x="402.6" y="215.2" textLength="146.4" clip-path="url(#dp-tour-apply-create-line-8)">a41c9e07d2b5</text><text class="dp-tour-apply-create-r3" x="976" y="215.2" textLength="12.2" clip-path="url(#dp-tour-apply-create-line-8)">
+</text>
+    </g>
+    </g>
+</svg>

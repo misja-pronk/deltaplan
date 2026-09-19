@@ -1,0 +1,6 @@
+table: ${catalog}.sales.orders
+columns:
+  - {name: order_id, type: bigint, identity: always}
+  - {name: placed_at, type: timestamp}
+  - {name: status, type: string, default: "'new'"}
+  - {name: placed_on, type: date, generated: CAST(placed_at AS DATE)}

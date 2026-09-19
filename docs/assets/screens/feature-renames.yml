@@ -1,0 +1,5 @@
+table: ${catalog}.sales.orders
+renamed_from: order_facts
+columns:
+  - {name: order_id, type: bigint, nullable: false}
+  - {name: customer_ref, type: string, renamed_from: cust_id}

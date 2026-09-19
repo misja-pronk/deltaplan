@@ -1,0 +1,4 @@
+volume: ${catalog}.sales.landing
+comment: Raw files from the source systems
+grants:
+  - {principal: etl, privileges: [READ VOLUME, WRITE VOLUME]}

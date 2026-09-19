@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://misja-pronk.github.io/deltaplan/schema/spec.json
+table: ${catalog}.crm.customers
+comment: One row per customer
+tags:
+  domain: crm
+columns:
+- name: customer_id
+  type: bigint
+  nullable: false
+- name: email
+  type: string
+  comment: Primary contact
+- name: address
+  type: struct<street:string,zip:string>
+grants:
+- principal: analysts
+  privileges:
+  - SELECT

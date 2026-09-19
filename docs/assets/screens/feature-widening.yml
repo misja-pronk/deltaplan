@@ -1,0 +1,5 @@
+table: ${catalog}.sales.orders
+columns:
+  - {name: quantity, type: bigint}
+  - {name: amount, type: "decimal(18,2)"}
+  - {name: lines, type: "array<struct<sku:string,qty:bigint>>"}

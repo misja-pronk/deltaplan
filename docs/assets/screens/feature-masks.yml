@@ -1,0 +1,8 @@
+table: ${catalog}.sales.customers
+columns:
+  - {name: customer_id, type: bigint}
+  - {name: email, type: string, mask: "${catalog}.security.mask_email"}
+  - {name: region, type: string}
+row_filter:
+  function: ${catalog}.security.by_region
+  columns: [region]

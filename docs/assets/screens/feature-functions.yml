@@ -1,0 +1,11 @@
+function: ${catalog}.sales.order_band
+comment: Small, medium or large, by amount
+parameters:
+  - {name: amount, type: "decimal(18,2)"}
+returns: string
+grants:
+  - {principal: analysts, privileges: [EXECUTE]}
+body: |
+  CASE WHEN amount < 100 THEN 'small'
+       WHEN amount < 2500 THEN 'medium'
+       ELSE 'large' END

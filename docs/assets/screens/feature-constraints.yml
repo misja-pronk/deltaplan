@@ -1,0 +1,12 @@
+table: ${catalog}.sales.orders
+columns:
+  - {name: order_id, type: bigint, nullable: false}
+  - {name: customer_id, type: bigint}
+  - {name: amount, type: "decimal(18,2)"}
+constraints:
+  - primary_key: [order_id]
+  - check: {name: positive_amount, expression: "amount > 0"}
+  - foreign_key:
+      columns: [customer_id]
+      references: ${catalog}.sales.customers
+      referenced_columns: [customer_id]

@@ -1,0 +1,4 @@
+table: ${catalog}.sales.orders
+columns:
+  - {name: order_id, type: bigint}
+  - {name: amount, type: "decimal(18,2)"}

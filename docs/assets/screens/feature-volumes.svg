@@ -1,0 +1,131 @@
+<svg class="rich-terminal" viewBox="0 0 994 489.2" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .dp-feature-volumes-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .dp-feature-volumes-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .dp-feature-volumes-r1 { fill: #98a84b;font-weight: bold }
+.dp-feature-volumes-r2 { fill: #c5c8c6;font-weight: bold }
+.dp-feature-volumes-r3 { fill: #c5c8c6 }
+.dp-feature-volumes-r4 { fill: #98a84b }
+.dp-feature-volumes-r5 { fill: #868887 }
+.dp-feature-volumes-r6 { fill: #98729f }
+    </style>
+
+    <defs>
+    <clipPath id="dp-feature-volumes-clip-terminal">
+      <rect x="0" y="0" width="975.0" height="438.2" />
+    </clipPath>
+    <clipPath id="dp-feature-volumes-line-0">
+    <rect x="0" y="1.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-1">
+    <rect x="0" y="25.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-2">
+    <rect x="0" y="50.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-3">
+    <rect x="0" y="74.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-4">
+    <rect x="0" y="99.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-5">
+    <rect x="0" y="123.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-6">
+    <rect x="0" y="147.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-7">
+    <rect x="0" y="172.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-8">
+    <rect x="0" y="196.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-9">
+    <rect x="0" y="221.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-10">
+    <rect x="0" y="245.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-11">
+    <rect x="0" y="269.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-12">
+    <rect x="0" y="294.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-13">
+    <rect x="0" y="318.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-14">
+    <rect x="0" y="343.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-15">
+    <rect x="0" y="367.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-volumes-line-16">
+    <rect x="0" y="391.9" width="976" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="992" height="487.2" rx="8"/><text class="dp-feature-volumes-title" fill="#c5c8c6" text-anchor="middle" x="496" y="27">deltaplan</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+        
+    <g transform="translate(9, 41)" clip-path="url(#dp-feature-volumes-clip-terminal)">
+    
+    <g class="dp-feature-volumes-matrix">
+    <text class="dp-feature-volumes-r1" x="0" y="20" textLength="24.4" clip-path="url(#dp-feature-volumes-line-0)">$&#160;</text><text class="dp-feature-volumes-r2" x="24.4" y="20" textLength="170.8" clip-path="url(#dp-feature-volumes-line-0)">deltaplan&#160;plan</text><text class="dp-feature-volumes-r3" x="976" y="20" textLength="12.2" clip-path="url(#dp-feature-volumes-line-0)">
+</text><text class="dp-feature-volumes-r2" x="0" y="44.4" textLength="146.4" clip-path="url(#dp-feature-volumes-line-1)">dev.sales&#160;&#160;&#160;</text><text class="dp-feature-volumes-r1" x="146.4" y="44.4" textLength="97.6" clip-path="url(#dp-feature-volumes-line-1)">+&#160;create</text><text class="dp-feature-volumes-r3" x="976" y="44.4" textLength="12.2" clip-path="url(#dp-feature-volumes-line-1)">
+</text><text class="dp-feature-volumes-r4" x="24.4" y="68.8" textLength="24.4" clip-path="url(#dp-feature-volumes-line-2)">+&#160;</text><text class="dp-feature-volumes-r3" x="48.8" y="68.8" textLength="73.2" clip-path="url(#dp-feature-volumes-line-2)">schema</text><text class="dp-feature-volumes-r3" x="976" y="68.8" textLength="12.2" clip-path="url(#dp-feature-volumes-line-2)">
+</text><text class="dp-feature-volumes-r5" x="48.8" y="93.2" textLength="36.6" clip-path="url(#dp-feature-volumes-line-3)">1.&#160;</text><text class="dp-feature-volumes-r3" x="85.4" y="93.2" textLength="353.8" clip-path="url(#dp-feature-volumes-line-3)">CREATE&#160;SCHEMA&#160;sales&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-volumes-r5" x="439.2" y="93.2" textLength="73.2" clip-path="url(#dp-feature-volumes-line-3)">[meta]</text><text class="dp-feature-volumes-r3" x="976" y="93.2" textLength="12.2" clip-path="url(#dp-feature-volumes-line-3)">
+</text><text class="dp-feature-volumes-r5" x="0" y="117.6" textLength="793" clip-path="url(#dp-feature-volumes-line-4)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;·&#160;deltaplan&#160;never&#160;drops&#160;a&#160;schema&#160;—&#160;not&#160;even&#160;in&#160;strict&#160;mode</text><text class="dp-feature-volumes-r3" x="976" y="117.6" textLength="12.2" clip-path="url(#dp-feature-volumes-line-4)">
+</text><text class="dp-feature-volumes-r6" x="24.4" y="142" textLength="24.4" clip-path="url(#dp-feature-volumes-line-5)">↻&#160;</text><text class="dp-feature-volumes-r3" x="48.8" y="142" textLength="219.6" clip-path="url(#dp-feature-volumes-line-5)">around&#160;the&#160;changes</text><text class="dp-feature-volumes-r3" x="976" y="142" textLength="12.2" clip-path="url(#dp-feature-volumes-line-5)">
+</text><text class="dp-feature-volumes-r5" x="48.8" y="166.4" textLength="36.6" clip-path="url(#dp-feature-volumes-line-6)">2.&#160;</text><text class="dp-feature-volumes-r3" x="85.4" y="166.4" textLength="353.8" clip-path="url(#dp-feature-volumes-line-6)">SET&#160;TAGS&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-volumes-r5" x="439.2" y="166.4" textLength="73.2" clip-path="url(#dp-feature-volumes-line-6)">[meta]</text><text class="dp-feature-volumes-r3" x="976" y="166.4" textLength="12.2" clip-path="url(#dp-feature-volumes-line-6)">
+</text><text class="dp-feature-volumes-r5" x="48.8" y="190.8" textLength="36.6" clip-path="url(#dp-feature-volumes-line-7)">3.&#160;</text><text class="dp-feature-volumes-r3" x="85.4" y="190.8" textLength="353.8" clip-path="url(#dp-feature-volumes-line-7)">GRANT&#160;to&#160;analysts&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-volumes-r5" x="439.2" y="190.8" textLength="73.2" clip-path="url(#dp-feature-volumes-line-7)">[meta]</text><text class="dp-feature-volumes-r3" x="976" y="190.8" textLength="12.2" clip-path="url(#dp-feature-volumes-line-7)">
+</text><text class="dp-feature-volumes-r3" x="976" y="215.2" textLength="12.2" clip-path="url(#dp-feature-volumes-line-8)">
+</text><text class="dp-feature-volumes-r2" x="0" y="239.6" textLength="195.2" clip-path="url(#dp-feature-volumes-line-9)">sales.landing&#160;&#160;&#160;</text><text class="dp-feature-volumes-r1" x="195.2" y="239.6" textLength="97.6" clip-path="url(#dp-feature-volumes-line-9)">+&#160;create</text><text class="dp-feature-volumes-r3" x="976" y="239.6" textLength="12.2" clip-path="url(#dp-feature-volumes-line-9)">
+</text><text class="dp-feature-volumes-r4" x="24.4" y="264" textLength="24.4" clip-path="url(#dp-feature-volumes-line-10)">+&#160;</text><text class="dp-feature-volumes-r3" x="48.8" y="264" textLength="73.2" clip-path="url(#dp-feature-volumes-line-10)">volume</text><text class="dp-feature-volumes-r3" x="976" y="264" textLength="12.2" clip-path="url(#dp-feature-volumes-line-10)">
+</text><text class="dp-feature-volumes-r5" x="48.8" y="288.4" textLength="36.6" clip-path="url(#dp-feature-volumes-line-11)">4.&#160;</text><text class="dp-feature-volumes-r3" x="85.4" y="288.4" textLength="353.8" clip-path="url(#dp-feature-volumes-line-11)">CREATE&#160;VOLUME&#160;landing&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-volumes-r5" x="439.2" y="288.4" textLength="73.2" clip-path="url(#dp-feature-volumes-line-11)">[meta]</text><text class="dp-feature-volumes-r3" x="976" y="288.4" textLength="12.2" clip-path="url(#dp-feature-volumes-line-11)">
+</text><text class="dp-feature-volumes-r5" x="0" y="312.8" textLength="939.4" clip-path="url(#dp-feature-volumes-line-12)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;·&#160;a&#160;managed&#160;volume;&#160;deltaplan&#160;never&#160;drops&#160;one&#160;—&#160;that&#160;would&#160;delete&#160;its&#160;</text><text class="dp-feature-volumes-r3" x="976" y="312.8" textLength="12.2" clip-path="url(#dp-feature-volumes-line-12)">
+</text><text class="dp-feature-volumes-r5" x="0" y="337.2" textLength="61" clip-path="url(#dp-feature-volumes-line-13)">files</text><text class="dp-feature-volumes-r3" x="976" y="337.2" textLength="12.2" clip-path="url(#dp-feature-volumes-line-13)">
+</text><text class="dp-feature-volumes-r6" x="24.4" y="361.6" textLength="24.4" clip-path="url(#dp-feature-volumes-line-14)">↻&#160;</text><text class="dp-feature-volumes-r3" x="48.8" y="361.6" textLength="219.6" clip-path="url(#dp-feature-volumes-line-14)">around&#160;the&#160;changes</text><text class="dp-feature-volumes-r3" x="976" y="361.6" textLength="12.2" clip-path="url(#dp-feature-volumes-line-14)">
+</text><text class="dp-feature-volumes-r5" x="48.8" y="386" textLength="36.6" clip-path="url(#dp-feature-volumes-line-15)">5.&#160;</text><text class="dp-feature-volumes-r3" x="85.4" y="386" textLength="353.8" clip-path="url(#dp-feature-volumes-line-15)">GRANT&#160;to&#160;etl&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-volumes-r5" x="439.2" y="386" textLength="73.2" clip-path="url(#dp-feature-volumes-line-15)">[meta]</text><text class="dp-feature-volumes-r3" x="976" y="386" textLength="12.2" clip-path="url(#dp-feature-volumes-line-15)">
+</text><text class="dp-feature-volumes-r3" x="976" y="410.4" textLength="12.2" clip-path="url(#dp-feature-volumes-line-16)">
+</text><text class="dp-feature-volumes-r2" x="0" y="434.8" textLength="829.6" clip-path="url(#dp-feature-volumes-line-17)">Plan:&#160;2&#160;add,&#160;0&#160;change,&#160;0&#160;destroy&#160;·&#160;5&#160;steps&#160;·&#160;0&#160;rewrites&#160;·&#160;0&#160;warnings</text><text class="dp-feature-volumes-r3" x="976" y="434.8" textLength="12.2" clip-path="url(#dp-feature-volumes-line-17)">
+</text>
+    </g>
+    </g>
+</svg>

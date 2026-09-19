@@ -1,0 +1,112 @@
+<svg class="rich-terminal" viewBox="0 0 994 367.2" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .dp-feature-widening-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .dp-feature-widening-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .dp-feature-widening-r1 { fill: #98a84b;font-weight: bold }
+.dp-feature-widening-r2 { fill: #c5c8c6;font-weight: bold }
+.dp-feature-widening-r3 { fill: #c5c8c6 }
+.dp-feature-widening-r4 { fill: #d0b344;font-weight: bold }
+.dp-feature-widening-r5 { fill: #868887;font-weight: bold }
+.dp-feature-widening-r6 { fill: #d0b344 }
+.dp-feature-widening-r7 { fill: #868887 }
+    </style>
+
+    <defs>
+    <clipPath id="dp-feature-widening-clip-terminal">
+      <rect x="0" y="0" width="975.0" height="316.2" />
+    </clipPath>
+    <clipPath id="dp-feature-widening-line-0">
+    <rect x="0" y="1.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-widening-line-1">
+    <rect x="0" y="25.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-widening-line-2">
+    <rect x="0" y="50.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-widening-line-3">
+    <rect x="0" y="74.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-widening-line-4">
+    <rect x="0" y="99.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-widening-line-5">
+    <rect x="0" y="123.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-widening-line-6">
+    <rect x="0" y="147.9" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-widening-line-7">
+    <rect x="0" y="172.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-widening-line-8">
+    <rect x="0" y="196.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-widening-line-9">
+    <rect x="0" y="221.1" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-widening-line-10">
+    <rect x="0" y="245.5" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-widening-line-11">
+    <rect x="0" y="269.9" width="976" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="992" height="365.2" rx="8"/><text class="dp-feature-widening-title" fill="#c5c8c6" text-anchor="middle" x="496" y="27">deltaplan</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+        
+    <g transform="translate(9, 41)" clip-path="url(#dp-feature-widening-clip-terminal)">
+    
+    <g class="dp-feature-widening-matrix">
+    <text class="dp-feature-widening-r1" x="0" y="20" textLength="24.4" clip-path="url(#dp-feature-widening-line-0)">$&#160;</text><text class="dp-feature-widening-r2" x="24.4" y="20" textLength="170.8" clip-path="url(#dp-feature-widening-line-0)">deltaplan&#160;plan</text><text class="dp-feature-widening-r3" x="976" y="20" textLength="12.2" clip-path="url(#dp-feature-widening-line-0)">
+</text><text class="dp-feature-widening-r2" x="0" y="44.4" textLength="183" clip-path="url(#dp-feature-widening-line-1)">sales.orders&#160;&#160;&#160;</text><text class="dp-feature-widening-r4" x="183" y="44.4" textLength="97.6" clip-path="url(#dp-feature-widening-line-1)">~&#160;update</text><text class="dp-feature-widening-r5" x="280.6" y="44.4" textLength="109.8" clip-path="url(#dp-feature-widening-line-1)">&#160;&#160;(24&#160;GB)</text><text class="dp-feature-widening-r3" x="976" y="44.4" textLength="12.2" clip-path="url(#dp-feature-widening-line-1)">
+</text><text class="dp-feature-widening-r6" x="24.4" y="68.8" textLength="24.4" clip-path="url(#dp-feature-widening-line-2)">~&#160;</text><text class="dp-feature-widening-r3" x="48.8" y="68.8" textLength="268.4" clip-path="url(#dp-feature-widening-line-2)">quantity&#160;&#160;INT&#160;→&#160;BIGINT</text><text class="dp-feature-widening-r3" x="976" y="68.8" textLength="12.2" clip-path="url(#dp-feature-widening-line-2)">
+</text><text class="dp-feature-widening-r7" x="48.8" y="93.2" textLength="36.6" clip-path="url(#dp-feature-widening-line-3)">1.&#160;</text><text class="dp-feature-widening-r3" x="85.4" y="93.2" textLength="353.8" clip-path="url(#dp-feature-widening-line-3)">enable&#160;typeWidening&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-widening-r6" x="439.2" y="93.2" textLength="109.8" clip-path="url(#dp-feature-widening-line-3)">[feature]</text><text class="dp-feature-widening-r3" x="976" y="93.2" textLength="12.2" clip-path="url(#dp-feature-widening-line-3)">
+</text><text class="dp-feature-widening-r7" x="0" y="117.6" textLength="866.2" clip-path="url(#dp-feature-widening-line-4)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;·&#160;raises&#160;the&#160;table&#x27;s&#160;protocol&#160;version;&#160;older&#160;clients&#160;lose&#160;access</text><text class="dp-feature-widening-r3" x="976" y="117.6" textLength="12.2" clip-path="url(#dp-feature-widening-line-4)">
+</text><text class="dp-feature-widening-r7" x="48.8" y="142" textLength="36.6" clip-path="url(#dp-feature-widening-line-5)">2.&#160;</text><text class="dp-feature-widening-r3" x="85.4" y="142" textLength="353.8" clip-path="url(#dp-feature-widening-line-5)">ALTER&#160;COLUMN&#160;TYPE&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-widening-r7" x="439.2" y="142" textLength="73.2" clip-path="url(#dp-feature-widening-line-5)">[meta]</text><text class="dp-feature-widening-r3" x="976" y="142" textLength="12.2" clip-path="url(#dp-feature-widening-line-5)">
+</text><text class="dp-feature-widening-r6" x="24.4" y="166.4" textLength="24.4" clip-path="url(#dp-feature-widening-line-6)">~&#160;</text><text class="dp-feature-widening-r3" x="48.8" y="166.4" textLength="366" clip-path="url(#dp-feature-widening-line-6)">amount&#160;&#160;DECIMAL(10,2)&#160;→&#160;(18,2)</text><text class="dp-feature-widening-r3" x="976" y="166.4" textLength="12.2" clip-path="url(#dp-feature-widening-line-6)">
+</text><text class="dp-feature-widening-r7" x="48.8" y="190.8" textLength="36.6" clip-path="url(#dp-feature-widening-line-7)">3.&#160;</text><text class="dp-feature-widening-r3" x="85.4" y="190.8" textLength="353.8" clip-path="url(#dp-feature-widening-line-7)">ALTER&#160;COLUMN&#160;TYPE&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-widening-r7" x="439.2" y="190.8" textLength="73.2" clip-path="url(#dp-feature-widening-line-7)">[meta]</text><text class="dp-feature-widening-r3" x="976" y="190.8" textLength="12.2" clip-path="url(#dp-feature-widening-line-7)">
+</text><text class="dp-feature-widening-r6" x="24.4" y="215.2" textLength="24.4" clip-path="url(#dp-feature-widening-line-8)">~&#160;</text><text class="dp-feature-widening-r3" x="48.8" y="215.2" textLength="61" clip-path="url(#dp-feature-widening-line-8)">lines</text><text class="dp-feature-widening-r3" x="976" y="215.2" textLength="12.2" clip-path="url(#dp-feature-widening-line-8)">
+</text><text class="dp-feature-widening-r6" x="48.8" y="239.6" textLength="24.4" clip-path="url(#dp-feature-widening-line-9)">~&#160;</text><text class="dp-feature-widening-r3" x="73.2" y="239.6" textLength="305" clip-path="url(#dp-feature-widening-line-9)">element.qty&#160;&#160;INT&#160;→&#160;BIGINT</text><text class="dp-feature-widening-r3" x="976" y="239.6" textLength="12.2" clip-path="url(#dp-feature-widening-line-9)">
+</text><text class="dp-feature-widening-r7" x="48.8" y="264" textLength="36.6" clip-path="url(#dp-feature-widening-line-10)">4.&#160;</text><text class="dp-feature-widening-r3" x="85.4" y="264" textLength="353.8" clip-path="url(#dp-feature-widening-line-10)">ALTER&#160;COLUMN&#160;TYPE&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-widening-r7" x="439.2" y="264" textLength="73.2" clip-path="url(#dp-feature-widening-line-10)">[meta]</text><text class="dp-feature-widening-r3" x="976" y="264" textLength="12.2" clip-path="url(#dp-feature-widening-line-10)">
+</text><text class="dp-feature-widening-r3" x="976" y="288.4" textLength="12.2" clip-path="url(#dp-feature-widening-line-11)">
+</text><text class="dp-feature-widening-r2" x="0" y="312.8" textLength="829.6" clip-path="url(#dp-feature-widening-line-12)">Plan:&#160;0&#160;add,&#160;1&#160;change,&#160;0&#160;destroy&#160;·&#160;4&#160;steps&#160;·&#160;0&#160;rewrites&#160;·&#160;0&#160;warnings</text><text class="dp-feature-widening-r3" x="976" y="312.8" textLength="12.2" clip-path="url(#dp-feature-widening-line-12)">
+</text>
+    </g>
+    </g>
+</svg>

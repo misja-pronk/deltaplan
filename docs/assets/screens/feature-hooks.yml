@@ -1,0 +1,6 @@
+table: ${catalog}.sales.orders
+hooks:
+  before: DELETE FROM ${catalog}.sales.orders WHERE order_id IS NULL
+  after: OPTIMIZE ${catalog}.sales.orders
+columns:
+  - {name: order_id, type: bigint, nullable: false}

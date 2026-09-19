@@ -1,0 +1,34 @@
+table: ${catalog}.sales.orders
+comment: Order facts, one row per order
+cluster_by: [order_date]
+tags:
+  domain: sales
+grants:
+  - principal: analysts
+    privileges: [SELECT]
+columns:
+  - name: order_id
+    type: bigint
+    nullable: false
+  - name: order_date
+    type: date
+    nullable: false
+  - name: customer_ref
+    type: string
+    renamed_from: cust_id
+    tags: {pii: "true"}
+  - name: amount
+    type: decimal(18,2)
+  - name: status
+    type: string
+    nullable: false
+    using: "'open'"
+  - name: address
+    type:
+      struct:
+        - {name: street, type: string}
+        - {name: zip, type: string}
+        - {name: country, type: string}
+constraints:
+  - primary_key: [order_id]
+  - check: {name: positive_amount, expression: "amount >= 0"}

@@ -1,0 +1,8 @@
+table: ${catalog}.sales.customers
+tags: {domain: crm}
+grants:
+  - {principal: analysts, privileges: [SELECT]}
+  - {principal: etl, privileges: [SELECT, MODIFY]}
+columns:
+  - {name: customer_id, type: bigint}
+  - {name: email, type: string, tags: {pii: email}}

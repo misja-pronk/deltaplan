@@ -1,0 +1,10 @@
+table: ${catalog}.sales.orders
+columns:
+  - {name: order_id, type: bigint, nullable: false}
+  - {name: amount, type: "decimal(10,2)", comment: "Gross, incl. VAT"}
+  - {name: status, type: string}
+  - name: address
+    type:
+      struct:
+        - {name: street, type: string}
+        - {name: zip, type: string, comment: Postal code}

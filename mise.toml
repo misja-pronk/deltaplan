@@ -59,6 +59,10 @@ run = "uv build"
 description = "Preview the docs site at localhost:8000"
 run = "uv run --group docs mkdocs serve"
 
+[tasks.screens]
+description = "Remake the docs' terminal pictures from the real CLI"
+run = "uv run python tests/screens.py docs/assets/screens"
+
 [tasks."docs:build"]
 description = "Build the docs site (strict)"
 run = "uv run --group docs mkdocs build --strict"

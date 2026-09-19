@@ -1,0 +1,82 @@
+<!-- deltaplan:plan:dev -->
+<h3>🟠 deltaplan plan · <code>dev</code></h3>
+
+**Plan: 0 add, 1 change, 0 destroy · 11 steps · 1 rewrite · 2 warnings**
+
+!!! warning
+
+    Rewrites the data of `sales.orders` (412 GB). A restore point is recorded first.
+
+<details markdown open>
+<summary><b>sales.orders</b> · ~ update · 412 GB</summary>
+
+```diff
+→ customer_ref (was cust_id)
+~ customer_ref  tag pii = 'true'
+~ amount  DECIMAL(10,2) → (18,2)
++ status STRING
+~ address
++   country STRING
++ constraint CHECK (amount >= 0) positive_amount
++ grant SELECT to analysts
+```
+
+| # | Step | Risk | |
+|--:|---|---|---|
+| 1 | enable columnMapping | 🟡 feature | ⚠️ breaks streaming readers — they must be restarted from scratch<br>column mapping cannot be turned off again |
+| 2 | RENAME COLUMN | 🟢 meta |  |
+| 3 | SET COLUMN TAGS | 🟢 meta |  |
+| 4 | enable typeWidening | 🟡 feature | raises the table's protocol version; older clients lose access |
+| 5 | ALTER COLUMN TYPE | 🟢 meta |  |
+| 6 | ADD COLUMN status | 🟢 meta |  |
+| 7 | BACKFILL status | 🟠 rewrite | rewrites the files holding rows it fills; safe to repeat<br>undo: `` RESTORE TABLE `dev`.`sales`.`orders` TO VERSION AS OF 1 `` |
+| 8 | SET NOT NULL | 🟢 meta |  |
+| 9 | ADD COLUMN address.country | 🟢 meta |  |
+| 10 | ADD CONSTRAINT positive_amount CHECK | 🟢 meta | ⚠️ Databricks validates every existing row, which scans the table |
+| 11 | GRANT to analysts | 🟢 meta |  |
+
+<details markdown><summary>SQL</summary>
+
+```sql
+-- 1. enable columnMapping
+ALTER TABLE `dev`.`sales`.`orders` SET TBLPROPERTIES (
+  'delta.columnMapping.mode' = 'name',
+  'delta.minReaderVersion' = '2',
+  'delta.minWriterVersion' = '5');
+
+-- 2. RENAME COLUMN
+ALTER TABLE `dev`.`sales`.`orders` RENAME COLUMN `cust_id` TO `customer_ref`;
+
+-- 3. SET COLUMN TAGS
+ALTER TABLE `dev`.`sales`.`orders` ALTER COLUMN `customer_ref` SET TAGS ('pii' = 'true');
+
+-- 4. enable typeWidening
+ALTER TABLE `dev`.`sales`.`orders` SET TBLPROPERTIES ('delta.enableTypeWidening' = 'true');
+
+-- 5. ALTER COLUMN TYPE
+ALTER TABLE `dev`.`sales`.`orders` ALTER COLUMN `amount` TYPE DECIMAL(18,2);
+
+-- 6. ADD COLUMN status
+ALTER TABLE `dev`.`sales`.`orders` ADD COLUMNS (`status` STRING);
+
+-- 7. BACKFILL status
+UPDATE `dev`.`sales`.`orders` SET `status` = 'open' WHERE `status` IS NULL;
+
+-- 8. SET NOT NULL
+ALTER TABLE `dev`.`sales`.`orders` ALTER COLUMN `status` SET NOT NULL;
+
+-- 9. ADD COLUMN address.country
+ALTER TABLE `dev`.`sales`.`orders` ADD COLUMNS (`address`.`country` STRING);
+
+-- 10. ADD CONSTRAINT positive_amount CHECK
+ALTER TABLE `dev`.`sales`.`orders` ADD CONSTRAINT `positive_amount` CHECK (amount >= 0);
+
+-- 11. GRANT to analysts
+GRANT SELECT ON TABLE `dev`.`sales`.`orders` TO `analysts`;
+```
+
+</details>
+
+</details>
+
+<sub>deltaplan 0.1.0 · specs `0e6addbfc6d6e70f` · live state `6a3390adcda108c6`</sub>

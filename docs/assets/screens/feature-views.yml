@@ -1,0 +1,6 @@
+view: ${catalog}.sales.big_orders
+comment: Orders over 5000
+tags: {domain: sales}
+grants:
+  - {principal: analysts, privileges: [SELECT]}
+query: SELECT order_id, amount FROM ${catalog}.sales.orders WHERE amount > 5000

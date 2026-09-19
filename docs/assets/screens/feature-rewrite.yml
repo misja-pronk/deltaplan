@@ -1,0 +1,6 @@
+table: ${catalog}.sales.orders
+columns:
+  - {name: order_id, type: bigint, nullable: false}
+  - name: placed
+    type: date
+    using: "to_date(placed, 'yyyy-MM-dd')"

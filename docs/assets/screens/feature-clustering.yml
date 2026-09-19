@@ -1,0 +1,6 @@
+table: ${catalog}.sales.orders
+cluster_by: [region, order_date]
+columns:
+  - {name: order_id, type: bigint}
+  - {name: order_date, type: date}
+  - {name: region, type: string}
