@@ -6,6 +6,7 @@ properties that matter and are easy to break: every input is wired through, no
 input is interpolated into a shell script, and every action it uses is pinned.
 """
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -124,6 +125,7 @@ def test_it_is_a_composite_action(action: dict[str, Any]) -> None:
         "working-directory",
         "clone",
         "comment",
+        "allow-destructive",
         "fail-on-drift",
         "github-token",
     }
@@ -164,3 +166,80 @@ def test_the_comment_script_is_where_the_action_looks_for_it() -> None:
     text = (ROOT / "action.yml").read_text()
     assert '"$ACTION_PATH/action/upsert_comment.py"' in text
     assert (ROOT / "action" / "upsert_comment.py").is_file()
+
+
+# ---------------------------------------------------------------------------
+# the script itself, with deltaplan stubbed out
+# ---------------------------------------------------------------------------
+
+
+def run_script(
+    action: dict[str, Any], tmp_path: Path, command: str, *, steps: int, **env: str
+) -> list[str]:
+    """Run the action's main script with `uvx` recording what it was asked to do,
+    and `deltaplan plan` answering with a plan of `steps` steps."""
+    import os
+    import subprocess
+
+    [step] = [s for s in action["runs"]["steps"] if s.get("id") == "run"]
+    bin_dir, calls = tmp_path / "bin", tmp_path / "calls"
+    bin_dir.mkdir()
+    planned = tmp_path / "planned.json"
+    planned.write_text(json.dumps({"steps": [{}] * steps}))
+    (bin_dir / "uvx").write_text(
+        "#!/usr/bin/env bash\n"
+        f'shift 3; echo "$*" >> {calls}\n'  # drop `--from <path> deltaplan`
+        'args=("$@")\n'
+        'for i in "${!args[@]}"; do\n'
+        '  if [ "${args[$i]}" = -o ]; then out="${args[$((i+1))]}"; fi\n'
+        "done\n"
+        'case "$1" in\n'
+        f'  plan) cp {planned} "$out" ;;\n'
+        '  show|drift) echo "# plan" > "$out" ;;\n'
+        "esac\n"
+    )
+    (bin_dir / "uv").write_text('#!/usr/bin/env bash\nexec python3 "${@:4}"\n')
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    environment = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_OUTPUT": str(tmp_path / "output"),
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
+        "COMMAND": command,
+        "TARGET": "prod",
+        "CONFIG": "deltaplan.yml",
+        "CLONE": "false",
+        "ALLOW_DESTRUCTIVE": "false",
+        "ACTION_PATH": "/action",
+        **env,
+    }
+    subprocess.run(["bash", "-c", step["run"]], env=environment, check=True)
+    return calls.read_text().splitlines()
+
+
+def test_apply_plans_then_runs_that_plan(action: dict[str, Any], tmp_path: Path) -> None:
+    calls = run_script(action, tmp_path, "apply", steps=2)
+    plan_file = tmp_path / "deltaplan" / "plan.json"
+    assert calls[0].startswith("plan -t prod --config deltaplan.yml -f json -o")
+    assert calls[-1] == f"apply {plan_file} --config deltaplan.yml"
+
+
+def test_apply_with_nothing_to_do_runs_nothing(
+    action: dict[str, Any], tmp_path: Path
+) -> None:
+    calls = run_script(action, tmp_path, "apply", steps=0)
+    assert not any(call.startswith("apply") for call in calls)
+
+
+def test_apply_passes_allow_destructive_only_when_asked(
+    action: dict[str, Any], tmp_path: Path
+) -> None:
+    calls = run_script(action, tmp_path, "apply", steps=1, ALLOW_DESTRUCTIVE="true")
+    assert calls[-1].endswith("--allow-destructive")
+
+
+def test_plan_never_applies(action: dict[str, Any], tmp_path: Path) -> None:
+    calls = run_script(action, tmp_path, "plan", steps=3)
+    assert not any(call.startswith("apply") for call in calls)

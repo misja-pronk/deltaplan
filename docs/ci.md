@@ -1,8 +1,12 @@
 # In CI
 
-deltaplan ships as a GitHub Action. It runs `plan` or `drift`, puts the result in the
-job summary, and — on a pull request — posts it as a comment, updating its own comment
-on every push instead of adding another.
+deltaplan ships as a GitHub Action. It runs `plan`, `apply` or `drift`, puts the result in
+the job summary, and — on a pull request — posts it as a comment, updating its own
+comment on every push instead of adding another.
+
+`uses: misja-pronk/deltaplan@v0` follows the newest 0.x release; pin a release tag
+(`@v0.1.0a6`) to hold one still. The action runs the deltaplan of its own version, so the
+two never disagree.
 
 ## Credentials
 
@@ -80,27 +84,18 @@ jobs:
       DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
     steps:
       - uses: actions/checkout@v4
-      - id: plan
-        uses: misja-pronk/deltaplan@v0
+      - uses: misja-pronk/deltaplan@v0
         with:
+          command: apply
           target: prod
-          comment: false
-      - if: steps.plan.outputs.has-changes == 'true'
-        uses: astral-sh/setup-uv@v6
-      - if: steps.plan.outputs.has-changes == 'true'
-        env:
-          PLAN_FILE: ${{ steps.plan.outputs.plan-file }}
-        run: uvx deltaplan apply "$PLAN_FILE"
 ```
 
-The plan is made fresh at merge time, so it is always against the tables as they are
-now; `apply` refuses it anyway if they move between the two steps. Add
-`--allow-destructive` only if you mean it — without it, a plan that drops anything stops
-before running a single statement.
-
-!!! note "Before the first PyPI release"
-    `uvx deltaplan` needs deltaplan on PyPI. Until then, install from the repository:
-    `uvx --from git+https://github.com/misja-pronk/deltaplan deltaplan apply …`.
+`command: apply` plans, puts the plan in the job summary, and runs exactly that plan. It
+is made fresh at merge time, so it is always against the tables as they are now; `apply`
+refuses it anyway if they move in between. Set `allow-destructive: true` only if you
+mean it — without it, a plan that drops anything stops before running a single
+statement. `apply` keeps its run history in the target's `history_schema`, so the
+principal needs to be allowed to write there.
 
 ## Catch drift nightly
 
@@ -143,10 +138,11 @@ On the command line, `deltaplan drift` exits `0` when live tables match their sp
 | Input | Default | |
 |---|---|---|
 | `target` | *(required)* | The target in `deltaplan.yml`. |
-| `command` | `plan` | `plan` or `drift`. |
+| `command` | `plan` | `plan`, `apply` or `drift`. |
 | `config` | `deltaplan.yml` | Relative to `working-directory`. |
 | `working-directory` | `.` | Where the project lives. |
-| `clone` | `false` | `plan` only: `SHALLOW CLONE` before risky steps. |
+| `clone` | `false` | `SHALLOW CLONE` before risky steps. |
+| `allow-destructive` | `false` | `apply` only: let the plan drop something. |
 | `comment` | `true` | Comment on the pull request, if there is one. |
 | `fail-on-drift` | `true` | `drift` only: fail the job on drift. |
 | `github-token` | `github.token` | Needs `pull-requests: write` to comment. |

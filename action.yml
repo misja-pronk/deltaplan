@@ -1,5 +1,5 @@
 name: deltaplan
-description: Plan Databricks SQL table changes, and comment the plan on the pull request.
+description: Plan Databricks SQL table changes, comment the plan on the pull request, and apply it on merge.
 author: Misja Pronk
 branding:
   icon: layers
@@ -7,7 +7,7 @@ branding:
 
 inputs:
   command:
-    description: "`plan` to show what would change, or `drift` to check live tables against their specs."
+    description: "`plan` to show what would change, `apply` to plan and run it, or `drift` to check live tables against their specs."
     default: plan
   target:
     description: The target in deltaplan.yml to plan for.
@@ -24,6 +24,9 @@ inputs:
   comment:
     description: On a pull request, post the result as a comment — updating deltaplan's previous one rather than adding another.
     default: "true"
+  allow-destructive:
+    description: "`apply` only: let the plan drop something. Without it, a plan that would stops before running anything."
+    default: "false"
   fail-on-drift:
     description: "`drift` only: fail the job when live tables have drifted."
     default: "true"
@@ -57,12 +60,13 @@ runs:
         TARGET: ${{ inputs.target }}
         CONFIG: ${{ inputs.config }}
         CLONE: ${{ inputs.clone }}
+        ALLOW_DESTRUCTIVE: ${{ inputs.allow-destructive }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
         case "$COMMAND" in
-          plan|drift) ;;
-          *) echo "::error::command must be plan or drift, not '$COMMAND'"; exit 1 ;;
+          plan|apply|drift) ;;
+          *) echo "::error::command must be plan, apply or drift, not '$COMMAND'"; exit 1 ;;
         esac
 
         # deltaplan is installed from this action's own checkout, so the action
@@ -73,7 +77,7 @@ runs:
         mkdir -p "$out"
         markdown="$out/$COMMAND.md"
 
-        if [ "$COMMAND" = plan ]; then
+        if [ "$COMMAND" != drift ]; then
           plan_file="$out/plan.json"
           args=(plan -t "$TARGET" --config "$CONFIG" -f json -o "$plan_file")
           if [ "$CLONE" = true ]; then args+=(--clone); fi
@@ -85,6 +89,12 @@ runs:
             'import json, sys; print(str(bool(json.load(open(sys.argv[1]))["steps"])).lower())' \
             "$plan_file")
           echo "plan-file=$plan_file" >> "$GITHUB_OUTPUT"
+          if [ "$COMMAND" = apply ] && [ "$has_changes" = true ]; then
+            # The same plan the summary shows, run by the same version.
+            args=(apply "$plan_file" --config "$CONFIG")
+            if [ "$ALLOW_DESTRUCTIVE" = true ]; then args+=(--allow-destructive); fi
+            deltaplan "${args[@]}"
+          fi
         else
           # drift exits 2 when there is drift; anything else non-zero is a failure.
           set +e
