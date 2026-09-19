@@ -937,10 +937,7 @@ class _Planner:
                 f"ALTER {self._object} {quote_qualified(change.table)} SET TBLPROPERTIES "
                 f"({quote_literal(MANAGED_PROPERTY)} = 'true')"
             ),
-            note=(
-                f"a spec now describes this {self._object.lower()}, so deltaplan "
-                "manages it — in a strict schema, removing its spec later will drop it"
-            ),
+            note="in a strict schema, deleting its spec later drops it",
         )
 
     def _create_schema(self, change: Change) -> None:

@@ -282,6 +282,26 @@ def import_schema(
         _warehouse(warehouse_id, chosen, profile), parts[0], parts[1], parallel
     )
 
+    if project is None and config is None and output is None:
+        # A first import is a first project: write the file that makes
+        # `plan` and `apply` work next, once reading the schema has worked.
+        # With -o the caller has a layout in mind, so nothing is added to it.
+        project_file = Path(PROJECT_FILE)
+        project_file.write_text(
+            starter_project(
+                parts[0],
+                specs=Path("tables"),
+                warehouse_id=warehouse_id,
+                profile=profile,
+            ),
+            encoding="utf-8",
+        )
+        out.print(
+            f"[green]+[/] {PROJECT_FILE} [dim](target dev: catalog {escape(parts[0])})[/]"
+        )
+        project = _project(project_file)
+        chosen = _target(project, None)
+
     directory = output or (project.spec_paths[0] if project else Path("tables"))
     directory.mkdir(parents=True, exist_ok=True)
 
@@ -344,6 +364,46 @@ def import_schema(
         err.print(
             f"[yellow]No Delta tables, views or functions found in {escape(schema)}.[/]"
         )
+        return
+    out.print(
+        "\nNext: [bold]deltaplan plan[/] shows what adopting them means — a claim "
+        "per table, nothing else — and [bold]deltaplan apply[/] does it."
+    )
+
+
+PROJECT_FILE = "deltaplan.yml"
+
+
+def starter_project(
+    catalog: str,
+    *,
+    specs: Path,
+    warehouse_id: str | None = None,
+    profile: str | None = None,
+) -> str:
+    """The `deltaplan.yml` a first `import` writes: one target, `dev`, whose
+    `catalog` is the one imported from — so the specs say `${catalog}` and the
+    next target is one more block."""
+    connection = "".join(
+        f"    {key}: {value}\n"
+        for key, value in (("profile", profile), ("warehouse_id", warehouse_id))
+        if value
+    )
+    return f"""\
+# yaml-language-server: $schema=https://misja-pronk.github.io/deltaplan/schema/project.json
+# Written by `deltaplan import`. Every key is explained at
+# https://misja-pronk.github.io/deltaplan/spec/#the-project-file
+version: 1
+specs: [{specs.as_posix()}]
+
+# Where `apply` records its runs and holds its lock; created on first use.
+history_schema: ${{catalog}}.deltaplan
+
+targets:
+  dev:
+    vars:
+      catalog: {catalog}
+{connection}"""
 
 
 def _catalog_variable(target: Target | None, catalog: str) -> str | None:

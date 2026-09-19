@@ -1,4 +1,4 @@
-<svg class="rich-terminal" viewBox="0 0 994 123.19999999999999" xmlns="http://www.w3.org/2000/svg">
+<svg class="rich-terminal" viewBox="0 0 994 196.39999999999998" xmlns="http://www.w3.org/2000/svg">
     <!-- Generated with Rich https://www.textualize.io -->
     <style>
 
@@ -40,7 +40,7 @@
 
     <defs>
     <clipPath id="dp-feature-import-clip-terminal">
-      <rect x="0" y="0" width="975.0" height="72.19999999999999" />
+      <rect x="0" y="0" width="975.0" height="145.39999999999998" />
     </clipPath>
     <clipPath id="dp-feature-import-line-0">
     <rect x="0" y="1.5" width="976" height="24.65"/>
@@ -48,9 +48,18 @@
 <clipPath id="dp-feature-import-line-1">
     <rect x="0" y="25.9" width="976" height="24.65"/>
             </clipPath>
+<clipPath id="dp-feature-import-line-2">
+    <rect x="0" y="50.3" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-import-line-3">
+    <rect x="0" y="74.7" width="976" height="24.65"/>
+            </clipPath>
+<clipPath id="dp-feature-import-line-4">
+    <rect x="0" y="99.1" width="976" height="24.65"/>
+            </clipPath>
     </defs>
 
-    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="992" height="121.2" rx="8"/><text class="dp-feature-import-title" fill="#c5c8c6" text-anchor="middle" x="496" y="27">deltaplan</text>
+    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="992" height="194.4" rx="8"/><text class="dp-feature-import-title" fill="#c5c8c6" text-anchor="middle" x="496" y="27">deltaplan</text>
             <g transform="translate(26,22)">
             <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
             <circle cx="22" cy="0" r="7" fill="#febc2e"/>
@@ -63,6 +72,9 @@
     <text class="dp-feature-import-r1" x="0" y="20" textLength="24.4" clip-path="url(#dp-feature-import-line-0)">$&#160;</text><text class="dp-feature-import-r2" x="24.4" y="20" textLength="414.8" clip-path="url(#dp-feature-import-line-0)">deltaplan&#160;import&#160;dev.crm&#160;-o&#160;tables</text><text class="dp-feature-import-r3" x="976" y="20" textLength="12.2" clip-path="url(#dp-feature-import-line-0)">
 </text><text class="dp-feature-import-r4" x="0" y="44.4" textLength="12.2" clip-path="url(#dp-feature-import-line-1)">+</text><text class="dp-feature-import-r3" x="12.2" y="44.4" textLength="256.2" clip-path="url(#dp-feature-import-line-1)">&#160;tables/customers.yml</text><text class="dp-feature-import-r3" x="976" y="44.4" textLength="12.2" clip-path="url(#dp-feature-import-line-1)">
 </text><text class="dp-feature-import-r4" x="0" y="68.8" textLength="12.2" clip-path="url(#dp-feature-import-line-2)">+</text><text class="dp-feature-import-r3" x="12.2" y="68.8" textLength="219.6" clip-path="url(#dp-feature-import-line-2)">&#160;tables/events.yml</text><text class="dp-feature-import-r3" x="976" y="68.8" textLength="12.2" clip-path="url(#dp-feature-import-line-2)">
+</text><text class="dp-feature-import-r3" x="976" y="93.2" textLength="12.2" clip-path="url(#dp-feature-import-line-3)">
+</text><text class="dp-feature-import-r3" x="0" y="117.6" textLength="73.2" clip-path="url(#dp-feature-import-line-4)">Next:&#160;</text><text class="dp-feature-import-r2" x="73.2" y="117.6" textLength="170.8" clip-path="url(#dp-feature-import-line-4)">deltaplan&#160;plan</text><text class="dp-feature-import-r3" x="244" y="117.6" textLength="732" clip-path="url(#dp-feature-import-line-4)">&#160;shows&#160;what&#160;adopting&#160;them&#160;means&#160;—&#160;a&#160;claim&#160;per&#160;table,&#160;nothing</text><text class="dp-feature-import-r3" x="976" y="117.6" textLength="12.2" clip-path="url(#dp-feature-import-line-4)">
+</text><text class="dp-feature-import-r3" x="0" y="142" textLength="134.2" clip-path="url(#dp-feature-import-line-5)">else&#160;—&#160;and&#160;</text><text class="dp-feature-import-r2" x="134.2" y="142" textLength="183" clip-path="url(#dp-feature-import-line-5)">deltaplan&#160;apply</text><text class="dp-feature-import-r3" x="317.2" y="142" textLength="109.8" clip-path="url(#dp-feature-import-line-5)">&#160;does&#160;it.</text><text class="dp-feature-import-r3" x="976" y="142" textLength="12.2" clip-path="url(#dp-feature-import-line-5)">
 </text>
     </g>
     </g>

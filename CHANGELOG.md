@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A first `import` writes `deltaplan.yml`**: in a directory without a
+  project, `deltaplan import main.crm` also writes the project file — one
+  target, `dev`, whose catalog is the one imported from, so the specs say
+  `${catalog}` — and `plan` and `apply` work straight after. With `-o` it
+  adds nothing. A **Get started** page walks exactly this.
 - **Partitioning**: `partitioned_by: [day]`, in YAML and SQL specs. Left out,
   a table's partitioning stays as it is, so no plan rewrites a partitioned
   table by surprise; `[]` says none. Moving to liquid clustering — take

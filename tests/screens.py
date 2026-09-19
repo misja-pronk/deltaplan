@@ -941,6 +941,48 @@ def feature_strict(studio: Studio) -> None:
 
 
 @scene
+def start(studio: Studio) -> None:
+    """The getting-started page: an empty directory, a schema made by hand."""
+    from deltaplan.model.table import Grant
+    from helpers import col, table
+
+    studio.remove("deltaplan.yml")
+    studio.fake = FakeWarehouse.of(
+        table(
+            col("customer_id", "bigint", nullable=False),
+            col("email", "string", comment="Primary contact"),
+            col("country", "string"),
+            name="main.crm.customers",
+            comment="One row per customer",
+            grants=(Grant("analysts", ("SELECT",)),),
+        ),
+        table(
+            col("event_id", "bigint"),
+            col("customer_id", "bigint"),
+            col("payload", "string"),
+            name="main.crm.events",
+        ),
+        sizes={"main.crm.customers": 3 * GB, "main.crm.events": 870 * GB},
+    )
+    studio.shoot("start-import", "deltaplan import main.crm")
+    studio.quote("deltaplan.yml", "start-project.yml")
+    studio.quote("tables/customers.yml", "start-customers.yml")
+    studio.shoot("start-plan", "deltaplan plan")
+    studio.shoot("start-apply", "deltaplan apply", answer="y")
+    studio.write(
+        "tables/customers.yml",
+        (studio.root / "tables" / "customers.yml")
+        .read_text()
+        .replace(
+            "- name: country\n  type: string\n",
+            "- name: country\n  type: string\n- name: segment\n  type: string\n"
+            "  comment: B2B or B2C\n",
+        ),
+    )
+    studio.shoot("start-change", "deltaplan apply", answer="y")
+
+
+@scene
 def feature_import(studio: Studio) -> None:
     from deltaplan.model.table import Grant
     from helpers import col, table
