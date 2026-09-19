@@ -68,7 +68,11 @@ Reads live state, diffs it against the specs, and prints the plan. `--format`:
 - `rich` — the terminal view: a tree of nested changes with numbered, risk-labelled steps.
 - `md` — Markdown, for a pull-request comment. The [GitHub Action](ci.md) posts it for
   you.
-- `json` — the plan object itself. `-o plan.json` writes it out for `apply` to consume.
+- `json` — the plan object itself.
+
+`-o plan.json` saves the plan for `apply` and `show`. With the default `rich` format the
+plan is printed as well and the file holds the plan object; with `-f md` or `-f json` the
+file holds that format instead of the terminal getting it.
 
 All of them render the same plan object, so the review and the artefact can't disagree.
 

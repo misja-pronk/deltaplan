@@ -44,7 +44,7 @@ from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_json
 from deltaplan.render.json import loads as plan_loads
 from deltaplan.render.markdown import render_markdown
-from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, plan_text, render_plan
+from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, render_plan
 from deltaplan.spec_schema import MODELINE, project_schema, spec_schema
 from deltaplan.sqlspec import dump_sql_spec, sql_cannot_say
 
@@ -470,9 +470,12 @@ def _output(
         case Format.md:
             text = render_markdown(built, heading=heading)
         case Format.rich:
+            # The terminal view is for reading; the file is for `apply` and
+            # `show`, so it is the plan object, as the docs' `plan -o plan.json`
+            # followed by `apply plan.json` expects.
             render_plan(built, out)
             if output:
-                output.write_text(plan_text(built), encoding="utf-8")
+                output.write_text(plan_json(built), encoding="utf-8")
                 out.print(f"\n[green]Wrote[/] {output}")
             return
     if output:

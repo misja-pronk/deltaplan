@@ -385,6 +385,20 @@ def test_show_renders_a_saved_plan_without_a_warehouse(
 
 
 @pytest.mark.usefixtures("live")
+def test_the_plan_file_is_the_plan_whatever_the_screen_shows(
+    project: Path, tmp_path: Path
+) -> None:
+    """`plan -o plan.json` then `apply plan.json`, as the docs have it: the
+    terminal gets the readable plan, the file gets what `apply` reads."""
+    plan_file = tmp_path / "plan.json"
+    config = str(project / "deltaplan.yml")
+    result = runner.invoke(app, ["plan", "-t", "dev", "-c", config, "-o", str(plan_file)])
+    assert result.exit_code == 0, result.output
+    assert "sales.orders   ~ update" in result.output
+    assert json.loads(plan_file.read_text())["target"] == "dev"
+
+
+@pytest.mark.usefixtures("live")
 def test_drift_exits_2_when_live_tables_have_moved(project: Path) -> None:
     result = runner.invoke(
         app, ["drift", "-t", "dev", "--config", str(project / "deltaplan.yml")]
