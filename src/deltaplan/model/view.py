@@ -31,6 +31,9 @@ class View(Securable):
     #: a live object never has any — so they take no part in comparing.
     removed_properties: tuple[str, ...] = field(default=(), compare=False)
     removed_tags: tuple[str, ...] = field(default=(), compare=False)
+    #: Who owns it in Unity Catalog. Only a spec that names an owner has it
+    #: enforced; a live object always has one, so it takes no part in comparing.
+    owner: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         sort_governance(self)

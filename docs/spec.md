@@ -244,6 +244,23 @@ tags in the spec are set, and tags someone else put on the column are listed as
 unmanaged and left alone — including across a rewrite, which puts them back after
 rebuilding the table.
 
+## Owners
+
+```yaml
+owner: data-eng                 # a user, group or service principal
+```
+
+Tables, views, functions, schemas and volumes take an `owner`. Only an owner the spec
+names is enforced; without one, whoever owns the object stays its owner. Changing it is
+always the object's last step, because once it belongs to someone else, deltaplan may no
+longer be allowed to change it — so the plan warns unless the principal running
+deltaplan is the new owner, a member of it, or has `MANAGE`.
+
+Replacing a view or function makes whoever ran the replace its owner; deltaplan puts the
+owner back straight after, as it does with tags and grants. A user's email is compared
+without regard to case, as Unity Catalog stores it lower-cased. `import` leaves owners
+out: they are often someone's email, and not the same in every workspace.
+
 ## Removing a tag or a property
 
 Leaving a tag or property out of a spec doesn't remove it: deltaplan can't tell "I stopped

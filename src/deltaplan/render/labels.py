@@ -150,6 +150,8 @@ def describe(change: Change) -> tuple[str, str]:
             return "~", (
                 f"{leaf}  generated as {after}" if after else f"{leaf}  not generated"
             )
+        case "set_owner":
+            return "~", (f"owner → {change.after}")
         case "grant":
             privileges = change.after if isinstance(change.after, tuple) else ()
             return "+", (f"grant {', '.join(privileges)} to {change.path}")

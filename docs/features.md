@@ -107,21 +107,22 @@ Liquid clustering keys, or `auto` to let Databricks choose them.
 
 [Clustering →](spec.md#clustering)
 
-## Tags and grants
+## Tags, grants and owners
 
-Table tags, column tags and grants, per principal. A principal the spec names gets
+Table tags, column tags, grants per principal, and the owner. A principal the spec names gets
 exactly those privileges. One it doesn't name is someone else's business: it's
 reported, never touched. The same goes for a tag the spec doesn't mention, so removing
-one takes a `null`.
+one takes a `null`. A new owner is always the last step: after it, deltaplan may not be
+allowed to change the table.
 
 ```yaml title="tables/customers.yml"
 --8<-- "assets/screens/feature-tags-and-grants.yml"
 ```
 
-![Tags and grants](assets/screens/feature-tags-and-grants.svg)
+![Tags, grants and an owner](assets/screens/feature-tags-and-grants.svg)
 
 [Column tags →](spec.md#column-tags) · [Removing a tag →](spec.md#removing-a-tag-or-a-property) ·
-[Grants →](spec.md#grants)
+[Grants →](spec.md#grants) · [Owners →](spec.md#owners)
 
 ## Masks and row filters
 

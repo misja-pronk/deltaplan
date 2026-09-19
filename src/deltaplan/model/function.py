@@ -13,7 +13,7 @@ https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from deltaplan.model.table import Grant, Securable, sort_governance
 from deltaplan.model.types import DataType
@@ -40,6 +40,9 @@ class Function(Securable):
     tags: tuple[tuple[str, str], ...] = ()
     removed_properties: tuple[str, ...] = ()
     removed_tags: tuple[str, ...] = ()
+    #: Who owns it in Unity Catalog. Only a spec that names an owner has it
+    #: enforced; a live object always has one, so it takes no part in comparing.
+    owner: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         sort_governance(self)

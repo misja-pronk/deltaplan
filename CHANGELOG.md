@@ -8,6 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Owners**: `owner: data-eng` on tables, views, functions, schemas and
+  volumes. Only an owner a spec names is enforced, always as the object's
+  last step. A replaced view or function belongs to whoever replaced it, so
+  deltaplan puts the owner back. `import` leaves owners out. Verified live.
 - **`deltaplan apply` without a plan file**: plans, shows the plan and asks
   before running it — spec to table in one command. `--yes` skips the
   question; a closed stdin counts as no. A saved plan still runs as before,

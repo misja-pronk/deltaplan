@@ -33,6 +33,7 @@
         ),
         hooks=None,
         name='main.sales.orders',
+        owner=None,
         properties=tuple(
         ),
         removed_properties=tuple(

@@ -193,6 +193,11 @@
           },
           "additionalProperties": false
         },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Who owns it: a user, group or service principal."
+        },
         "properties": {
           "type": "object",
           "additionalProperties": {
@@ -291,6 +296,11 @@
             ]
           }
         },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Who owns it: a user, group or service principal."
+        },
         "properties": {
           "type": "object",
           "additionalProperties": {
@@ -375,6 +385,11 @@
               "privileges"
             ]
           }
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Who owns it: a user, group or service principal."
         },
         "parameters": {
           "type": "array",
@@ -462,6 +477,11 @@
             ]
           }
         },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Who owns it: a user, group or service principal."
+        },
         "schema": {
           "type": "string",
           "description": "catalog.schema"
@@ -526,6 +546,11 @@
               "privileges"
             ]
           }
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Who owns it: a user, group or service principal."
         },
         "tags": {
           "type": "object",

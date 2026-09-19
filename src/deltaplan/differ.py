@@ -36,7 +36,7 @@ from deltaplan.model.table import (
 from deltaplan.model.types import Array, DataType, Field, Map, Struct, type_kind, walk
 from deltaplan.model.view import Relation, View, normalise_query
 from deltaplan.model.volume import Volume
-from deltaplan.sql import normalise_expression
+from deltaplan.sql import normalise_expression, same_principal
 
 
 def diff(
@@ -68,7 +68,18 @@ def diff(
                 after=desired.row_filter,
             )
         )
+    changes.extend(_diff_owner(desired, actual))
     return tuple(changes)
+
+
+def _diff_owner(desired: Securable, actual: Securable) -> list[Change]:
+    """The owner, when the spec names one — always an object's last change,
+    because once it belongs to someone else deltaplan may lose the right to
+    make the others."""
+    wanted, live = desired.owner, actual.owner
+    if wanted is None or (live is not None and same_principal(wanted, live)):
+        return []
+    return [Change(desired.name, "set_owner", before=live, after=wanted)]
 
 
 def ownership(desired: Relation, actual: Relation | None) -> tuple[Change, ...]:
@@ -100,6 +111,7 @@ def diff_view(desired: View, actual: View | None) -> tuple[Change, ...]:
     ):
         changes.append(Change(desired.name, "replace_view", before=actual, after=desired))
     changes.extend(_diff_governance(desired, actual))
+    changes.extend(_diff_owner(desired, actual))
     return tuple(changes)
 
 
@@ -117,6 +129,7 @@ def diff_function(desired: Function, actual: Function | None) -> tuple[Change, .
             Change(desired.name, "replace_function", before=actual, after=desired)
         )
     changes.extend(_diff_grants(desired, actual))
+    changes.extend(_diff_owner(desired, actual))
     return tuple(changes)
 
 
@@ -227,6 +240,7 @@ def diff_schema(desired: Schema, actual: Schema | None) -> tuple[Change, ...]:
             )
         )
     changes.extend(_diff_governance(desired, actual))
+    changes.extend(_diff_owner(desired, actual))
     return tuple(changes)
 
 
@@ -246,6 +260,7 @@ def diff_volume(desired: Volume, actual: Volume | None) -> tuple[Change, ...]:
             )
         )
     changes.extend(_diff_governance(desired, actual))
+    changes.extend(_diff_owner(desired, actual))
     return tuple(changes)
 
 
@@ -744,6 +759,10 @@ def is_applied(change: Change, live: Relation | None) -> bool:
             return live.tags_map().get(change.path) == change.after
         case "unset_property":
             return change.path not in live.properties_map()
+        case "set_owner":
+            return live.owner is not None and same_principal(
+                live.owner, str(change.after)
+            )
         case "unset_tag":
             return change.path not in live.tags_map()
         case "grant":

@@ -680,6 +680,7 @@ def feature_tags_and_grants(studio: Studio) -> None:
     """
     after = """\
         table: ${catalog}.sales.customers
+        owner: crm-team
         tags: {domain: crm, legacy: null}
         grants:
           - {principal: analysts, privileges: [SELECT]}

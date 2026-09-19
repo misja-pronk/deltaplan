@@ -39,6 +39,7 @@ from deltaplan.model.table import (
     ForeignKey,
     PrimaryKey,
     RowFilter,
+    Securable,
     Table,
     default_foreign_key_name,
     default_primary_key_name,
@@ -70,6 +71,7 @@ from deltaplan.sql import (
     quote_literal,
     quote_qualified,
     referenced_columns,
+    same_principal,
 )
 
 STREAMING_WARNING = "breaks streaming readers — they must be restarted from scratch"
@@ -81,6 +83,7 @@ NEW_NOT_NULL_WARNING = (
     "backfilled — give the column a `using:` expression to fill them"
 )
 CHECK_WARNING = "Databricks validates every existing row, which scans the table"
+OWNER_WARNING = "only the owner, its members or MANAGE can change it after this"
 
 # The integer digits a decimal needs before Delta will widen an integer type to
 # it: not the digits the type can hold (3 for a tinyint) but a fixed floor —
@@ -693,6 +696,9 @@ class _Planner:
                 self._column_tag(change)
             case "unset_property" | "unset_tag" | "unset_column_tag":
                 self._unset(change)
+            case "set_owner":
+                before = change.before if isinstance(change.before, str) else None
+                self._emit_owner(change.table, str(change.after), before)
             case "add_column":
                 self._add_column(change, facts)
             case "drop_column":
@@ -934,6 +940,8 @@ class _Planner:
             )
         for grant in schema.grants:
             self._emit_grant(schema.name, grant.principal, grant.privileges)
+        if schema.owner:
+            self._emit_owner(schema.name, schema.owner)
         self._change = change_index
 
     def _schema_comment(self, change: Change) -> None:
@@ -985,6 +993,8 @@ class _Planner:
             )
         for grant in volume.grants:
             self._emit_grant(volume.name, grant.principal, grant.privileges)
+        if volume.owner:
+            self._emit_owner(volume.name, volume.owner)
         self._change = change_index
 
     def _rename_table(self, change: Change) -> None:
@@ -1039,6 +1049,8 @@ class _Planner:
         if not replacing:
             for grant in function.grants:
                 self._emit_grant(function.name, grant.principal, grant.privileges)
+            if function.owner:
+                self._emit_owner(function.name, function.owner)
             return
         # CREATE OR REPLACE FUNCTION drops the function's grants (verified live),
         # so they are put back as they were, as for a view; the spec's own grant
@@ -1049,7 +1061,20 @@ class _Planner:
         self._change = -1
         for grant in previous.grants:
             self._emit_grant(function.name, grant.principal, grant.privileges)
+        self._put_back_owner(function, previous)
         self._change = change_index
+
+    def _put_back_owner(self, desired: Securable, previous: Securable) -> None:
+        """A replaced view or function belongs to whoever replaced it (verified
+        live; a replaced table keeps its owner). Put back the one it had — a
+        different owner in the spec is a change of its own, planned after."""
+        owner = previous.owner
+        if owner and (desired.owner is None or same_principal(desired.owner, owner)):
+            self._emit_owner(
+                desired.name,
+                owner,
+                note="put back: a replace makes whoever ran it the owner",
+            )
 
     def _create_view(self, change: Change, facts: TableFacts) -> None:
         view = change.after
@@ -1071,6 +1096,8 @@ class _Planner:
             )
         for grant in view.grants:
             self._emit_grant(view.name, grant.principal, grant.privileges)
+        if view.owner:
+            self._emit_owner(view.name, view.owner)
 
     def _replace_view(self, change: Change) -> None:
         view, previous = change.after, change.before
@@ -1101,6 +1128,7 @@ class _Planner:
             )
         for grant in previous.grants:
             self._emit_grant(view.name, grant.principal, grant.privileges)
+        self._put_back_owner(view, previous)
         self._change = change_index
 
     def _drop_table(self, change: Change, facts: TableFacts) -> None:
@@ -1157,6 +1185,8 @@ class _Planner:
                 self._emit_column_tags(table.name, column.name, column.tags)
         for grant in table.grants:
             self._emit_grant(table.name, grant.principal, grant.privileges)
+        if table.owner:
+            self._emit_owner(table.name, table.owner)
 
     def _table_comment(self, change: Change) -> None:
         comment = change.after
@@ -1206,6 +1236,22 @@ class _Planner:
             "meta",
             path=change.path,
             sql=set_tags_sql(change.table, ((change.path, value),), self._object),
+        )
+
+    def _emit_owner(
+        self, name: str, owner: str, before: str | None = None, *, note: str | None = None
+    ) -> None:
+        """`ALTER … OWNER TO`. Always an object's last step: once it belongs to
+        someone else, deltaplan may not be allowed to change it any more."""
+        statement = f"ALTER {self._object} {quote_qualified(name)} OWNER TO"
+        self.emit(
+            name,
+            "SET OWNER",
+            "meta",
+            sql=f"{statement} {quote_ident(owner)}",
+            undo_hint=f"{statement} {quote_ident(before)}" if before else None,
+            warnings=(OWNER_WARNING,) if note is None else (),
+            note=note,
         )
 
     def _unset(self, change: Change) -> None:

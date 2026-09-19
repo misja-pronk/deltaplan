@@ -1,4 +1,5 @@
 table: ${catalog}.sales.customers
+owner: crm-team
 tags: {domain: crm, legacy: null}
 grants:
   - {principal: analysts, privileges: [SELECT]}

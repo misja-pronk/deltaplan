@@ -113,6 +113,11 @@ def _grants(allowed: Iterable[str]) -> Schema:
 
 
 STRING_MAP: Schema = {"type": "object", "additionalProperties": {"type": "string"}}
+OWNER: Schema = {
+    "type": "string",
+    "minLength": 1,
+    "description": "Who owns it: a user, group or service principal.",
+}
 #: Tags and properties: a value sets a key, `null` says it must not be there.
 SETTABLE_MAP: Schema = {
     "type": "object",
@@ -266,6 +271,7 @@ def spec_schema() -> Schema:
             "table": _text("catalog.schema.table — `${catalog}` and friends allowed."),
             "renamed_from": _text("The table's old name, while a rename is to happen."),
             "comment": {"type": "string"},
+            "owner": OWNER,
             "cluster_by": {
                 "description": "Liquid clustering keys, or `auto`.",
                 "oneOf": [NAMES, {"type": "string", "pattern": "^[Aa][Uu][Tt][Oo]$"}],
@@ -301,6 +307,7 @@ def spec_schema() -> Schema:
             "view": _text("catalog.schema.view"),
             "query": _text("The view's query, kept as written."),
             "comment": {"type": "string"},
+            "owner": OWNER,
             "tags": SETTABLE_MAP,
             "properties": SETTABLE_MAP,
             "grants": _grants(TABLE_PRIVILEGES),
@@ -323,6 +330,7 @@ def spec_schema() -> Schema:
             "returns": {"$ref": "#/definitions/type"},
             "body": _text("The expression after RETURN, kept as written."),
             "comment": {"type": "string"},
+            "owner": OWNER,
             "grants": _grants(FUNCTION_PRIVILEGES),
         },
         required={"function", "returns", "body"},
@@ -333,6 +341,7 @@ def spec_schema() -> Schema:
         {
             "schema": _text("catalog.schema"),
             "comment": {"type": "string"},
+            "owner": OWNER,
             "tags": SETTABLE_MAP,
             "grants": _grants(SCHEMA_PRIVILEGES),
         },
@@ -344,6 +353,7 @@ def spec_schema() -> Schema:
         {
             "volume": _text("catalog.schema.volume — a managed volume"),
             "comment": {"type": "string"},
+            "owner": OWNER,
             "tags": SETTABLE_MAP,
             "grants": _grants(VOLUME_PRIVILEGES),
         },

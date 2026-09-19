@@ -79,4 +79,4 @@ GRANT SELECT ON TABLE `dev`.`sales`.`orders` TO `analysts`;
 
 </details>
 
-<sub>deltaplan 0.1.0 · specs `ed07886752762a4e` · live state `7dbc4c75869fd33c`</sub>
+<sub>deltaplan 0.1.0 · specs `9f9075bdc0557e6e` · live state `88b8e07fc91174fc`</sub>

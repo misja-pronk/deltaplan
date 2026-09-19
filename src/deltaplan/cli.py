@@ -8,6 +8,7 @@ that write to a workspace.
 import json
 import os
 from collections.abc import Callable
+from dataclasses import replace
 from enum import StrEnum
 from fnmatch import fnmatch
 from functools import partial
@@ -285,7 +286,9 @@ def import_schema(
     directory.mkdir(parents=True, exist_ok=True)
 
     variable = _catalog_variable(chosen, parts[0])
-    definition = live.definition
+    # Owners stay out of imported specs: often a person's email, and not the
+    # same across workspaces. A spec that names one has it enforced.
+    definition = replace(live.definition, owner=None) if live.definition else None
     if definition is not None and (
         definition.comment or definition.tags or definition.grants
     ):
@@ -301,10 +304,15 @@ def import_schema(
         note = f" [dim](YAML: SQL can't say {reason})[/]" if reason else ""
         out.print(f"[green]+[/] {escape(str(path))}{note}")
 
-    relations: list[Relation] = [entry.table for entry in live.tables]
-    relations.extend(live.views)
-    relations.extend(live.functions)
-    relations.extend(live.volumes)
+    relations: list[Relation] = [
+        replace(relation, owner=None)
+        for relation in (
+            *(entry.table for entry in live.tables),
+            *live.views,
+            *live.functions,
+            *live.volumes,
+        )
+    ]
     written: set[str] = set()
     for relation in relations:
         # Functions and volumes don't share a namespace with tables and views,

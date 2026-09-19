@@ -332,3 +332,50 @@ def test_null_removes_a_tag_and_a_property(
     assert dict(live.table.tags) == {"domain": "crm"}
     assert live.table.columns[1].tags == ()
     assert "team" not in live.table.properties_map()
+
+
+def test_owners_are_set_and_survive_a_replace(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """`owner:` on all five kinds reads back from information_schema; a replaced
+    view or function would belong to whoever replaced it, so the owner is put
+    back after — here with a group the test principal belongs to, so it keeps
+    the right to clean up.
+    https://docs.databricks.com/aws/en/data-governance/unity-catalog/manage-privileges/ownership
+    """
+    from deltaplan.model.schema import Schema
+    from deltaplan.model.volume import Volume
+
+    owner = os.environ.get("DELTAPLAN_TEST_PRINCIPAL", "account users")
+    base = replace(table(col("id", "bigint"), name=f"{schema}.orders"), owner=owner)
+    view = View(
+        f"{schema}.recent",
+        f"SELECT id FROM {quote_qualified(base.name)}",
+        owner=owner,
+    )
+    function = Function(
+        f"{schema}.twice",
+        (Parameter("x", Primitive("bigint")),),
+        Primitive("bigint"),
+        "x * 2",
+        owner=owner,
+    )
+    specs: list[Relation] = [
+        base,
+        view,
+        function,
+        Volume(f"{schema}.landing", owner=owner),
+        Schema(schema, owner=owner),
+    ]
+    apply(planned(specs, introspector), runner, introspector)
+    assert planned(specs, introspector).empty
+
+    replaced = replace(view, query=f"{view.query} WHERE id > 0")
+    rewritten = replace(function, body="x * 3")
+    changed = [
+        replaced if s is view else rewritten if s is function else s for s in specs
+    ]
+    plan = planned(changed, introspector)
+    assert [s.title for s in plan.steps].count("SET OWNER") == 2, "put back after both"
+    apply(plan, runner, introspector)
+    assert planned(changed, introspector).empty

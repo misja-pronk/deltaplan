@@ -69,6 +69,7 @@ sqlglot learns more of Databricks SQL, this list grows.
 |  | Column tags | ✓ | — | sqlglot passes `ALTER COLUMN … SET TAGS` through as unparsed text |
 |  | Column masks | ✓ | — | sqlglot can't parse `MASK` |
 |  | Row filters | ✓ | — | sqlglot passes `WITH ROW FILTER` through as unparsed text |
+|  | Owner | ✓ | — | sqlglot passes `ALTER … OWNER TO` through as unparsed text |
 |  | Removing a tag or property (`null`) | ✓ | — | a SQL spec says what is there; `pii: null` in YAML says what isn't |
 |  | Column renames (`renamed_from`) | ✓ | — | a deltaplan hint; SQL has no way to say it |
 |  | Table renames (`renamed_from`) | ✓ | — | a deltaplan hint; SQL has no way to say it |

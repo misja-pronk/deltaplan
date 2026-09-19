@@ -63,6 +63,9 @@ NTZ_FEATURE = "delta.feature.timestampNtz"
 #: workspace lists them (read 2026-09-18 from `information_schema.columns`).
 #: The fake refuses a query naming anything else — an invented column is how
 #: the first live run failed, and the fake had happily answered it.
+#: Who the fake runs as: the owner of what it creates.
+RUNNER = "you@example.com"
+
 INFORMATION_SCHEMA_COLUMNS: dict[str, frozenset[str]] = {
     view: frozenset(columns.split())
     for view, columns in {
@@ -235,6 +238,13 @@ class FakeWarehouse:
         if upper.startswith("DROP VIEW"):
             self.views.pop(_unquote(flat[len("DROP VIEW ") :]), None)
             return ()
+        if match := re.fullmatch(
+            r"ALTER (TABLE|VIEW|SCHEMA|VOLUME|FUNCTION) (\S+) OWNER TO (`[^`]+`|\S+)",
+            flat,
+        ):
+            return self._set_owner(
+                match.group(1), _unquote(match.group(2)), match.group(3).strip("`")
+            )
         if upper.startswith("ALTER VIEW"):
             return self._alter_view(flat)
         if upper.startswith("SHOW CREATE TABLE"):
@@ -359,7 +369,14 @@ class FakeWarehouse:
             )
             if not present:
                 return ()
-            return ({"schema_name": schema, "comment": self._schema_def(name).comment},)
+            definition = self._schema_def(name)
+            return (
+                {
+                    "schema_name": schema,
+                    "comment": definition.comment,
+                    "schema_owner": definition.owner,
+                },
+            )
         in_schema = [
             v
             for n, v in sorted(self.volumes.items())
@@ -380,6 +397,7 @@ class FakeWarehouse:
                     "volume_name": v.short_name,
                     "volume_type": "MANAGED",
                     "comment": v.comment,
+                    "volume_owner": v.owner,
                 }
                 for v in in_schema
             ) + tuple(external)
@@ -424,6 +442,7 @@ class FakeWarehouse:
                     "routine_definition": function.body,
                     "full_data_type": _render(function.returns),
                     "comment": function.comment,
+                    "routine_owner": function.owner,
                 }
                 for function in functions
             )
@@ -457,6 +476,7 @@ class FakeWarehouse:
                     "comment": table.comment,
                     "table_type": "MANAGED",
                     "data_source_format": "DELTA",
+                    "table_owner": table.owner,
                 }
                 for table in tables
             ) + tuple(
@@ -465,6 +485,7 @@ class FakeWarehouse:
                     "comment": view.comment,
                     "table_type": "VIEW",
                     "data_source_format": None,
+                    "table_owner": view.owner,
                 }
                 for view in views
             )
@@ -676,6 +697,10 @@ class FakeWarehouse:
                 properties=(*table.properties, (NTZ_FEATURE, "supported")),
             )
         _enforce_delta_rules(table)
+        # A replaced table keeps its owner (verified live); a new one is its
+        # creator's.
+        previous = self.tables.get(table.name)
+        table = replace(table, owner=previous.owner if previous else RUNNER)
         self.tables[table.name] = table
         self.versions[table.name] = self.versions.get(table.name, -1) + 1
         return ()
@@ -831,7 +856,6 @@ class FakeWarehouse:
         name = _unquote(match.group("name"))
         if match.group("verb").endswith("IF NOT EXISTS") and name in self.functions:
             return ()
-        existing = self.functions.get(name)
         parameters = tuple(
             Parameter(
                 _unquote(entry.split(" ", 1)[0]), parse_type(entry.split(" ", 1)[1])
@@ -847,9 +871,9 @@ class FakeWarehouse:
             comment=_unliteral(match.group("comment"))
             if match.group("comment")
             else None,
-            # A replace keeps the grants in the fake; the planner puts them back
-            # anyway, so either behaviour converges.
-            grants=existing.grants if existing else (),
+            # A replace drops the function's grants and makes whoever ran it the
+            # owner — both verified live, so the planner has to put them back.
+            owner=RUNNER,
         )
         return ()
 
@@ -862,7 +886,6 @@ class FakeWarehouse:
             raise FakeSqlError(f"{name} is a table")
         if match.group("verb").endswith("IF NOT EXISTS") and name in self.views:
             return ()
-        existing = self.views.get(name)
         self.views[name] = View(
             name=name,
             query=match.group("query"),
@@ -870,11 +893,28 @@ class FakeWarehouse:
             if match.group("comment")
             else None,
             properties=tuple(_pairs(match.group("properties")).items()),
-            # A replace keeps the view's tags and grants in the fake; the planner
-            # puts them back anyway, so either behaviour converges.
-            tags=existing.tags if existing else (),
-            grants=existing.grants if existing else (),
+            # A replace drops the view's tags, grants and properties and makes
+            # whoever ran it the owner — verified live, so the planner has to put
+            # them back.
+            owner=RUNNER,
         )
+        return ()
+
+    def _set_owner(self, kind: str, name: str, owner: str) -> tuple[Row, ...]:
+        name = name.lower()
+        match kind:
+            case "TABLE":
+                self.tables[name] = replace(self._table(name), owner=owner)
+            case "VIEW":
+                self.views[name] = replace(self._view(name), owner=owner)
+            case "SCHEMA":
+                self.schema_defs[name] = replace(self._schema_def(name), owner=owner)
+            case "VOLUME":
+                self.volumes[name] = replace(self._volume(name), owner=owner)
+            case _:
+                if name not in self.functions:
+                    raise FakeSqlError(f"no such function: {name}")
+                self.functions[name] = replace(self.functions[name], owner=owner)
         return ()
 
     def _alter_view(self, flat: str) -> tuple[Row, ...]:

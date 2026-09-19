@@ -185,6 +185,14 @@ FEATURES: tuple[Feature, ...] = (
     ),
     Feature(
         "Tables",
+        "Owner",
+        True,
+        False,
+        _table(tail="\nALTER TABLE main.sales.orders OWNER TO `data-eng`;"),
+        "sqlglot passes `ALTER … OWNER TO` through as unparsed text",
+    ),
+    Feature(
+        "Tables",
         "Removing a tag or property (`null`)",
         True,
         False,

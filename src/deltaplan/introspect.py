@@ -196,7 +196,7 @@ class Introspector:
         if schema_row is None:
             return LiveSchema(catalog, schema, exists=False)
         definition = self._schema_definition(catalog, schema, schema_row)
-        comments, formats = self._table_rows(catalog, schema)
+        comments, formats, owners = self._table_rows(catalog, schema)
         columns, column_features = self._column_rows(catalog, schema)
         column_tags = self._column_tag_rows(catalog, schema)
         masks = self._mask_rows(catalog, schema)
@@ -243,6 +243,7 @@ class Introspector:
                         name=full_name,
                         query=definitions.get(name, ""),
                         comment=comments.get(name),
+                        owner=owners.get(name),
                         properties=view_properties[name],
                         tags=tuple(sorted(tags.get(name, {}).items())),
                         grants=tuple(
@@ -271,6 +272,7 @@ class Introspector:
                         name=full_name,
                         columns=tuple(table_columns),
                         comment=comments.get(name),
+                        owner=owners.get(name),
                         cluster_by=_json_list(detail.get("clusteringColumns")),
                         # A top-level DESCRIBE DETAIL field — verified live.
                         cluster_auto=(detail.get("clusterByAuto") or "").lower()
@@ -356,19 +358,22 @@ class Introspector:
     # -- queries -----------------------------------------------------------
     def _table_rows(
         self, catalog: str, schema: str
-    ) -> tuple[dict[str, str | None], dict[str, str]]:
+    ) -> tuple[dict[str, str | None], dict[str, str], dict[str, str | None]]:
+        """Comments, formats and owners. `table_owner` verified live."""
         rows = self.runner.query(
-            "SELECT table_name, comment, table_type, data_source_format "
+            "SELECT table_name, comment, table_type, data_source_format, table_owner "
             f"FROM {_information_schema(catalog)}.tables "
             f"WHERE table_schema = {quote_literal(schema)}"
         )
         comments: dict[str, str | None] = {}
         formats: dict[str, str] = {}
+        owners: dict[str, str | None] = {}
         for row in rows:
             name = row.get("table_name")
             if name is None:
                 continue
             comments[name] = row.get("comment")
+            owners[name] = row.get("table_owner")
             table_type = (row.get("table_type") or "").upper()
             data_format = (row.get("data_source_format") or "").upper()
             if table_type == "VIEW":
@@ -382,7 +387,7 @@ class Introspector:
                 formats[name] = "MATERIALIZED_VIEW_STORAGE"
             else:
                 formats[name] = data_format or "UNKNOWN"
-        return comments, formats
+        return comments, formats, owners
 
     def _column_rows(
         self, catalog: str, schema: str
@@ -484,7 +489,8 @@ class Introspector:
         """
         del table_grants
         rows = self.runner.query(
-            "SELECT routine_name, routine_definition, full_data_type, comment "
+            "SELECT routine_name, routine_definition, full_data_type, comment, "
+            "routine_owner "
             f"FROM {_information_schema(catalog)}.routines "
             f"WHERE routine_schema = {quote_literal(schema)} "
             "AND routine_type = 'FUNCTION' AND routine_body = 'SQL'"
@@ -537,6 +543,7 @@ class Introspector:
                     returns=_parse_live_type(row.get("full_data_type"), name, "RETURNS"),
                     body=row.get("routine_definition") or "",
                     comment=row.get("comment"),
+                    owner=row.get("routine_owner"),
                     grants=tuple(
                         Grant(principal, tuple(privileges))
                         for principal, privileges in grants.get(name, {}).items()
@@ -554,11 +561,12 @@ class Introspector:
         """
         literal = quote_literal(schema)
         rows = self.runner.query(
-            "SELECT volume_name, volume_type, comment "
+            "SELECT volume_name, volume_type, comment, volume_owner "
             f"FROM {_information_schema(catalog)}.volumes "
             f"WHERE volume_schema = {literal}"
         )
         managed = {}
+        owners: dict[str, str | None] = {}
         for row in rows:
             name = row.get("volume_name")
             if name is None:
@@ -567,6 +575,7 @@ class Introspector:
                 skipped.append((f"{catalog}.{schema}.{name}", "external volume"))
                 continue
             managed[name] = row.get("comment")
+            owners[name] = row.get("volume_owner")
         if not managed:
             return ()
         tags: dict[str, dict[str, str]] = {}
@@ -603,6 +612,7 @@ class Introspector:
                 comment,
                 tuple(sorted(tags.get(name, {}).items())),
                 tuple(Grant(p, tuple(v)) for p, v in held.get(name, {}).items()),
+                owner=owners.get(name),
             )
             for name, comment in sorted(managed.items())
         )
@@ -616,7 +626,8 @@ class Introspector:
         https://docs.databricks.com/aws/en/sql/language-manual/information-schema/schemata
         """
         rows = self.runner.query(
-            f"SELECT schema_name, comment FROM {_information_schema(catalog)}.schemata "
+            "SELECT schema_name, comment, schema_owner "
+            f"FROM {_information_schema(catalog)}.schemata "
             f"WHERE schema_name = {quote_literal(schema.lower())}"
         )
         return rows[0] if rows else None
@@ -652,6 +663,7 @@ class Introspector:
             comment=row.get("comment"),
             tags=tuple(sorted(tags.items())),
             grants=tuple(Grant(p, tuple(v)) for p, v in held.items()),
+            owner=row.get("schema_owner"),
         )
 
     def _view_rows(self, catalog: str, schema: str) -> dict[str, str]:

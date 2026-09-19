@@ -375,6 +375,16 @@ def _settable_map(
     return tuple(pairs), tuple(removed)
 
 
+def _owner(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> str | None:
+    """`owner:` — a user, group or service principal, as Unity Catalog names it."""
+    if "owner" not in items:
+        return None
+    owner = _string(ctx, items["owner"][0], "owner").strip()
+    if not owner:
+        raise SpecError("owner can't be empty", ctx.loc(items["owner"][0]))
+    return owner
+
+
 def _settable(
     pairs: tuple[tuple[str, str], ...], removed: tuple[str, ...]
 ) -> dict[str, str | None]:
@@ -613,6 +623,7 @@ TABLE_KEYS = {
     "row_filter",
     "hooks",
     "renamed_from",
+    "owner",
 }
 
 
@@ -687,7 +698,7 @@ def _read_primary_key(ctx: _Ctx, node: Node) -> PrimaryKey:
     return PrimaryKey(_string_list(ctx, columns_node, "primary_key columns"), name)
 
 
-VIEW_KEYS = {"view", "query", "comment", "tags", "properties", "grants"}
+VIEW_KEYS = {"view", "query", "comment", "tags", "properties", "grants", "owner"}
 
 
 def load_spec(
@@ -744,9 +755,17 @@ def load_table(path: Path, variables: dict[str, str] | None = None) -> Table:
     return spec
 
 
-FUNCTION_KEYS = {"function", "parameters", "returns", "body", "comment", "grants"}
-SCHEMA_KEYS = {"schema", "comment", "tags", "grants"}
-VOLUME_KEYS = {"volume", "comment", "tags", "grants"}
+FUNCTION_KEYS = {
+    "function",
+    "parameters",
+    "returns",
+    "body",
+    "comment",
+    "grants",
+    "owner",
+}
+SCHEMA_KEYS = {"schema", "comment", "tags", "grants", "owner"}
+VOLUME_KEYS = {"volume", "comment", "tags", "grants", "owner"}
 
 
 def _read_volume_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Volume:
@@ -760,7 +779,9 @@ def _read_volume_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Volume:
     grants: tuple[Grant, ...] = ()
     if "grants" in items:
         grants = _read_grants(ctx, items["grants"][0], allowed=VOLUME_PRIVILEGES)
-    return Volume(name, comment, tags, grants, removed_tags=removed_tags)
+    return Volume(
+        name, comment, tags, grants, removed_tags=removed_tags, owner=_owner(ctx, items)
+    )
 
 
 def _read_schema_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Schema:
@@ -774,7 +795,9 @@ def _read_schema_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Schema:
     grants: tuple[Grant, ...] = ()
     if "grants" in items:
         grants = _read_grants(ctx, items["grants"][0], allowed=SCHEMA_PRIVILEGES)
-    return Schema(name, comment, tags, grants, removed_tags=removed_tags)
+    return Schema(
+        name, comment, tags, grants, removed_tags=removed_tags, owner=_owner(ctx, items)
+    )
 
 
 def _read_function_spec(
@@ -807,7 +830,15 @@ def _read_function_spec(
     grants: tuple[Grant, ...] = ()
     if "grants" in items:
         grants = _read_grants(ctx, items["grants"][0], allowed=FUNCTION_PRIVILEGES)
-    return Function(name, tuple(parameters), returns, body, comment, grants)
+    return Function(
+        name,
+        tuple(parameters),
+        returns,
+        body,
+        comment,
+        grants,
+        owner=_owner(ctx, items),
+    )
 
 
 def _read_view(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> View:
@@ -841,6 +872,7 @@ def _read_view(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Vie
         grants,
         removed_properties=removed_properties,
         removed_tags=removed_tags,
+        owner=_owner(ctx, items),
     )
 
 
@@ -929,6 +961,7 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
         renamed_from=renamed_from,
         removed_properties=removed_properties,
         removed_tags=removed_tags,
+        owner=_owner(ctx, items),
     )
 
 
@@ -1497,6 +1530,8 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
     document: dict[str, object] = {"table": name}
     if table.comment is not None:
         document["comment"] = table.comment
+    if table.owner:
+        document["owner"] = table.owner
     if table.cluster_auto:
         # The live keys are Databricks' choice; the spec only asks for AUTO.
         document["cluster_by"] = "auto"
@@ -1542,6 +1577,8 @@ def _dump_securable(key: str, securable: Schema | Volume, name: str) -> str:
     document: dict[str, object] = {key: name}
     if securable.comment is not None:
         document["comment"] = securable.comment
+    if securable.owner:
+        document["owner"] = securable.owner
     if securable.tags or securable.removed_tags:
         document["tags"] = _settable(securable.tags, securable.removed_tags)
     if securable.grants:
@@ -1556,6 +1593,8 @@ def _dump_function(function: Function, name: str) -> str:
     document: dict[str, object] = {"function": name}
     if function.comment is not None:
         document["comment"] = function.comment
+    if function.owner:
+        document["owner"] = function.owner
     if function.parameters:
         document["parameters"] = [
             {"name": p.name, "type": render_type(p.type)} for p in function.parameters
@@ -1579,6 +1618,8 @@ def _dump_view(view: View, name: str) -> str:
     document: dict[str, object] = {"view": name}
     if view.comment is not None:
         document["comment"] = view.comment
+    if view.owner:
+        document["owner"] = view.owner
     properties = tuple((k, v) for k, v in view.properties if not is_bookkeeping(k))
     if properties or view.removed_properties:
         document["properties"] = _settable(properties, view.removed_properties)

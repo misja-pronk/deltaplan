@@ -235,3 +235,9 @@ def privilege_sql(privilege: str, allowed: frozenset[str] = KNOWN_PRIVILEGES) ->
         known = ", ".join(sorted(allowed))
         raise ValueError(f"unknown privilege {privilege!r} (known: {known})")
     return normalised
+
+
+def same_principal(a: str, b: str) -> bool:
+    """Unity Catalog stores a user's email lower-cased (verified live), so a
+    principal is compared without regard to case."""
+    return a.casefold() == b.casefold()

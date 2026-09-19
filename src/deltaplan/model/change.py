@@ -53,6 +53,7 @@ ChangeKind: TypeAlias = Literal[
     "drop_constraint",
     "grant",
     "revoke",
+    "set_owner",
 ]
 
 #: Kinds that bring a table, view or function into being.
@@ -73,6 +74,7 @@ TABLE_LEVEL_KINDS: frozenset[str] = frozenset(
         "set_row_filter",
         "rename_table",
         "claim_table",
+        "set_owner",
     }
 )
 
