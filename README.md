@@ -83,9 +83,10 @@ everything — [the list](https://misja-pronk.github.io/deltaplan/formats/) says
 ```sh
 deltaplan validate -t dev             # spec lint, no connection needed
 deltaplan import main.sales -o tables # live tables -> YAML specs
-deltaplan plan -t dev [-o plan.json] [--format rich|md|json]
+deltaplan apply -t dev                # plan, show, ask, run
+deltaplan plan -t dev [-o plan.json] [--select sales.orders] [--format rich|md|json]
 deltaplan show plan.json -f md        # render a saved plan, no warehouse needed
-deltaplan apply plan.json [--allow-destructive]
+deltaplan apply plan.json [--allow-destructive]   # run a reviewed plan, as CI does
 deltaplan drift -t dev                # exit code 2 on drift, for CI
 deltaplan force-unlock -t dev
 ```

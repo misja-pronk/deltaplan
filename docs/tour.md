@@ -72,6 +72,11 @@ what runs is exactly what was reviewed.
 Every run is recorded in Delta tables in your `history_schema`. The run id names it. An
 interrupted apply picks up where it stopped when you run it again.
 
+Working on your own, skip the file: `deltaplan apply` plans, shows the plan and asks
+before it runs anything. Here, adding a column:
+
+![deltaplan apply, in one go](assets/screens/tour-apply-now.svg)
+
 Plan again and there's nothing left to do. Unity Catalog *is* the state: there's no state
 file to keep in sync.
 

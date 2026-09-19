@@ -23,6 +23,7 @@ import shutil
 import sys
 import tempfile
 import textwrap
+import unittest.mock
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -96,22 +97,38 @@ class Studio:
         for name in self.fake.tables:
             self.fake.sizes.setdefault(name, 24 * GB)
 
-    def shoot(self, name: str, command: str) -> str:
-        """Run a command and save what it printed as `<name>.svg`."""
+    def shoot(self, name: str, command: str, *, answer: str | None = None) -> str:
+        """Run a command and save what it printed as `<name>.svg`. `answer` is
+        what gets typed at a prompt, shown after it as a terminal would."""
         console = _console()
         console.print(
             Text.assemble(("$ ", "bold green"), (command, "bold")), highlight=False
         )
-        self._invoke(command, console)
+        self._invoke(command, console, answer=answer)
         text = console.export_text(clear=False)
         svg = console.export_svg(title="deltaplan", unique_id=f"dp-{name}")
         (self.out / f"{name}.svg").write_text(svg, encoding="utf-8")
         return text
 
-    def _invoke(self, command: str, console: Console) -> None:
+    def _invoke(
+        self, command: str, console: Console, *, answer: str | None = None
+    ) -> None:
         words = shlex.split(command)
         assert words[0] == "deltaplan", command
-        with _patched(self, console), contextlib.chdir(self.root):
+
+        def typed(*_args: object) -> str:
+            # Rich reads a prompt's answer with input(), which a recording never
+            # sees; echo it, as the terminal would have.
+            if answer is None:
+                raise EOFError
+            console.print(answer, highlight=False)
+            return answer
+
+        with (
+            _patched(self, console),
+            contextlib.chdir(self.root),
+            unittest.mock.patch("builtins.input", typed),
+        ):
             result = CliRunner().invoke(cli.app, words[1:], catch_exceptions=False)
         self.exit_code = result.exit_code
         if result.stdout.strip():
@@ -279,6 +296,20 @@ def tour_first_plan(studio: Studio) -> None:
     studio.shoot("tour-plan-create", "deltaplan plan -o plan.json")
     studio.shoot("tour-apply-create", "deltaplan apply plan.json")
     studio.shoot("tour-plan-clean", "deltaplan plan")
+
+
+@scene
+def tour_apply_now(studio: Studio) -> None:
+    _tour_project(studio)
+    studio.apply()
+    studio.write(
+        "tables/orders.yml",
+        ORDERS.replace(
+            "      - name: amount\n",
+            "      - name: channel\n        type: string\n      - name: amount\n",
+        ),
+    )
+    studio.shoot("tour-apply-now", "deltaplan apply", answer="y")
 
 
 @scene

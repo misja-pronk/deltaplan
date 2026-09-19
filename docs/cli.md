@@ -3,16 +3,13 @@
 ```
 deltaplan validate            # spec lint, no connection needed
 deltaplan import <schema>     # live tables -> YAML specs
-deltaplan plan -t <target> [-o plan.json] [--format rich|md|json]
+deltaplan plan -t <target> [-o plan.json] [--select <name>] [--format rich|md|json]
+deltaplan apply [-t <target>] [--select <name>] [--yes]   # plan, show, ask, run
+deltaplan apply plan.json     # run a saved plan, as CI does
 deltaplan show plan.json [--format rich|md|json]
-deltaplan apply plan.json [--allow-destructive]
 deltaplan drift -t <target>   # exit code 2 on drift, for CI
 deltaplan force-unlock
 ```
-
-!!! warning "Pre-alpha"
-    Every command here works offline against deltaplan's test warehouse. None has yet
-    been run against a real workspace.
 
 Every command takes `--config` to point at a `deltaplan.yml`, and `-t/--target` to pick
 the target whose variables are substituted — without it, the only target or the one
@@ -102,10 +99,21 @@ way rather than planning twice.
 ## `apply`
 
 ```sh
+deltaplan apply [-t dev] [--select sales.orders] [--yes] [--allow-destructive]
 deltaplan apply plan.json [--allow-destructive]
 ```
 
-Runs a plan, printing each step as it resolves:
+Without a plan file, `apply` plans now, shows the plan and asks before it changes
+anything — the quickest way from a spec to a table:
+
+![deltaplan apply](assets/screens/tour-apply-now.svg)
+
+`--yes` skips the question; without it, a closed stdin (a CI job) counts as *no*. A plan
+that destroys something is refused before the question, unless you pass
+`--allow-destructive`.
+
+With a plan file, `apply` runs exactly that plan — what CI does after a plan was
+reviewed on a pull request. Either way it prints each step as it resolves:
 
 ```
 dev · 6 steps · highest risk destructive
@@ -138,6 +146,11 @@ no rollback:
   forever, and a live run renews it before every step — so a rewrite that takes longer
   than an hour keeps it. If a run ever finds it has lost the lock, it stops before the
   next step rather than carry on beside whoever took it.
+
+`--select` (on `plan` and `apply`) narrows the work to some specs: a name as short as
+`orders` or as full as `dev.sales.orders`, or a pattern like `sales.*`; repeat it for
+more. A selection plans only what it names — tables outside it are never reported as
+orphans, and never dropped, even in a strict schema.
 
 `--allow-destructive` is required for any step in the `destructive` class; without it
 `apply` refuses before running anything at all. A plan containing a step deltaplan

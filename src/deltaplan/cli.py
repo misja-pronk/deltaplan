@@ -7,7 +7,9 @@ that write to a workspace.
 
 import json
 import os
+from collections.abc import Callable
 from enum import StrEnum
+from fnmatch import fnmatch
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -74,6 +76,18 @@ ParallelOption = Annotated[
         "--parallel",
         min=1,
         help="How many per-table queries run at once while reading live state.",
+    ),
+]
+
+SelectOption = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--select",
+        "-s",
+        help=(
+            "Only these: a table, view, function, schema or volume by name — "
+            "`orders`, `sales.orders`, or a pattern like `sales.*`. Repeatable."
+        ),
     ),
 ]
 
@@ -367,6 +381,7 @@ def plan(
     ] = None,
     profile: ProfileOption = None,
     parallel: ParallelOption = 8,
+    select: SelectOption = None,
 ) -> None:
     """Diff your specs against live Unity Catalog and show what would change."""
     built = _plan_for(
@@ -377,6 +392,7 @@ def plan(
         check_order=check_order,
         clone=clone,
         parallel=parallel,
+        select=select,
     )
     _output(built, output_format, output, heading="plan")
 
@@ -449,6 +465,7 @@ def _plan_for(
     check_order: bool = False,
     clone: bool = False,
     parallel: int = 8,
+    select: list[str] | None = None,
 ) -> Plan:
     project = _project(config)
     chosen = _target(project, target)
@@ -463,6 +480,7 @@ def _plan_for(
         check_order=check_order,
         clone=clone,
         parallel=parallel,
+        select=select,
     )
 
 
@@ -500,20 +518,47 @@ def _plan(
     check_order: bool = False,
     clone: bool = False,
     parallel: int = 8,
+    select: list[str] | None = None,
 ) -> Plan:
+    relations = [spec.table for spec in specs]
+    chosen = _selection(select, [relation.name for relation in relations])
     try:
         return plan_tables(
-            [spec.table for spec in specs],
+            relations,
             Introspector(runner, parallel=parallel),
             target=target.name,
             tool_version=package_version(),
             mode_for=lambda schema: project.mode_for(target, schema),
             check_order=check_order,
             clone=clone,
+            select=chosen,
         )
     except (PlanningError, IntrospectionError) as error:
         err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
+
+
+def _selection(
+    patterns: list[str] | None, names: list[str]
+) -> Callable[[str], bool] | None:
+    """What `--select` accepts: a name from its last part up to all three —
+    `orders`, `sales.orders`, `dev.sales.orders` — or a pattern (`sales.*`).
+    A pattern that names nothing is an error, not an empty plan."""
+    if not patterns:
+        return None
+    wanted = [pattern.lower() for pattern in patterns]
+
+    def matches(name: str, pattern: str) -> bool:
+        parts = name.lower().split(".")
+        return any(
+            fnmatch(".".join(parts[start:]), pattern) for start in range(len(parts))
+        )
+
+    for pattern in wanted:
+        if not any(matches(name, pattern) for name in names):
+            err.print(f"[red]--select {escape(pattern)} matches no spec.[/]")
+            raise typer.Exit(1)
+    return lambda name: any(matches(name, pattern) for pattern in wanted)
 
 
 # ---------------------------------------------------------------------------
@@ -524,8 +569,20 @@ def _plan(
 @app.command()
 def apply(
     plan_file: Annotated[
-        Path, typer.Argument(help="A plan written by `deltaplan plan`.")
-    ],
+        Path | None,
+        typer.Argument(
+            help="A plan written by `deltaplan plan -o`. Without one, plans now, "
+            "shows the plan and asks before running it."
+        ),
+    ] = None,
+    target: Annotated[
+        str | None,
+        typer.Option("--target", "-t", help="Which target, when planning now."),
+    ] = None,
+    select: SelectOption = None,
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Don't ask; apply what was planned.")
+    ] = False,
     allow_destructive: Annotated[
         bool,
         typer.Option("--allow-destructive", help="Permit steps that drop something."),
@@ -537,13 +594,45 @@ def apply(
         str | None, typer.Option("--warehouse-id", help="SQL warehouse to run on.")
     ] = None,
     profile: ProfileOption = None,
+    parallel: ParallelOption = 8,
 ) -> None:
-    """Run a plan. Resumes an interrupted one instead of starting over."""
-    built = _read_plan(plan_file)
+    """Apply your specs: plan, show, ask, run — or run a saved plan.
+
+    A saved plan (`deltaplan plan -o plan.json`) is what CI reviews and applies;
+    it resumes where an interrupted run stopped. Without one, apply plans now
+    and asks before it changes anything.
+    """
     project = _project(config)
-    target = _target(project, built.target)
-    runner = _warehouse(warehouse_id, target, profile)
-    history = _history(project, target, runner)
+    if plan_file is not None:
+        if target is not None or select:
+            err.print(
+                "[red]A saved plan already says what it does: --target and --select "
+                "are for planning now.[/]"
+            )
+            raise typer.Exit(1)
+        built = _read_plan(plan_file)
+        chosen = _target(project, built.target)
+        runner = _warehouse(warehouse_id, chosen, profile)
+    else:
+        chosen = _target(project, target)
+        specs = _load(project, chosen)
+        _abort_on_lint_errors(specs)
+        runner = _warehouse(warehouse_id, chosen, profile)
+        built = _plan(project, chosen, specs, runner, parallel=parallel, select=select)
+        render_plan(built, out)
+        if built.empty:
+            return
+        if any(s.risk == "destructive" for s in built.steps) and not allow_destructive:
+            err.print(
+                "\n[red]This plan destroys something. Run it again with "
+                "--allow-destructive if that is what you want.[/]"
+            )
+            raise typer.Exit(1)
+        if not yes and not _confirm(built):
+            out.print("Nothing applied.")
+            raise typer.Exit(1)
+        out.print()
+    history = _history(project, chosen, runner)
 
     out.print(
         f"[bold]{built.target}[/] · {count(len(built.steps), 'step')} · "
@@ -567,6 +656,23 @@ def apply(
         raise typer.Exit(1)
 
 
+def _confirm(built: Plan) -> bool:
+    """Ask before changing anything. No answer — a closed stdin, as in CI —
+    is no."""
+    from rich.prompt import Confirm
+
+    out.print()
+    try:
+        return Confirm.ask(
+            f"Apply {count(len(built.steps), 'step')} to [bold]{built.target}[/]?",
+            console=out,
+            default=False,
+        )
+    except EOFError:
+        out.print()
+        return False
+
+
 def _show_step(step: Step, status: Status, note: str | None, *, width: int = 1) -> None:
     colour = {"succeeded": "green", "skipped": "dim", "failed": "red"}[status]
     label = {"succeeded": "ok", "skipped": "skipped", "failed": "failed"}[status]
@@ -581,7 +687,7 @@ def _show_step(step: Step, status: Status, note: str | None, *, width: int = 1) 
         err.print(f"     [red]{escape(note)}[/]")
 
 
-def _report(result: ExecutionResult, built: Plan, plan_file: Path) -> None:
+def _report(result: ExecutionResult, built: Plan, plan_file: Path | None) -> None:
     ran, skipped = len(result.ran), len(result.skipped)
     if result.ok:
         out.print(
@@ -592,8 +698,13 @@ def _report(result: ExecutionResult, built: Plan, plan_file: Path) -> None:
     err.print(
         f"\n[red]Failed at step {result.failed} of {len(built.steps)}[/] · run "
         f"[bold]{result.run_id}[/]\n"
-        f"Fix the cause and run `deltaplan apply {plan_file}` again — it resumes "
-        "from here rather than starting over."
+        + (
+            f"Fix the cause and run `deltaplan apply {plan_file}` again — it resumes "
+            "from here rather than starting over."
+            if plan_file is not None
+            else "Fix the cause and run `deltaplan apply` again — it plans from where "
+            "the tables are now."
+        )
     )
 
 

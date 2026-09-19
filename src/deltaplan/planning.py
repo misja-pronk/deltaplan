@@ -61,6 +61,7 @@ def plan_tables(
     mode_for: Callable[[str], Mode] = lambda _schema: "additive",
     check_order: bool = False,
     clone: bool = False,
+    select: Callable[[str], bool] | None = None,
 ) -> Plan:
     """Plan every function, table and view against live state.
 
@@ -73,10 +74,16 @@ def plan_tables(
     `mode_for` answers `strict` or `additive` for a `catalog.schema` — it is a
     callable rather than a mapping because which schemas matter isn't known
     until the specs have been read.
+
+    `select` narrows the plan to the specs whose names it accepts. A selection
+    plans what it names and nothing else: no orphans, no unmanaged report — so
+    a table left out of it can never look like one whose spec is gone.
     """
-    schemas = _introspect(specs, introspector)
     # Functions have a namespace of their own; only tables and views can clash.
     described = {spec.name for spec in specs if isinstance(spec, Table | View)}
+    if select is not None:
+        specs = [spec for spec in specs if select(spec.name)]
+    schemas = _introspect(specs, introspector)
     tables = [spec for spec in specs if isinstance(spec, Table)]
     views = order_views([spec for spec in specs if isinstance(spec, View)])
     functions = _order(
@@ -208,7 +215,7 @@ def plan_tables(
 
     unmanaged_tables: list[str] = []
     orphaned_tables: list[str] = []
-    for (catalog, schema), found in sorted(schemas.items()):
+    for (catalog, schema), found in sorted(schemas.items() if select is None else ()):
         strict = mode_for(f"{catalog}.{schema}") == "strict"
         for live in found.tables:
             if live.table.name in described:

@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from deltaplan import cli
 from deltaplan.cli import app
@@ -293,3 +293,125 @@ def test_a_warehouse_error_is_a_message_not_a_traceback(
     assert result.exit_code == 1
     assert "the warehouse is stopped" in result.output
     assert "Traceback" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# apply without a plan file: plan, show, ask, run
+# ---------------------------------------------------------------------------
+
+
+def apply_now(project: Path, *args: str, answer: str | None = None) -> Result:
+    config = ["--config", str(project / "deltaplan.yml")]
+    return runner.invoke(app, ["apply", *config, *args], input=answer)
+
+
+def test_apply_plans_shows_and_asks(project: Path, warehouse: FakeWarehouse) -> None:
+    result = apply_now(project, answer="y\n")
+    assert result.exit_code == 0, result.output
+    assert "sales.orders   ~ update" in result.output, "the plan is shown first"
+    assert "Apply 5 steps to dev?" in result.output
+    assert "Applied 5 steps" in result.output
+    assert warehouse.tables[NAME].column_names == ("order_id", "amount", "customer_ref")
+
+
+@pytest.mark.parametrize("answer", ["n\n", None])
+def test_no_answer_is_no(
+    project: Path, warehouse: FakeWarehouse, answer: str | None
+) -> None:
+    """`n`, or a closed stdin as in CI without --yes: nothing runs."""
+    result = apply_now(project, answer=answer)
+    assert result.exit_code == 1
+    assert "Nothing applied." in result.output
+    assert warehouse.tables[NAME].column_names == ("order_id", "amount", "cust_id")
+
+
+def test_yes_skips_the_question(project: Path, warehouse: FakeWarehouse) -> None:
+    result = apply_now(project, "--yes")
+    assert result.exit_code == 0, result.output
+    assert "Apply 5 steps" not in result.output
+    assert "Applied 5 steps" in result.output
+
+
+def test_nothing_to_do_asks_nothing(project: Path, warehouse: FakeWarehouse) -> None:
+    assert apply_now(project, "--yes").exit_code == 0
+    again = apply_now(project)
+    assert again.exit_code == 0
+    assert "No changes." in again.output and "Apply" not in again.output
+
+
+def test_a_destructive_plan_is_refused_before_asking(
+    project: Path, warehouse: FakeWarehouse
+) -> None:
+    (project / "tables" / "orders.yml").write_text(
+        SPEC.replace(
+            "  - {name: customer_ref, type: string, renamed_from: cust_id}\n", ""
+        )
+    )
+    result = apply_now(project, answer="y\n")
+    assert result.exit_code == 1
+    assert "--allow-destructive" in result.output and "Apply" not in result.output
+    assert "cust_id" in warehouse.tables[NAME].column_names
+
+
+def test_a_saved_plan_takes_no_selection(
+    project: Path, warehouse: FakeWarehouse, tmp_path: Path
+) -> None:
+    plan_file = tmp_path / "plan.json"
+    write_plan(project, plan_file)
+    result = apply_now(project, str(plan_file), "--select", "orders")
+    assert result.exit_code == 1
+    assert "A saved plan already says what it does" in result.output
+
+
+# ---------------------------------------------------------------------------
+# --select
+# ---------------------------------------------------------------------------
+
+STRICT = CONFIG + "schemas:\n  main.sales: strict\n"
+OTHER = "table: ${catalog}.sales.customers\ncolumns:\n  - {name: id, type: bigint}\n"
+
+
+@pytest.fixture
+def two_tables(project: Path, warehouse: FakeWarehouse) -> Path:
+    (project / "deltaplan.yml").write_text(STRICT)
+    (project / "tables" / "customers.yml").write_text(OTHER)
+    assert apply_now(project, "--yes").exit_code == 0
+    return project
+
+
+@pytest.mark.parametrize("pattern", ["customers", "sales.customers", "main.sales.cust*"])
+def test_select_plans_only_what_it_names(
+    two_tables: Path, warehouse: FakeWarehouse, pattern: str
+) -> None:
+    (two_tables / "tables" / "customers.yml").write_text(
+        OTHER.replace("bigint}", "bigint, comment: Customer id}")
+    )
+    (two_tables / "tables" / "orders.yml").write_text(
+        SPEC.replace("comment: Order facts", "comment: Changed")
+    )
+    config = ["--config", str(two_tables / "deltaplan.yml")]
+    result = runner.invoke(app, ["plan", *config, "--select", pattern])
+    assert result.exit_code == 0, result.output
+    assert "sales.customers" in result.output
+    assert "sales.orders" not in result.output
+
+
+def test_a_selection_never_drops_what_it_leaves_out(
+    two_tables: Path, warehouse: FakeWarehouse
+) -> None:
+    """The schema is strict, and `orders` is managed: planned without it, a
+    selection must not take it for a table whose spec is gone."""
+    config = ["--config", str(two_tables / "deltaplan.yml")]
+    result = runner.invoke(app, ["plan", *config, "--select", "customers"])
+    assert result.exit_code == 0, result.output
+    assert "destroy" not in result.output.replace("0 destroy", "")
+    assert "No changes." in result.output
+
+
+def test_a_selection_that_names_nothing_is_an_error(
+    project: Path, warehouse: FakeWarehouse
+) -> None:
+    config = ["--config", str(project / "deltaplan.yml")]
+    result = runner.invoke(app, ["plan", *config, "--select", "ordrs"])
+    assert result.exit_code == 1
+    assert "--select ordrs matches no spec." in result.output

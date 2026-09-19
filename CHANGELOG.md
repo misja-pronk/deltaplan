@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`deltaplan apply` without a plan file**: plans, shows the plan and asks
+  before running it — spec to table in one command. `--yes` skips the
+  question; a closed stdin counts as no. A saved plan still runs as before,
+  for CI.
+- **`--select`** on `plan` and `apply`: `orders`, `sales.orders` or `sales.*`.
+  A selection plans only what it names, so it never drops a table it left
+  out, even in a strict schema.
 - **Removing a tag or property**: `tags: {pii: null}` in a spec means it must
   not be there, and plans `UNSET TAGS` / `UNSET TBLPROPERTIES` with the undo.
   Leaving a key out still only stops managing it. Tables, columns, views,
