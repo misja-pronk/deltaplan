@@ -102,3 +102,40 @@ def test_a_masked_and_filtered_table_still_reads() -> None:
     assert columns["arr"].type == parse_type("array<string>")
     assert columns["m"].type == parse_type("map<string,int>")
     assert all(column.collation is None for column in columns.values())
+
+
+RESERVED = """\
+CREATE TABLE workspace.deltaplan_dogfood.orders (
+  order_id BIGINT NOT NULL,
+  placed_on DATE GENERATED ALWAYS AS ( CAST(placed_at AS DATE) ),
+  order_status STRING COLLATE UTF8_BINARY DEFAULT 'new',
+  shipping STRUCT<street: STRING COLLATE UTF8_BINARY NOT NULL, zip: STRING COLLATE UTF8_BINARY>,
+  select STRING COLLATE UTF8_BINARY COMMENT 'a reserved word as a name',
+  CONSTRAINT `orders_pk` PRIMARY KEY (`order_id`))
+USING delta
+COMMENT 'Order facts'
+CLUSTER BY (placed_on)"""  # noqa: E501 - verbatim
+
+
+def test_a_reserved_word_as_a_name_still_reads() -> None:
+    """Live output (dogfooding, 2026-09-19): Databricks prints a column called
+    `select` without backticks, which sqlglot — like any parser — refuses."""
+    columns = read_columns(RESERVED)
+    assert set(columns) == {
+        "order_id",
+        "placed_on",
+        "order_status",
+        "shipping",
+        "select",
+    }
+    assert columns["placed_on"].generated == "CAST(placed_at AS DATE)"
+    assert columns["order_status"].default == "'new'"
+
+
+def test_reserved_words_as_struct_field_names() -> None:
+    columns = read_columns(
+        "CREATE TABLE c.s.t (\n  a STRUCT<select: INT, from: STRING>,\n"
+        "  `x y` INT) USING delta"
+    )
+    assert columns["a"].type == parse_type("struct<`select`:int,`from`:string>")
+    assert "x y" in columns

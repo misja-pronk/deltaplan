@@ -7,6 +7,10 @@ are both — and `full_data_type` drops NOT NULL and comments inside structs;
 `DESCRIBE TABLE` does too. `SHOW CREATE TABLE` has all of it, so introspection
 reads the columns' details from there, parsed with sqlglot.
 
+Databricks prints a name that happens to be a reserved word — a column called
+`select` — without backticks (verified live), which no parser accepts; such
+names are quoted before parsing.
+
 Before parsing, three things are cut from the statement, all verified in live
 output: `COLLATE UTF8_BINARY`, which Databricks writes after every string,
 top-level and nested — the default, so it carries nothing (any other collation
@@ -104,12 +108,18 @@ def read_columns(ddl: str) -> dict[str, DdlColumn]:
 
 
 def _without_noise(ddl: str) -> str:
-    """Cut the default collation, masks and the row filter — by token, so a
-    string literal that happens to contain the words is left alone."""
+    """Cut the default collation, masks and the row filter, and quote reserved
+    words used as names — by token, so a string literal that happens to contain
+    the words is left alone."""
     try:
         tokens = sqlglot.tokenize(ddl, read=DIALECT)
     except TokenError as error:
         raise DdlError(str(error).splitlines()[0]) from error
+    # (start, stop, replacement), applied back to front
+    edits: list[tuple[int, int, str]] = [
+        (token.start, token.end + 1, f"`{token.text}`")
+        for token in _bare_reserved_names(tokens)
+    ]
     cuts: list[tuple[int, int]] = []
     index = 0
     while index < len(tokens):
@@ -141,9 +151,47 @@ def _without_noise(ddl: str) -> str:
             continue
         cuts.append((token.start, tokens[end - 1].end + 1))
         index = end
-    for start, stop in reversed(cuts):
-        ddl = ddl[:start] + ddl[stop:]
+    edits.extend((start, stop, "") for start, stop in cuts)
+    for start, stop, replacement in sorted(edits, reverse=True):
+        ddl = ddl[:start] + replacement + ddl[stop:]
     return ddl
+
+
+#: What starts a table constraint in the column list, rather than a column.
+_CONSTRAINT_WORDS = frozenset({"CONSTRAINT", "PRIMARY", "FOREIGN", "CHECK", "UNIQUE"})
+_NAME_TOKENS = (TokenType.VAR, TokenType.IDENTIFIER)
+
+
+def _bare_reserved_names(tokens: list) -> list:
+    """Tokens that stand where a name belongs but are keywords: the first word of
+    a column definition, or a struct field's name before its `:`."""
+    found = []
+    depth = 0
+    opened = False  # whether the column list has begun
+    for index, token in enumerate(tokens):
+        kind = token.token_type
+        if kind == TokenType.L_PAREN:
+            depth += 1
+            opened = True
+            continue
+        if kind == TokenType.R_PAREN:
+            depth -= 1
+            continue
+        if kind in _NAME_TOKENS or kind == TokenType.STRING:
+            continue
+        before = tokens[index - 1] if index else None
+        after = tokens[index + 1] if index + 1 < len(tokens) else None
+        starts_column = (
+            opened
+            and depth == 1
+            and before is not None
+            and before.token_type in (TokenType.L_PAREN, TokenType.COMMA)
+            and token.text.upper() not in _CONSTRAINT_WORDS
+        )
+        names_field = after is not None and after.token_type == TokenType.COLON
+        if starts_column or names_field:
+            found.append(token)
+    return found
 
 
 def _past_name(tokens: list, index: int) -> int:
