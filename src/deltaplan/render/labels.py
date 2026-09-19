@@ -13,6 +13,11 @@ from deltaplan.model.types import Decimal, Field, Mask, as_data_type, render_typ
 from deltaplan.model.view import View, normalise_query
 
 
+def count(n: int, noun: str) -> str:
+    """`1 step`, `2 steps` — never `step(s)`."""
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
 def human_bytes(size: int | None) -> str | None:
     """`442381631488` -> `412 GB`."""
     if size is None:

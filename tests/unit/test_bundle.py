@@ -327,7 +327,7 @@ def test_validate_uses_the_bundle_default_target(
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(cli.app, ["validate"])
     assert result.exit_code == 0, result.output
-    assert "1 spec(s) OK" in result.output
+    assert "1 spec OK" in result.output
 
 
 @dataclass

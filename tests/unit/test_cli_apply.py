@@ -101,7 +101,7 @@ def test_plan_then_apply(project: Path, warehouse: FakeWarehouse, tmp_path: Path
     # The table was created by someone else; writing its spec claims it first.
     assert "CLAIM ownership" in result.output
     assert "enable typeWidening" in result.output
-    assert "Applied 5 step(s)" in result.output
+    assert "Applied 5 steps" in result.output
 
     live = Introspector(warehouse).table(NAME)
     assert live is not None
@@ -171,7 +171,7 @@ def test_a_failed_step_is_reported_and_resumes(
     del warehouse.failures["RENAME COLUMN"]
     again = runner.invoke(app, arguments)
     assert again.exit_code == 0, again.output
-    assert "Applied 1 step(s), skipped 4" in again.output
+    assert "Applied 1 step, skipped 4" in again.output
 
 
 def test_a_destructive_plan_needs_the_flag(

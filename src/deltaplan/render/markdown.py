@@ -15,7 +15,13 @@ import re
 
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Step, TableDiff
-from deltaplan.render.labels import describe, display_name, human_bytes, table_verb
+from deltaplan.render.labels import (
+    count,
+    describe,
+    display_name,
+    human_bytes,
+    table_verb,
+)
 
 #: GitHub refuses comments longer than 65,536 characters. Leave room.
 COMMENT_LIMIT = 60_000
@@ -141,8 +147,8 @@ def _alerts(plan: Plan) -> list[str]:
     if unrunnable:
         lines += [
             "> [!IMPORTANT]",
-            f"> {len(unrunnable)} step(s) can't be generated, so `apply` will refuse "
-            "this plan. See the notes below.",
+            f"> {count(len(unrunnable), 'step')} can't be generated, so `apply` "
+            "will refuse this plan. See the notes below.",
             "",
         ]
     return lines

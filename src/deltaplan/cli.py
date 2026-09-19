@@ -45,6 +45,7 @@ from deltaplan.planning import PlanningError, plan_tables
 from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_json
 from deltaplan.render.json import loads as plan_loads
+from deltaplan.render.labels import count
 from deltaplan.render.markdown import render_markdown
 from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, number_width, render_plan
 from deltaplan.spec_schema import MODELINE, project_schema, spec_schema
@@ -60,10 +61,10 @@ app = typer.Typer(
     add_completion=False,
 )
 
-out = Console()
+out = Console(highlight=False)
 # Errors carry paths and messages that people grep and paste; wrapping them
 # mid-word helps nobody, so let the terminal decide.
-err = Console(stderr=True, soft_wrap=True)
+err = Console(stderr=True, soft_wrap=True, highlight=False)
 
 
 #: Which workspace to talk to. Shared by every command that talks to one.
@@ -196,9 +197,9 @@ def validate(
             problems += diagnostic.severity == "error"
 
     if problems:
-        err.print(f"[red]{problems} problem(s) in {len(files)} spec(s).[/]")
+        err.print(f"[red]{count(problems, 'problem')} in {count(len(files), 'spec')}.[/]")
         raise typer.Exit(1)
-    out.print(f"[green]{len(files)} spec(s) OK.[/]")
+    out.print(f"[green]{count(len(files), 'spec')} OK.[/]")
 
 
 def _print_diagnostic(diagnostic: Diagnostic) -> None:
@@ -432,7 +433,8 @@ def drift(
         raise typer.Exit(IN_SYNC)
     drifted = len([diff for diff in built.diffs if diff.changes])
     err.print(
-        f"[yellow]Drift: {drifted} table(s) differ from their specs.[/] "
+        f"[yellow]Drift: {count(drifted, 'table')} "
+        f"{'differs from its spec' if drifted == 1 else 'differ from their specs'}.[/] "
         "Run `deltaplan plan` to see how to bring them back."
     )
     raise typer.Exit(DRIFTED)
@@ -544,7 +546,7 @@ def apply(
     history = _history(project, target, runner)
 
     out.print(
-        f"[bold]{built.target}[/] · {len(built.steps)} step(s) · "
+        f"[bold]{built.target}[/] · {count(len(built.steps), 'step')} · "
         f"highest risk [{RISK_STYLE[built.highest_risk]}]{built.highest_risk}[/]"
     )
 
@@ -583,7 +585,7 @@ def _report(result: ExecutionResult, built: Plan, plan_file: Path) -> None:
     ran, skipped = len(result.ran), len(result.skipped)
     if result.ok:
         out.print(
-            f"\n[green]Applied[/] {ran} step(s), skipped {skipped} · run "
+            f"\n[green]Applied[/] {count(ran, 'step')}, skipped {skipped} · run "
             f"[bold]{result.run_id}[/]"
         )
         return
@@ -725,7 +727,7 @@ def _abort_on_lint_errors(specs: tuple[LoadedSpec, ...]) -> None:
             _print_diagnostic(diagnostic)
             errors += diagnostic.severity == "error"
     if errors:
-        err.print(f"[red]Refusing to plan: {errors} spec error(s).[/]")
+        err.print(f"[red]Refusing to plan: {count(errors, 'spec error')}.[/]")
         raise typer.Exit(1)
 
 

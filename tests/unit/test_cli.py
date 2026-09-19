@@ -127,7 +127,7 @@ def test_bare_invocation_shows_help() -> None:
 def test_validate_accepts_a_good_spec(project: Path) -> None:
     result = runner.invoke(app, ["validate", "--config", str(project / "deltaplan.yml")])
     assert result.exit_code == 0, result.output
-    assert "1 spec(s) OK" in result.output
+    assert "1 spec OK" in result.output
 
 
 def test_validate_reports_the_file_and_line(project: Path) -> None:
@@ -415,7 +415,7 @@ def test_drift_exits_2_when_live_tables_have_moved(project: Path) -> None:
         app, ["drift", "-t", "dev", "--config", str(project / "deltaplan.yml")]
     )
     assert result.exit_code == 2, result.output
-    assert "Drift: 1 table(s) differ from their specs." in result.output
+    assert "Drift: 1 table differs from its spec." in result.output
 
 
 def test_drift_exits_0_when_in_sync(

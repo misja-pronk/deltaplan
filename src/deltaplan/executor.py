@@ -249,7 +249,8 @@ class Executor:
                 for step in missing
             )
             raise ExecutionError(
-                f"this plan has {len(missing)} step(s) deltaplan can't run:\n{described}"
+                f"this plan has {len(missing)} step{'' if len(missing) == 1 else 's'} "
+                f"deltaplan can't run:\n{described}"
             )
         destructive = [step for step in plan.steps if step.risk == "destructive"]
         if destructive and not allow_destructive:

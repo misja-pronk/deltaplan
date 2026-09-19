@@ -108,7 +108,7 @@ deltaplan apply plan.json [--allow-destructive]
 Runs a plan, printing each step as it resolves:
 
 ```
-dev · 6 step(s) · highest risk destructive
+dev · 6 steps · highest risk destructive
 
   1. enable typeWidening          [feature]  ok
   2. ALTER COLUMN TYPE            [meta]     ok
@@ -117,7 +117,7 @@ dev · 6 step(s) · highest risk destructive
   5. RENAME COLUMN                [meta]     ok
   6. DROP COLUMN                  [destructive] ok
 
-Applied 5 step(s), skipped 1 · run 3f9a2b1c4d5e
+Applied 5 steps, skipped 1 · run 3f9a2b1c4d5e
 ```
 
 Four promises, and no others — DDL is not transactional across statements, so there is
