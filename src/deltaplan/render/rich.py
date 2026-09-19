@@ -131,13 +131,20 @@ def _render_table(plan: Plan, diff: TableDiff, console: Console, offset: int) ->
     width = number_width(plan)
 
     numbered = list(enumerate(diff.changes, start=offset))
-    shown: set[int] = set()
+    # Steps that belong to the table rather than to any one change: a rewrite's,
+    # hooks, a CHECK moved out of a change's way. Those that run before the
+    # first change's steps are shown above the changes, the rest below.
+    bound = {s.id for index, _ in numbered for s in plan.steps_for_change(index)}
+    rest = [step for step in plan.steps_for(diff.table) if step.id not in bound]
+    ahead = [step for step in rest if bound and step.id < min(bound)]
+    _render_rest(ahead, console, width)
+
     for column, changes in _group_by_column(numbered):
         if not column:
             # Table-level changes — comment, clustering, properties, tags,
             # constraints — sit directly under the table, not inside a column.
             for index, change in changes:
-                shown |= _render_change(plan, index, change, console, indent=1)
+                _render_change(plan, index, change, console, indent=1)
             continue
         direct = [(index, c) for index, c in changes if c.path == column]
         nested = [(index, c) for index, c in changes if c.path != column]
@@ -146,17 +153,11 @@ def _render_table(plan: Plan, diff: TableDiff, console: Console, offset: int) ->
             # nested below it.
             console.print(_line(1, "~", Text(column)))
         for index, change in direct:
-            shown |= _render_change(plan, index, change, console, indent=1)
+            _render_change(plan, index, change, console, indent=1)
         for index, change in nested:
-            shown |= _render_change(plan, index, change, console, indent=2)
+            _render_change(plan, index, change, console, indent=2)
 
-    # A rewrite rebuilds the table rather than patching it, so its steps belong to
-    # the table rather than to any one change above.
-    rest = [step for step in plan.steps_for(diff.table) if step.id not in shown]
-    if rest:
-        console.print(_line(1, "↻", Text(_rest_label(rest))))
-        for step in rest:
-            _render_step(step, console, indent=2, width=width)
+    _render_rest([step for step in rest if step not in ahead], console, width)
 
     for item in diff.unmanaged:
         console.print(Text(f"  · {item} — unmanaged, left untouched", style="dim"))
@@ -170,6 +171,13 @@ VERB_STYLE = {
     "destroy": "red",
     "update": "yellow",
 }
+
+
+def _render_rest(steps: list[Step], console: Console, width: int) -> None:
+    if steps:
+        console.print(_line(1, "↻", Text(_rest_label(steps))))
+        for step in steps:
+            _render_step(step, console, indent=2, width=width)
 
 
 def _rest_label(rest: list[Step]) -> str:
@@ -215,17 +223,14 @@ def _render_change(
     console: Console,
     *,
     indent: int,
-) -> set[int]:
-    """Print one change and its steps. Returns the step ids it printed."""
+) -> None:
+    """Print one change and its steps."""
     marker, label = describe(change)
     console.print(_line(indent, marker, Text(label)))
     # Steps always sit one level in from the column, whether the change they
     # implement is the column itself or something nested inside it.
-    printed: set[int] = set()
     for step in plan.steps_for_change(index):
         _render_step(step, console, indent=2, width=number_width(plan))
-        printed.add(step.id)
-    return printed
 
 
 def _line(indent: int, marker: str, label: Text) -> Text:
