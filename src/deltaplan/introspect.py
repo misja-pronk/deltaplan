@@ -54,8 +54,13 @@ Row = dict[str, str | None]
 
 
 #: `table_type`s that are neither tables deltaplan can alter nor views it can
-#: define. TODO(verify): the exact strings against a live workspace.
+#: define. Both strings verified live.
 _NOT_TABLES = frozenset({"MATERIALIZED_VIEW", "STREAMING_TABLE"})
+
+#: The tables a materialized view or streaming table keeps its data in, which
+#: Databricks creates next to it as ordinary managed Delta tables. Verified live:
+#: `__materialization_mat_<pipeline id>_<name>_1`.
+_MATERIALIZATION_PREFIX = "__materialization_"
 
 
 T = TypeVar("T")
@@ -372,6 +377,9 @@ class Introspector:
                 # A materialized view or streaming table reports its storage as
                 # DELTA, but deltaplan can't ALTER it like a table — or define it.
                 formats[name] = table_type
+            elif name.startswith(_MATERIALIZATION_PREFIX):
+                # Nor the table that storage lives in: it belongs to the pipeline.
+                formats[name] = "MATERIALIZED_VIEW_STORAGE"
             else:
                 formats[name] = data_format or "UNKNOWN"
         return comments, formats

@@ -160,6 +160,13 @@ def test_views_are_read_and_other_kinds_are_skipped() -> None:
                 "table_type": "MATERIALIZED_VIEW",
                 "data_source_format": "DELTA",
             },
+            {
+                # Where Databricks keeps its data: a managed Delta table that
+                # belongs to the view's pipeline.
+                "table_name": "__materialization_mat_0a1b_daily_totals_1",
+                "table_type": "MANAGED",
+                "data_source_format": "DELTA",
+            },
         ),
     )
     runner.responses["information_schema.views"] = (
@@ -169,6 +176,10 @@ def test_views_are_read_and_other_kinds_are_skipped() -> None:
     assert schema.tables == ()
     assert schema.views == (View("main.sales.v_orders", "SELECT 1 AS one"),)
     assert schema.skipped == (
+        (
+            "main.sales.__materialization_mat_0a1b_daily_totals_1",
+            "materialized view storage",
+        ),
         ("main.sales.csv_dump", "csv"),
         ("main.sales.daily_totals", "materialized view"),
     )
