@@ -148,10 +148,20 @@ def test_dropping_a_column_needs_column_mapping(
 @pytest.mark.parametrize(
     ("before", "after"),
     [
+        ("tinyint", "smallint"),
         ("int", "bigint"),
+        ("tinyint", "bigint"),
+        ("int", "double"),
+        ("tinyint", "decimal(10,0)"),
+        ("int", "decimal(12,2)"),
+        ("bigint", "decimal(20,0)"),
         ("decimal(10,2)", "decimal(18,2)"),
         ("float", "double"),
         ("date", "timestamp_ntz"),
+        ("struct<a:int>", "struct<a:bigint>"),
+        ("array<int>", "array<bigint>"),
+        ("map<int,string>", "map<bigint,string>"),
+        ("map<string,int>", "map<string,bigint>"),
     ],
 )
 def test_the_widenings_we_claim_are_supported(
@@ -178,6 +188,36 @@ def test_the_widenings_we_claim_are_supported(
 
     live_after, _ = live_table(introspector, desired.name)
     assert diff(desired, live_after) == ()
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        # An integer widens to a decimal with 10 integer digits, 20 for a bigint —
+        # a fixed floor, not the digits the type holds.
+        ("tinyint", "decimal(5,0)"),
+        ("bigint", "decimal(19,0)"),
+        ("bigint", "double"),
+    ],
+)
+def test_the_widenings_we_refuse_are_refused(
+    runner: WarehouseRunner, schema: str, before: str, after: str
+) -> None:
+    """The edges of `widens()`: Databricks refuses these as metadata changes,
+    so deltaplan plans them as rewrites.
+    https://docs.databricks.com/aws/en/delta/type-widening
+    """
+    from deltaplan.planner import widens
+    from deltaplan.typeparser import parse_type
+
+    assert not widens(parse_type(before), parse_type(after))
+    name = quote_qualified(f"{schema}.orders")
+    runner.query(
+        f"CREATE TABLE {name} (value {before.upper()}) "
+        "TBLPROPERTIES ('delta.enableTypeWidening' = 'true')"
+    )
+    with pytest.raises(Exception, match="(?i)not supported"):
+        runner.query(f"ALTER TABLE {name} ALTER COLUMN value TYPE {after.upper()}")
 
 
 def test_automatic_clustering_round_trips(

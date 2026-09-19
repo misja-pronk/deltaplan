@@ -82,8 +82,11 @@ NEW_NOT_NULL_WARNING = (
 )
 CHECK_WARNING = "Databricks validates every existing row, which scans the table"
 
-# Integer digits per type, for deciding whether an integer fits in a decimal.
-_INTEGER_DIGITS = {"tinyint": 3, "smallint": 5, "int": 10, "bigint": 19}
+# The integer digits a decimal needs before Delta will widen an integer type to
+# it: not the digits the type can hold (3 for a tinyint) but a fixed floor —
+# decimal(10,0) for tinyint, smallint and int, decimal(20,0) for bigint. Verified
+# live: tinyint to decimal(5,0) and bigint to decimal(19,0) are both refused.
+_INTEGER_DIGITS = {"tinyint": 10, "smallint": 10, "int": 10, "bigint": 20}
 _INTEGER_CHAIN = ("tinyint", "smallint", "int", "bigint")
 
 
@@ -91,10 +94,10 @@ def widens(before: object, after: object) -> bool:
     """Is this a type change Delta can apply as metadata, given type widening?
 
     Deliberately conservative: anything not listed here is planned as a rewrite.
-    Over-classifying costs time, under-classifying corrupts a table.
-
-    TODO(verify): confirm the full matrix against a live workspace — in
-    particular integer-to-decimal and the nested cases.
+    Over-classifying costs time, under-classifying corrupts a table. The same
+    rules hold for a field inside a struct, an array element, a map key and a
+    map value. Every case is checked live, the ones that widen and the edges
+    that don't, in `test_live_round_trip.py`.
     https://docs.databricks.com/aws/en/delta/type-widening
     """
     match (before, after):
@@ -1338,11 +1341,7 @@ class _Planner:
                 change,
                 facts,
                 title="REWRITE",
-                note=(
-                    "a map key cannot be altered in place"
-                    if change.path.endswith(".key")
-                    else "not a supported widening, so the data has to be rewritten"
-                ),
+                note="not a supported widening, so the data has to be rewritten",
             )
             return
         self.need_type_widening(facts, change.path)
@@ -1761,8 +1760,8 @@ def needs_rewrite(change: Change) -> bool:
     """
     match change.kind:
         case "change_type":
-            # A map key can't be altered in place whatever the types involved.
-            return change.path.endswith(".key") or not widens(change.before, change.after)
+            # A map key widens in place like any other field — verified live.
+            return not widens(change.before, change.after)
         case "set_nullable":
             # TODO(verify): no runtime we know of can alter a nested field's
             # nullability in place.

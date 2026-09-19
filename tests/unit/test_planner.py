@@ -77,6 +77,8 @@ def only(plan: Plan) -> Step:
         ("decimal(10,2)", "decimal(18,2)"),
         ("decimal(10,2)", "decimal(20,4)"),
         ("int", "decimal(12,2)"),
+        ("tinyint", "decimal(10,0)"),
+        ("bigint", "decimal(20,0)"),
     ],
 )
 def test_supported_widenings(before: str, after: str) -> None:
@@ -93,6 +95,10 @@ def test_supported_widenings(before: str, after: str) -> None:
         ("decimal(18,2)", "decimal(10,2)"),  # precision loss
         ("decimal(10,2)", "decimal(10,4)"),  # integer digits lost
         ("int", "decimal(5,2)"),  # 10 integer digits don't fit in 3
+        # Delta's floor, not the digits the type holds — verified live.
+        ("tinyint", "decimal(5,0)"),
+        ("bigint", "decimal(19,0)"),
+        ("bigint", "double"),
         ("int", "int"),
         ("struct<a:int>", "struct<a:bigint>"),  # handled field by field, not here
     ],
@@ -177,13 +183,18 @@ def test_an_unsupported_type_change_is_a_rewrite() -> None:
     assert step.undo_hint == "RESTORE TABLE `main`.`sales`.`orders` TO VERSION AS OF 17"
 
 
-def test_a_map_key_change_is_always_a_rewrite() -> None:
-    # Even a widening of the key type: the key cannot be altered in place.
+def test_a_map_key_widens_in_place() -> None:
+    # Verified live: a map key widens like any other field.
     live = table(col("by_code", "map<int,string>"))
     desired = table(col("by_code", "map<bigint,string>"))
-    step = only(plan_of(desired, live))
-    assert step.risk == "rewrite"
-    assert step.note is not None and "map key" in step.note
+    *_, step = plan_of(desired, live).steps
+    assert step.sql is not None and "`by_code`.`key` TYPE BIGINT" in step.sql
+
+
+def test_a_map_key_that_does_not_widen_is_a_rewrite() -> None:
+    live = table(col("by_code", "map<int,string>"))
+    desired = table(col("by_code", "map<string,string>"))
+    assert only(plan_of(desired, live)).risk == "rewrite"
 
 
 def test_a_kind_change_is_a_rewrite() -> None:

@@ -369,7 +369,22 @@ quoted — they are checked instead.
 ## Rewrites and `using`
 
 Some changes can't be made in place: a column whose type can't be widened, a struct that
-becomes an array, a map whose shape moves. deltaplan plans those as a
+becomes an array, a map whose shape moves.
+
+A widening *is* made in place, at the top level or anywhere inside a struct, array or map
+— a map's key included. These are the ones Delta allows, each checked against a live
+workspace:
+
+| From | To |
+|---|---|
+| `tinyint`, `smallint`, `int` | a wider integer; `double`; a `decimal` with at least 10 integer digits |
+| `bigint` | a `decimal` with at least 20 integer digits (not `double`) |
+| `float` | `double` |
+| `decimal(p,s)` | a `decimal` that loses neither integer digits nor scale |
+| `date` | `timestamp_ntz` |
+
+The integer-to-decimal floor is Delta's, not the digits the type needs: `tinyint` to
+`decimal(5,0)` is refused. For everything else deltaplan plans a
 [rewrite](safety.md#what-a-rewrite-actually-does) — the table is rebuilt from a query
 over itself — and writes the conversion where it honestly can:
 

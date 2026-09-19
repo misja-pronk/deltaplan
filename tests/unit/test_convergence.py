@@ -185,6 +185,11 @@ def test_widening(column: str, before: str, after: str) -> None:
     )
 
 
+def test_widening_a_map_key() -> None:
+    live = table(col("by_code", "map<int,string>"), name=NAME)
+    converge(table(col("by_code", "map<bigint,string>"), name=NAME), live)
+
+
 def test_nullability_both_ways() -> None:
     converge(
         table(
