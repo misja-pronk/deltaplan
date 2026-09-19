@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Partitioning**: `partitioned_by: [day]`, in YAML and SQL specs. Left out,
+  a table's partitioning stays as it is, so no plan rewrites a partitioned
+  table by surprise; `[]` says none. Moving to liquid clustering — take
+  `partitioned_by` out, add `cluster_by` — is planned as a rewrite that keeps
+  every row. A rewrite for any other reason keeps the table's partitions,
+  where it used to refuse to rewrite a partitioned table at all. Verified
+  live, both ways.
 - **Owners**: `owner: data-eng` on tables, views, functions, schemas and
   volumes. Only an owner a spec names is enforced, always as the object's
   last step. A replaced view or function belongs to whoever replaced it, so

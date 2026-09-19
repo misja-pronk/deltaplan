@@ -85,7 +85,7 @@ class LiveTable:
     """A live table, plus the facts the planner needs about it.
 
     `unmodelled` describes what the table has that deltaplan's model doesn't
-    cover — partitioning, identity and generated columns, column defaults. It is
+    cover — what the column definitions carry that deltaplan couldn't read. It is
     reported, never diffed; and because a rewrite rebuilds a table from a query
     that carries none of it, a table with any is never rewritten.
     """
@@ -274,6 +274,8 @@ class Introspector:
                         comment=comments.get(name),
                         owner=owners.get(name),
                         cluster_by=_json_list(detail.get("clusteringColumns")),
+                        # DESCRIBE DETAIL's partitionColumns — verified live.
+                        partitioned_by=_json_list(detail.get("partitionColumns")) or None,
                         # A top-level DESCRIBE DETAIL field — verified live.
                         cluster_auto=(detail.get("clusterByAuto") or "").lower()
                         == "true",
@@ -297,9 +299,7 @@ class Introspector:
                     ),
                     size_bytes=_as_int(detail.get("sizeInBytes")),
                     data_format=table_type,
-                    unmodelled=_unmodelled(
-                        detail, [*column_features.get(name, []), *definition_notes]
-                    ),
+                    unmodelled=(*column_features.get(name, []), *definition_notes),
                     features=_json_list(detail.get("tableFeatures")),
                     definition_read=read,
                 )
@@ -1015,15 +1015,6 @@ def _json_list(value: str | None) -> tuple[str, ...]:
     except json.JSONDecodeError:
         return ()
     return tuple(str(item) for item in parsed) if isinstance(parsed, list) else ()
-
-
-def _unmodelled(detail: Row, column_features: list[str]) -> tuple[str, ...]:
-    found: list[str] = []
-    partitions = _json_list(detail.get("partitionColumns"))
-    if partitions:
-        found.append(f"partitioned by ({', '.join(partitions)})")
-    found.extend(column_features)
-    return tuple(found)
 
 
 def _with_definition(

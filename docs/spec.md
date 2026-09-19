@@ -192,6 +192,27 @@ deltaplan checks only that automatic clustering is on — it never diffs the key
 automatic clustering off. It needs predictive optimization on the table; see
 [automatic liquid clustering](https://docs.databricks.com/aws/en/delta/clustering#automatic-liquid-clustering).
 
+## Partitioning
+
+```yaml
+partitioned_by: [order_date]       # Hive-style partition columns
+```
+
+Delta takes partitioning or liquid clustering, not both — and Databricks recommends
+clustering for new tables. deltaplan follows the spec, with one safeguard:
+
+- **Left out, a table's partitioning stays as it is.** A spec written before a table was
+  partitioned (or before deltaplan knew about partitioning) never plans a rewrite to
+  remove it. `import` writes `partitioned_by`, so an imported spec says what's there.
+- **`partitioned_by: []`** says the table has none.
+- **Changing the columns is a rewrite**, shown with the table's size, like any other.
+- **Moving to liquid clustering** is the common migration: take `partitioned_by` out and
+  add `cluster_by`. Delta can't cluster a partitioned table in place, so the plan
+  rewrites it — keeping every row — and says so. The way back unclusters first, as Delta
+  requires.
+
+A rewrite for any other reason keeps the table's partitions.
+
 ## Renames
 
 Columns are matched by name, so a rename would otherwise look like a drop plus an add —

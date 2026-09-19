@@ -206,6 +206,7 @@ def _relation_to_dict(relation: Relation) -> dict[str, Any]:
         return {
             "schema" if isinstance(relation, Schema) else "volume": relation.name,
             "comment": relation.comment,
+            "owner": relation.owner,
             "tags": dict(relation.tags),
             "grants": {g.principal: list(g.privileges) for g in relation.grants},
         }
@@ -218,6 +219,7 @@ def _relation_to_dict(relation: Relation) -> dict[str, Any]:
             "returns": render_type(relation.returns),
             "body": relation.body,
             "comment": relation.comment,
+            "owner": relation.owner,
             "grants": {g.principal: list(g.privileges) for g in relation.grants},
         }
     if isinstance(relation, View):
@@ -225,6 +227,7 @@ def _relation_to_dict(relation: Relation) -> dict[str, Any]:
             "view": relation.name,
             "query": relation.query,
             "comment": relation.comment,
+            "owner": relation.owner,
             "properties": dict(relation.properties),
             "tags": dict(relation.tags),
             "grants": {g.principal: list(g.privileges) for g in relation.grants},
@@ -238,6 +241,7 @@ def _relation_from_dict(entry: dict[str, Any]) -> Relation:
         return kind(
             name=str(entry["schema" if kind is Schema else "volume"]),
             comment=entry.get("comment"),
+            owner=entry.get("owner"),
             tags=tuple(sorted(entry.get("tags", {}).items())),
             grants=tuple(
                 Grant(principal, tuple(privileges))
@@ -254,6 +258,7 @@ def _relation_from_dict(entry: dict[str, Any]) -> Relation:
             returns=parse_type(str(entry["returns"])),
             body=str(entry["body"]),
             comment=entry.get("comment"),
+            owner=entry.get("owner"),
             grants=tuple(
                 Grant(principal, tuple(privileges))
                 for principal, privileges in entry.get("grants", {}).items()
@@ -264,6 +269,7 @@ def _relation_from_dict(entry: dict[str, Any]) -> Relation:
             name=str(entry["view"]),
             query=str(entry["query"]),
             comment=entry.get("comment"),
+            owner=entry.get("owner"),
             properties=tuple(sorted(entry.get("properties", {}).items())),
             tags=tuple(sorted(entry.get("tags", {}).items())),
             grants=tuple(
@@ -280,6 +286,10 @@ def _table_to_dict(table: Table) -> dict[str, Any]:
         "comment": table.comment,
         "cluster_by": list(table.cluster_by),
         "cluster_auto": table.cluster_auto,
+        "partitioned_by": (
+            list(table.partitioned_by) if table.partitioned_by is not None else None
+        ),
+        "owner": table.owner,
         "properties": dict(table.properties),
         "tags": dict(table.tags),
         "columns": [_field_to_dict(column) for column in table.columns],
@@ -439,6 +449,7 @@ def _value_from(kind: str, raw: Any) -> Any:
             | "reorder_columns"
             | "set_column_tag"
             | "unset_column_tag"
+            | "set_partitioning"
             | "grant"
             | "revoke"
         ):
@@ -494,6 +505,12 @@ def _table_from_dict(entry: dict[str, Any]) -> Table:
         comment=entry.get("comment"),
         cluster_by=tuple(entry.get("cluster_by", ())),
         cluster_auto=bool(entry.get("cluster_auto", False)),
+        partitioned_by=(
+            tuple(entry["partitioned_by"])
+            if entry.get("partitioned_by") is not None
+            else None
+        ),
+        owner=entry.get("owner"),
         properties=tuple(sorted(entry.get("properties", {}).items())),
         tags=tuple(sorted(entry.get("tags", {}).items())),
         constraints=tuple(

@@ -247,3 +247,47 @@ def test_automatic_clustering_round_trips(
     apply(auto)
     apply(replace(auto, cluster_auto=False, cluster_by=("placed",)))
     apply(auto)
+
+
+def test_partitioning_round_trips_and_moves_to_clustering(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """Create partitioned, read it back; move to liquid clustering and back —
+    each a rewrite that keeps the rows, the way back unclustering first.
+    https://docs.databricks.com/aws/en/tables/partitions
+    """
+    from dataclasses import replace
+
+    from deltaplan.executor import Executor
+    from deltaplan.history import MemoryHistory
+    from deltaplan.planning import plan_tables
+
+    def apply(spec: Table) -> list[str]:
+        plan = plan_tables([spec], introspector, target="it", tool_version="0")
+        result = Executor(runner, introspector, MemoryHistory()).apply(plan)
+        assert result.ok, result.error
+        again = plan_tables([spec], introspector, target="it", tool_version="0")
+        assert again.empty, [c.kind for d in again.diffs for c in d.changes]
+        return [step.title for step in plan.steps]
+
+    name = f"{schema}.events"
+    partitioned = replace(
+        table(col("id", "bigint"), col("day", "date"), name=name),
+        partitioned_by=("day",),
+    )
+    apply(partitioned)
+    runner.query(
+        f"INSERT INTO {quote_qualified(name)} VALUES "
+        "(1, DATE'2026-01-01'), (2, DATE'2026-01-02')"
+    )
+    live, _ = live_table(introspector, name)
+    assert live.partitioned_by == ("day",)
+
+    clustered = replace(partitioned, partitioned_by=None, cluster_by=("day",))
+    assert "REPLACE TABLE" in apply(clustered)
+    live, _ = live_table(introspector, name)
+    assert (live.partitioned_by, live.cluster_by) == (None, ("day",))
+
+    titles = apply(replace(clustered, cluster_by=(), partitioned_by=("day",)))
+    assert titles.index("CLUSTER BY NONE") < titles.index("REPLACE TABLE")
+    assert len(runner.query(f"SELECT * FROM {quote_qualified(name)}")) == 2

@@ -161,6 +161,23 @@ def _diff_clustering(desired: Table, actual: Table) -> list[Change]:
     return []
 
 
+def _diff_partitioning(desired: Table, actual: Table) -> list[Change]:
+    """Partition columns — a change only a rewrite can make.
+
+    A spec that doesn't say leaves them as they are, so no plan rewrites a
+    partitioned table just because its spec predates `partitioned_by`. A spec
+    that asks for clustering can't keep partitions, though: Delta takes one or
+    the other (verified live), so that is a change to none.
+    """
+    live = actual.partitioned_by or ()
+    wanted = desired.partitioned_by
+    if wanted is None:
+        wanted = () if live and (desired.cluster_by or desired.cluster_auto) else live
+    if tuple(wanted) == tuple(live):
+        return []
+    return [Change(desired.name, "set_partitioning", before=live, after=tuple(wanted))]
+
+
 def _diff_governance(desired: Securable, actual: Securable) -> list[Change]:
     """Properties and tags, additively, then grants per principal."""
     changes: list[Change] = []
@@ -378,6 +395,7 @@ def _diff_table_metadata(desired: Table, actual: Table) -> list[Change]:
                 after=desired.comment,
             )
         )
+    changes.extend(_diff_partitioning(desired, actual))
     changes.extend(_diff_clustering(desired, actual))
 
     live_properties = actual.properties_map()
@@ -795,6 +813,9 @@ def _is_applied_to_table(change: Change, live: Table) -> bool:
     match change.kind:
         case "set_table_comment":
             return live.comment == change.after
+        case "set_partitioning":
+            wanted = change.after if isinstance(change.after, tuple) else ()
+            return (live.partitioned_by or ()) == wanted
         case "set_cluster_by":
             if change.after == CLUSTER_AUTO:
                 return live.cluster_auto

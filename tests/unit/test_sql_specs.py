@@ -70,6 +70,7 @@ EXPECTED: dict[str, Callable[[Relation], bool]] = {
     "Table comment": lambda r: table_of(r).comment == "Order facts",
     "Liquid clustering keys": lambda r: table_of(r).cluster_by == ("id",),
     "Automatic liquid clustering": lambda r: table_of(r).cluster_auto,
+    "Partitioning": lambda r: table_of(r).partitioned_by == ("day",),
     "Table properties": lambda r: (
         table_of(r).properties_map() == {"delta.enableChangeDataFeed": "true"}
     ),

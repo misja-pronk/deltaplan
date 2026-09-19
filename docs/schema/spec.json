@@ -198,6 +198,13 @@
           "minLength": 1,
           "description": "Who owns it: a user, group or service principal."
         },
+        "partitioned_by": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Partition columns; [] for none. Leave it out to keep the table's partitioning as it is."
+        },
         "properties": {
           "type": "object",
           "additionalProperties": {

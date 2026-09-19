@@ -150,6 +150,11 @@ def describe(change: Change) -> tuple[str, str]:
             return "~", (
                 f"{leaf}  generated as {after}" if after else f"{leaf}  not generated"
             )
+        case "set_partitioning":
+            before = change.before if isinstance(change.before, tuple) else ()
+            after = change.after if isinstance(change.after, tuple) else ()
+            shown = [f"({', '.join(p)})" if p else "none" for p in (before, after)]
+            return "~", (f"partitioned by {shown[0]} → {shown[1]}")
         case "set_owner":
             return "~", (f"owner → {change.after}")
         case "grant":

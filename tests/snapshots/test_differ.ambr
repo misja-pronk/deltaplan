@@ -34,6 +34,7 @@
         hooks=None,
         name='main.sales.orders',
         owner=None,
+        partitioned_by=None,
         properties=tuple(
         ),
         removed_properties=tuple(

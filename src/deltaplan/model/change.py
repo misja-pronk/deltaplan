@@ -31,6 +31,7 @@ ChangeKind: TypeAlias = Literal[
     "replace_function",
     "set_table_comment",
     "set_cluster_by",
+    "set_partitioning",
     "set_property",
     "unset_property",
     "set_tag",

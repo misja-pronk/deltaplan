@@ -229,10 +229,10 @@ FEATURES: tuple[Feature, ...] = (
     Feature(
         "Tables",
         "Partitioning",
-        False,
-        False,
+        True,
+        True,
         _table(",\n  day DATE", after="\nPARTITIONED BY (day)"),
-        "not modelled: reported on live tables, never managed",
+        "or liquid clustering, not both; left out, a table's partitioning stays",
     ),
     # -- schemas ---------------------------------------------------------------
     Feature(

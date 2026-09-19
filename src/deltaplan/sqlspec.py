@@ -175,6 +175,9 @@ def _create_table(table: Table, name: Callable[[str], str]) -> str:
     text = f"CREATE TABLE {name(table.name)} (\n" + ",\n".join(lines) + "\n)"
     if table.comment is not None:
         text += f"\nCOMMENT {quote_literal(table.comment)}"
+    if table.partitioned_by:
+        columns = ", ".join(maybe_quote_ident(c) for c in table.partitioned_by)
+        text += f"\nPARTITIONED BY ({columns})"
     if table.cluster_auto:
         text += "\nCLUSTER BY AUTO"
     elif table.cluster_by:
@@ -437,6 +440,7 @@ class _Reader:
         comment: str | None = None
         cluster_by: tuple[str, ...] = ()
         cluster_auto = False
+        partitioned_by: tuple[str, ...] | None = None
         properties: dict[str, str] = {}
         for prop in self._properties(create):
             if isinstance(prop, exp.FileFormatProperty):
@@ -456,13 +460,7 @@ class _Reader:
                 else:
                     cluster_by = tuple(column.name for column in prop.expressions)
             elif isinstance(prop, exp.PartitionedByProperty):
-                # Not a SQL limitation: YAML can't say it either.
-                raise self._error(
-                    "deltaplan doesn't model partitioning, in any spec format — it "
-                    "reports partitions on a live table but never manages them",
-                    tokens[0],
-                    "PARTITIONED",
-                )
+                partitioned_by = tuple(column.name for column in prop.this.expressions)
             elif type(prop) is exp.Property:
                 properties[_literal(prop.this)] = _literal(prop.args["value"])
             else:
@@ -473,6 +471,7 @@ class _Reader:
             comment=comment,
             cluster_by=cluster_by,
             cluster_auto=cluster_auto,
+            partitioned_by=partitioned_by,
             properties=tuple(sorted(properties.items())),
             constraints=tuple(constraints),
         )

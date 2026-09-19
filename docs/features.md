@@ -81,6 +81,21 @@ Before each `SET NOT NULL`, deltaplan checks for NULLs, so a column that isn't r
 refused with a clear reason, not a half-applied plan.
 [NOT NULL columns →](spec.md#adding-a-not-null-column-to-a-table-with-data)
 
+## Partitioning to liquid clustering
+
+The migration most older Databricks tables need: take `partitioned_by` out, put
+`cluster_by` in. Delta can't cluster a partitioned table in place, so the plan rewrites
+it, rows and all, and shows what that costs.
+
+```yaml title="tables/events.yml"
+--8<-- "assets/screens/feature-partitioning.yml"
+```
+
+![Moving a partitioned table to liquid clustering](assets/screens/feature-partitioning.svg)
+
+A spec that leaves `partitioned_by` out keeps the table's partitions, so nothing is
+rewritten by surprise. [Partitioning →](spec.md#partitioning)
+
 ## Constraints
 
 Primary keys, foreign keys and CHECKs. Keys are informational in Unity Catalog; a CHECK

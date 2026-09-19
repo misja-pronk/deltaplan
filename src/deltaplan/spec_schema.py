@@ -272,6 +272,13 @@ def spec_schema() -> Schema:
             "renamed_from": _text("The table's old name, while a rename is to happen."),
             "comment": {"type": "string"},
             "owner": OWNER,
+            "partitioned_by": NAMES
+            | {
+                "description": (
+                    "Partition columns; [] for none. Leave it out to keep the "
+                    "table's partitioning as it is."
+                )
+            },
             "cluster_by": {
                 "description": "Liquid clustering keys, or `auto`.",
                 "oneOf": [NAMES, {"type": "string", "pattern": "^[Aa][Uu][Tt][Oo]$"}],

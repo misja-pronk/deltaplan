@@ -1,0 +1,6 @@
+table: ${catalog}.sales.events
+cluster_by: [event_date, customer_id]
+columns:
+  - {name: event_id, type: bigint}
+  - {name: event_date, type: date}
+  - {name: customer_id, type: bigint}

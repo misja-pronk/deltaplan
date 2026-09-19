@@ -260,6 +260,11 @@ class Table(Securable):
     #: them, so `cluster_by` is then what it chose — never compared.
     #: https://docs.databricks.com/aws/en/delta/clustering#automatic-liquid-clustering
     cluster_auto: bool = False
+    #: Hive-style partition columns. In a spec, None leaves the table's
+    #: partitioning as it is and () says it has none; on a live table, None is
+    #: unpartitioned. Delta allows partitioning or clustering, not both.
+    #: https://docs.databricks.com/aws/en/tables/partitions
+    partitioned_by: tuple[str, ...] | None = None
     properties: tuple[tuple[str, str], ...] = ()
     tags: tuple[tuple[str, str], ...] = ()
     constraints: tuple[Constraint, ...] = ()

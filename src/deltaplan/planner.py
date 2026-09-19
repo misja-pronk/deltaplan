@@ -509,6 +509,16 @@ class _Planner:
     def _rewrite(self, table_diff: TableDiff) -> None:
         desired, live = table_diff.desired, table_diff.live
         assert isinstance(desired, Table) and isinstance(live, Table)  # `_rewrites`
+        # The replacement is built with the partitioning the plan settled on:
+        # the spec's, or the table's own when the spec doesn't say.
+        partitioning = next(
+            (c.after for c in table_diff.changes if c.kind == "set_partitioning"),
+            live.partitioned_by or (),
+        )
+        desired = replace(
+            desired,
+            partitioned_by=tuple(partitioning) if isinstance(partitioning, tuple) else (),
+        )
         facts = table_diff.facts
         staging = staging_name(table_diff.table)
         projection = build_projection(desired, live)
@@ -616,6 +626,16 @@ class _Planner:
         # Properties the spec doesn't declare — retention settings, a feature
         # someone enabled — go into the replacement as they were.
         carried_properties = unmanaged_properties(desired, live)
+        if desired.partitioned_by and (live.cluster_by or live.cluster_auto):
+            # Delta won't replace a clustered table with a partitioned one while
+            # it has clustering keys — verified live.
+            self.emit(
+                table_diff.table,
+                "CLUSTER BY NONE",
+                "meta",
+                sql=f"ALTER TABLE {quote_qualified(table_diff.table)} CLUSTER BY NONE",
+                note="Delta won't partition a table that still has clustering keys",
+            )
         self.emit(
             table_diff.table,
             "REPLACE TABLE",
@@ -688,6 +708,15 @@ class _Planner:
                 self._table_comment(change)
             case "set_cluster_by":
                 self._cluster_by(change)
+            case "set_partitioning":
+                # Only reached without both tables to rewrite between;
+                # `plan_table` rewrites whole otherwise.
+                self._emit_rewrite(
+                    change,
+                    facts,
+                    title="REWRITE",
+                    note="partitioning changes only by rewriting the table",
+                )
             case "set_property":
                 self._property(change)
             case "set_tag":
@@ -1714,6 +1743,8 @@ def create_table_sql(table: Table) -> str:
         ")",
         "USING DELTA",
     ]
+    if partitioning := _partition_clause(table):
+        sql.append(partitioning)
     if clustering := _clustering_clause(table):
         sql.append(clustering)
     if table.comment is not None:
@@ -1823,7 +1854,7 @@ def needs_rewrite(change: Change) -> bool:
     # NOT NULL alike — verified live, as is widening a map key in place.
     if change.kind == "change_type":
         return not widens(change.before, change.after)
-    return False
+    return change.kind == "set_partitioning"
 
 
 def _rewrites(table_diff: TableDiff) -> bool:
@@ -2015,6 +2046,8 @@ def replace_table_sql(
             "CREATE TABLE IF NOT EXISTS", "CREATE OR REPLACE TABLE", 1
         )
     clauses = [f"CREATE OR REPLACE TABLE {quote_qualified(table.name)}"]
+    if partitioning := _partition_clause(table):
+        clauses.append(partitioning)
     if clustering := _clustering_clause(table):
         clauses.append(clustering)
     if table.comment is not None:
@@ -2068,8 +2101,17 @@ def ctas_result(desired: Table) -> Table:
         comment=desired.comment,
         cluster_by=desired.cluster_by,
         cluster_auto=desired.cluster_auto,
+        partitioned_by=desired.partitioned_by or None,
         properties=(*desired.properties, (MANAGED_PROPERTY, "true")),
     )
+
+
+def _partition_clause(table: Table) -> str | None:
+    """`PARTITIONED BY (…)`, or nothing."""
+    if not table.partitioned_by:
+        return None
+    columns = ", ".join(quote_ident(name) for name in table.partitioned_by)
+    return f"PARTITIONED BY ({columns})"
 
 
 def _clustering_clause(table: Table) -> str | None:

@@ -624,6 +624,7 @@ TABLE_KEYS = {
     "hooks",
     "renamed_from",
     "owner",
+    "partitioned_by",
 }
 
 
@@ -904,6 +905,9 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
             cluster_auto = True
         else:
             cluster_by = _string_list(ctx, cluster_node, "cluster_by")
+    partitioned_by: tuple[str, ...] | None = None
+    if "partitioned_by" in items:
+        partitioned_by = _string_list(ctx, items["partitioned_by"][0], "partitioned_by")
     properties: tuple[tuple[str, str], ...] = ()
     removed_properties: tuple[str, ...] = ()
     if "properties" in items:
@@ -952,6 +956,7 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
         comment=comment,
         cluster_by=cluster_by,
         cluster_auto=cluster_auto,
+        partitioned_by=partitioned_by,
         properties=properties,
         tags=tags,
         constraints=constraints,
@@ -1360,6 +1365,15 @@ def validate_table(table: Table, where: str) -> tuple[Diagnostic, ...]:
     for name in table.cluster_by:
         if name.casefold() not in seen:
             error(f"cluster_by column {name!r} is not in the spec")
+    for name in table.partitioned_by or ():
+        if name.casefold() not in seen:
+            error(f"partitioned_by column {name!r} is not in the spec")
+    if table.partitioned_by and (table.cluster_by or table.cluster_auto):
+        # SPECIFY_CLUSTER_BY_WITH_PARTITIONED_BY_IS_NOT_ALLOWED — verified live.
+        error(
+            "partitioned_by and cluster_by together: Delta takes one or the other. "
+            "Liquid clustering is the one Databricks recommends"
+        )
     if table.row_filter is not None:
         for name in table.row_filter.columns:
             if name.casefold() not in seen:
@@ -1537,6 +1551,8 @@ def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
         document["cluster_by"] = "auto"
     elif table.cluster_by:
         document["cluster_by"] = list(table.cluster_by)
+    if table.partitioned_by is not None:
+        document["partitioned_by"] = list(table.partitioned_by)
     if table.tags or table.removed_tags:
         document["tags"] = _settable(table.tags, table.removed_tags)
     properties = spec_properties(table)

@@ -157,9 +157,6 @@ class FakeWarehouse:
     schemas: set[str] = field(default_factory=set)
     sizes: dict[str, int] = field(default_factory=dict)
     versions: dict[str, int] = field(default_factory=dict)
-    #: Table -> partition columns: partitioning isn't in deltaplan's model, so it
-    #: lives here rather than on the Table.
-    partitions: dict[str, tuple[str, ...]] = field(default_factory=dict)
     #: (table, column) -> extra information_schema.columns values, for the column
     #: features deltaplan doesn't model (identity, generated, default).
     column_features: dict[tuple[str, str], Row] = field(default_factory=dict)
@@ -629,7 +626,7 @@ class FakeWarehouse:
                 "name": table.name,
                 "clusteringColumns": json.dumps(list(table.cluster_by)),
                 "clusterByAuto": "true" if table.cluster_auto else "false",
-                "partitionColumns": json.dumps(list(self.partitions.get(table.name, ()))),
+                "partitionColumns": json.dumps(list(table.partitioned_by or ())),
                 "sizeInBytes": str(self.sizes.get(table.name, 0)),
                 # As a warehouse answers: table features in their own list, not
                 # among the properties.
@@ -697,9 +694,20 @@ class FakeWarehouse:
                 properties=(*table.properties, (NTZ_FEATURE, "supported")),
             )
         _enforce_delta_rules(table)
+        previous = self.tables.get(table.name)
+        if table.partitioned_by and (table.cluster_by or table.cluster_auto):
+            raise FakeSqlError("SPECIFY_CLUSTER_BY_WITH_PARTITIONED_BY_IS_NOT_ALLOWED")
+        if (
+            previous is not None
+            and table.partitioned_by
+            and (previous.cluster_by or previous.cluster_auto)
+        ):
+            # Verified live: CLUSTER BY NONE has to come first.
+            raise FakeSqlError(
+                "DELTA_CLUSTERING_TO_PARTITIONED_TABLE_WITH_NON_EMPTY_CLUSTERING_COLUMNS"
+            )
         # A replaced table keeps its owner (verified live); a new one is its
         # creator's.
-        previous = self.tables.get(table.name)
         table = replace(table, owner=previous.owner if previous else RUNNER)
         self.tables[table.name] = table
         self.versions[table.name] = self.versions.get(table.name, -1) + 1
@@ -731,6 +739,7 @@ class FakeWarehouse:
             else None,
             cluster_by=tuple(_idents(match.group("cluster") or "")),
             cluster_auto=bool(match.group("auto")),
+            partitioned_by=tuple(_idents(match.group("partitions") or "")) or None,
             properties=properties,
         )
 
@@ -782,7 +791,6 @@ class FakeWarehouse:
         del self.tables[table.name]
         _move_key(self.sizes, table.name, new_name)
         _move_key(self.versions, table.name, new_name)
-        _move_key(self.partitions, table.name, new_name)
         for (owner, column), row in list(self.column_features.items()):
             if owner == table.name:
                 self.column_features[(new_name, column)] = row
@@ -1101,6 +1109,14 @@ def _apply_alter(table: Table, clause: str) -> Table:
                 ),
             ),
         )
+    if (
+        clause.startswith("CLUSTER BY")
+        and clause != "CLUSTER BY NONE"
+        and table.partitioned_by
+    ):
+        raise FakeSqlError(
+            "DELTA_ALTER_TABLE_CLUSTER_BY_ON_PARTITIONED_TABLE_NOT_ALLOWED"
+        )
     if match := re.fullmatch(r"CLUSTER BY \((.*)\)", clause):
         # Naming keys turns AUTO off — verified live.
         return replace(
@@ -1390,6 +1406,9 @@ def _show_create(table: Table) -> str:
                 f"({columns}) REFERENCES {constraint.references} ({referenced})"
             )
     statement = [f"CREATE TABLE {table.name} (", ",\n".join(lines) + ")", "USING delta"]
+    if table.partitioned_by:
+        # As a warehouse prints it — verified live.
+        statement.append(f"PARTITIONED BY ({', '.join(table.partitioned_by)})")
     if table.row_filter is not None:
         on = ", ".join(table.row_filter.columns)
         statement.append(f"WITH ROW FILTER {table.row_filter.function} ON ({on})")
@@ -1567,6 +1586,7 @@ _FUNCTION = re.compile(
 
 _CTAS = re.compile(
     r"CREATE OR REPLACE TABLE (?P<name>\S+)"
+    r"(?:\nPARTITIONED BY \((?P<partitions>[^)]*)\))?"
     r"(?:\nCLUSTER BY (?:\((?P<cluster>[^)]*)\)|(?P<auto>AUTO)))?"
     r"(?:\nCOMMENT (?P<comment>'(?:[^'\\]|\\.|'')*'))?"
     r"(?:\nTBLPROPERTIES \((?P<properties>.*?)\n\))?"
@@ -1577,6 +1597,7 @@ _CTAS = re.compile(
 _CREATE = re.compile(
     r"CREATE (?:TABLE IF NOT EXISTS|OR REPLACE TABLE) (?P<name>\S+) "
     r"\((?P<body>.*?)\n\)\nUSING DELTA"
+    r"(?:\nPARTITIONED BY \((?P<partitions>[^)]*)\))?"
     r"(?:\nCLUSTER BY (?:\((?P<cluster>[^)]*)\)|(?P<auto>AUTO)))?"
     r"(?:\nCOMMENT (?P<comment>'(?:[^'\\]|\\.|'')*'))?"
     r"(?:\nTBLPROPERTIES \((?P<properties>.*?)\n\))?"
@@ -1605,6 +1626,7 @@ def _parse_create_table(statement: str) -> Table:
         comment=_unliteral(match.group("comment")) if match.group("comment") else None,
         cluster_by=tuple(_idents(match.group("cluster") or "")),
         cluster_auto=bool(match.group("auto")),
+        partitioned_by=tuple(_idents(match.group("partitions") or "")) or None,
         properties=tuple(_pairs(match.group("properties") or "''=''").items())
         if match.group("properties")
         else (),

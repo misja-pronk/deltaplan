@@ -609,6 +609,34 @@ def feature_not_null(studio: Studio) -> None:
 
 
 @scene
+def feature_partitioning(studio: Studio) -> None:
+    before = """\
+        table: ${catalog}.sales.events
+        partitioned_by: [event_date]
+        columns:
+          - {name: event_id, type: bigint}
+          - {name: event_date, type: date}
+          - {name: customer_id, type: bigint}
+    """
+    after = """\
+        table: ${catalog}.sales.events
+        cluster_by: [event_date, customer_id]
+        columns:
+          - {name: event_id, type: bigint}
+          - {name: event_date, type: date}
+          - {name: customer_id, type: bigint}
+    """
+    studio.fake.sizes["dev.sales.events"] = 2_100 * GB
+    _feature(
+        studio,
+        "partitioning",
+        {"tables/events.yml": before},
+        {"tables/events.yml": after},
+        show="tables/events.yml",
+    )
+
+
+@scene
 def feature_constraints(studio: Studio) -> None:
     customers = """\
         table: ${catalog}.sales.customers
