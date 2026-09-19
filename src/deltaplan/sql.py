@@ -118,6 +118,45 @@ def normalise_expression(expression: str) -> str:
     return _strip_outer(canonical.sql(dialect="databricks"))
 
 
+#: Characters Delta refuses in a column name unless the table has name-based
+#: column mapping — the list its error gives (DELTA_INVALID_CHARACTERS_IN_COLUMN_NAMES,
+#: seen live 2026-09-19).
+MAPPING_ONLY_NAME_CHARS = frozenset(" ,;{}()\n\t=")
+
+
+def needs_name_mapping(name: str) -> bool:
+    """Whether a column or field name can only exist under column mapping."""
+    return any(char in MAPPING_ONLY_NAME_CHARS for char in name)
+
+
+@functools.lru_cache(maxsize=4096)
+def referenced_columns(expression: str) -> frozenset[str]:
+    """The top-level column names an expression uses, lower-cased.
+
+    Parsed with sqlglot. When it can't be parsed, every word counts — erring
+    towards "this might depend on that" is the safe direction: at worst a CHECK
+    is dropped and put back that didn't need to be.
+    """
+    logger = logging.getLogger("sqlglot")
+    level = logger.level
+    logger.setLevel(logging.ERROR)
+    try:
+        parsed = sqlglot.parse_one(expression, read="databricks")
+    except (ParseError, TokenError):
+        parsed = None
+    finally:
+        logger.setLevel(level)
+    if parsed is None or isinstance(parsed, exp.Command):
+        quoted = re.findall(r"`([^`]+)`", expression)
+        bare = re.findall(r"\w+", re.sub(r"`[^`]*`", " ", expression))
+        return frozenset(word.lower() for word in (*quoted, *bare))
+    # `shipping.zip` parses as table `shipping`, column `zip`; in a table's own
+    # expression it is the field zip of the column shipping — the first part.
+    return frozenset(
+        column.parts[0].name.lower() for column in parsed.find_all(exp.Column)
+    )
+
+
 def _strip_outer(text: str) -> str:
     while text.startswith("(") and text.endswith(")") and _outer_parens_wrap(text):
         text = text[1:-1].strip()

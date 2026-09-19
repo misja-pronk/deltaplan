@@ -172,7 +172,8 @@ def _rest_label(rest: list[Step]) -> str:
         return "rewrite"
     if all(step.title.endswith("hook") for step in rest):
         return "hooks"
-    return "restore"
+    # Put back after a replace, or out of the way of a change and back again.
+    return "around the changes"
 
 
 def _table_header(diff: TableDiff) -> Text:

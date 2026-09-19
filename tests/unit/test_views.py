@@ -155,7 +155,7 @@ def test_a_changed_query_replaces_the_view_and_keeps_its_governance() -> None:
     assert "amount > 1000" in plan.steps[0].undo_hint, "undo restores the old query"
     rendered = plan_text(plan)
     assert "~ query" in rendered
-    assert "↻ restore" in rendered
+    assert "↻ around the changes" in rendered
 
 
 def test_whitespace_is_not_a_change() -> None:

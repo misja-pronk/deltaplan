@@ -58,10 +58,19 @@ from deltaplan.model.types import (
     contains_timestamp_ntz,
     render_type,
     type_kind,
+    walk,
 )
 from deltaplan.model.view import View
 from deltaplan.model.volume import Volume
-from deltaplan.sql import privilege_sql, quote_ident, quote_literal, quote_qualified
+from deltaplan.sql import (
+    needs_name_mapping,
+    normalise_expression,
+    privilege_sql,
+    quote_ident,
+    quote_literal,
+    quote_qualified,
+    referenced_columns,
+)
 
 STREAMING_WARNING = "breaks streaming readers — they must be restarted from scratch"
 IRREVERSIBLE_NOTE = "column mapping cannot be turned off again"
@@ -363,11 +372,109 @@ class _Planner:
             self._rewrite(table_diff)
             self._change = start + len(table_diff.changes) - 1
         else:
-            for change in changes:
-                self._change += 1
-                self.plan_change(change, table_diff.facts)
+            first = self._change + 1
+            self._plan_patch(table_diff, changes, first)
+            self._change = first + len(changes) - 1
         if hooks and hooks.after and table_diff.changes:
             self._emit_hook(table_diff.table, "AFTER hook", hooks.after)
+
+    def _plan_patch(
+        self, table_diff: TableDiff, changes: tuple[Change, ...], first: int
+    ) -> None:
+        """A table's changes, one by one — around what Delta won't let them touch.
+
+        Delta refuses to change the type of, rename or drop a column that a CHECK
+        constraint or a generated column uses (verified live, 2026-09-19). So the
+        CHECKs in the way are dropped first and put back after, as the spec has
+        them; a change a generated column blocks is refused, since a generated
+        column can't be dropped and made again.
+        """
+        facts = table_diff.facts
+        live = table_diff.live if isinstance(table_diff.live, Table) else None
+        desired = table_diff.desired if isinstance(table_diff.desired, Table) else None
+        touched = {
+            _touched_column(change).casefold(): change
+            for change in changes
+            if change.kind in {"change_type", "rename_column", "drop_column"}
+        }
+        in_the_way = [
+            check
+            for check in (live.checks() if live else ())
+            if referenced_columns(check.expression) & set(touched)
+        ]
+        generators = _generators(live, set(touched))
+
+        # 1. The CHECKs in the way go first: the spec's own drop, if it has one.
+        hoisted = {
+            index
+            for index, change in enumerate(changes)
+            if change.kind == "drop_constraint"
+            and isinstance(change.before, Check)
+            and change.before.name in {check.name for check in in_the_way}
+        }
+        for index in sorted(hoisted):
+            self._change = first + index
+            self.plan_change(changes[index], facts)
+        dropped = {
+            check.name
+            for check in (changes[index].before for index in hoisted)
+            if isinstance(check, Check)
+        }
+        making_room = [check for check in in_the_way if check.name not in dropped]
+        for check in making_room:
+            self._change = -1
+            self.emit(
+                table_diff.table,
+                f"DROP CONSTRAINT {check.name}",
+                "meta",
+                sql=(
+                    f"ALTER TABLE {quote_qualified(table_diff.table)} "
+                    f"DROP CONSTRAINT {quote_ident(check.name)}"
+                ),
+                undo_hint=check_sql(table_diff.table, check),
+                note=(
+                    "it uses a column this plan changes, which Delta won't allow "
+                    "while it's there; put back after"
+                ),
+            )
+
+        # 2. The changes themselves.
+        for index, change in enumerate(changes):
+            if index in hoisted:
+                continue
+            self._change = first + index
+            blockers = generators.get(_touched_column(change).casefold(), ())
+            if (
+                change.kind in {"change_type", "rename_column", "drop_column"}
+                and blockers
+            ):
+                self.emit(
+                    change.table,
+                    change.kind.replace("_", " ").upper(),
+                    "rewrite" if change.kind == "change_type" else "meta",
+                    path=change.path,
+                    sql=None,
+                    note=(
+                        f"{', '.join(blockers)} is generated from "
+                        f"{_touched_column(change)}, and Delta won't change a column "
+                        "a generated column uses — nor can a generated column be "
+                        "dropped and made again. Change this by hand"
+                    ),
+                )
+                continue
+            self.plan_change(change, facts)
+
+        # 3. Put back what was dropped only to make room, if the spec still has it
+        #    unchanged; a changed one is the spec's own add, planned above.
+        wanted = {check.name: check for check in (desired.checks() if desired else ())}
+        for check in making_room:
+            kept = wanted.get(check.name)
+            if kept is None or normalise_expression(kept.expression) != (
+                normalise_expression(check.expression)
+            ):
+                continue
+            self._change = -1
+            self._emit_check(table_diff.table, kept, note="put back after the change")
 
     def _emit_hook(self, table: str, title: str, sql: str) -> None:
         change, self._change = self._change, -1
@@ -474,8 +581,15 @@ class _Planner:
             "STAGE rewritten data",
             "rewrite",
             sql=(
-                f"CREATE OR REPLACE TABLE {quote_qualified(staging)} AS\nSELECT\n"
-                f"  {select}\nFROM {quote_qualified(table_diff.table)}"
+                f"CREATE OR REPLACE TABLE {quote_qualified(staging)}"
+                + (
+                    # A name only column mapping allows needs it here too.
+                    "\nTBLPROPERTIES (\n  "
+                    f"{quote_literal(COLUMN_MAPPING_PROPERTY)} = 'name'\n)"
+                    if any(needs_name_mapping(n) for n in _all_names(desired))
+                    else ""
+                )
+                + f" AS\nSELECT\n  {select}\nFROM {quote_qualified(table_diff.table)}"
             ),
             est_bytes=facts.size_bytes,
             postcheck=staging_postcheck(table_diff.table, staging, projection),
@@ -1133,6 +1247,9 @@ class _Planner:
             )
             return
         self.need_timestamp_ntz(facts, change.path, column.type)
+        if any(needs_name_mapping(name) for name in _field_names(column)):
+            # A name with a space (and the like) only exists under column mapping.
+            self.need_column_mapping(facts, change.path)
         # A column is always added nullable: on a table with rows, every existing
         # row would violate NOT NULL. The constraint is a separate step.
         definition = (
@@ -1343,16 +1460,14 @@ class _Planner:
             ),
         )
 
-    def _emit_check(self, table: str, check: Check) -> None:
+    def _emit_check(self, table: str, check: Check, *, note: str | None = None) -> None:
         self.emit(
             table,
             f"ADD CONSTRAINT {check.name} CHECK",
             "meta",
-            sql=(
-                f"ALTER TABLE {quote_qualified(table)} "
-                f"ADD CONSTRAINT {quote_ident(check.name)} CHECK ({check.expression})"
-            ),
+            sql=check_sql(table, check),
             warnings=(CHECK_WARNING,),
+            note=note,
         )
 
     def _drop_constraint(self, change: Change) -> None:
@@ -1443,6 +1558,41 @@ def grant_sql(
     )
 
 
+def check_sql(table: str, check: Check) -> str:
+    return (
+        f"ALTER TABLE {quote_qualified(table)} "
+        f"ADD CONSTRAINT {quote_ident(check.name)} CHECK ({check.expression})"
+    )
+
+
+def _field_names(field: Field) -> list[str]:
+    """A column's name and every nested field name inside it."""
+    return [field.name, *(nested.name for _, nested in walk(field.type, field.name))]
+
+
+def _all_names(table: Table) -> list[str]:
+    return [name for column in table.columns for name in _field_names(column)]
+
+
+def _touched_column(change: Change) -> str:
+    """The top-level column a change alters, as the live table names it: for a
+    rename, the old name."""
+    if change.kind == "rename_column" and "." not in change.path:
+        return change.before if isinstance(change.before, str) else change.path
+    return change.path.split(".")[0]
+
+
+def _generators(live: Table | None, touched: set[str]) -> dict[str, tuple[str, ...]]:
+    """Touched column -> the generated columns that use it."""
+    found: dict[str, list[str]] = {}
+    for column in live.columns if live else ():
+        if column.generated is None:
+            continue
+        for used in referenced_columns(column.generated) & touched:
+            found.setdefault(used, []).append(column.name)
+    return {name: tuple(columns) for name, columns in found.items()}
+
+
 def create_function_sql(function: Function, *, replace: bool = False) -> str:
     """`CREATE FUNCTION … RETURNS … RETURN body`.
     https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create-sql-function
@@ -1484,6 +1634,10 @@ def create_table_sql(table: Table) -> str:
 
     properties = dict(table.properties)
     properties[MANAGED_PROPERTY] = "true"
+    if any(needs_name_mapping(name) for name in _all_names(table)):
+        # Delta refuses such a name without column mapping, from the start
+        # (DELTA_INVALID_CHARACTERS_IN_COLUMN_NAMES — seen live).
+        properties.setdefault(COLUMN_MAPPING_PROPERTY, "name")
     if any(column.default is not None for column in table.columns):
         properties[DEFAULTS_FEATURE] = "supported"
     rendered_properties = ",\n".join(
@@ -1806,6 +1960,8 @@ def replace_table_sql(
         clauses.append(f"COMMENT {quote_literal(table.comment)}")
     properties = dict(table.properties)
     properties[MANAGED_PROPERTY] = "true"
+    if any(needs_name_mapping(name) for name in _all_names(table)):
+        properties.setdefault(COLUMN_MAPPING_PROPERTY, "name")
     rendered = ",\n".join(
         f"  {quote_literal(key)} = {quote_literal(value)}"
         for key, value in sorted(properties.items())

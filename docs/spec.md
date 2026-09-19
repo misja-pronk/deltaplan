@@ -165,6 +165,16 @@ Children are addressed with Databricks' own path syntax — `a.b` inside a struc
     3. ADD COLUMN address.zip     [meta]
 ```
 
+Two limits Delta sets, which `validate` and the planner know about:
+
+- **`NOT NULL` only on a struct's own fields.** A field inside an array's elements or a
+  map's keys or values can't be `NOT NULL` — Delta refuses the table — so `validate`
+  says so.
+- **Some characters in a name need column mapping.** A name with a space, a comma or
+  any of `;{}()=` (a newline or tab too) only exists on a table with column mapping.
+  deltaplan turns it on for you: in `CREATE TABLE`, or as a `[feature]` step before
+  adding such a column.
+
 ## Clustering
 
 ```yaml
@@ -537,6 +547,13 @@ same key under any name; name it only if the name matters. Expressions — check
 generated columns, defaults — are compared by what they say, not how they're spelled:
 both sides are parsed and written back in one canonical form, so `cast(Placed_At as
 date)` in a spec matches the catalog's `( CAST(placed_at AS DATE) )`.
+
+**A CHECK stands in the way of changing its columns.** Delta won't change the type of,
+rename or drop a column a `CHECK` uses. deltaplan plans around it: the `CHECK` is dropped
+first and put back afterwards as your spec has it — so after a rename, update the
+expression in the spec too (`validate` flags a check that uses a column the spec doesn't
+have). A **generated column** blocks the same changes to the columns it's computed from,
+and it can't be dropped and made again, so deltaplan refuses such a change and says why.
 
 ## What deltaplan leaves alone
 

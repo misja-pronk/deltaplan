@@ -57,6 +57,7 @@ from deltaplan.sql import (
     TABLE_PRIVILEGES,
     VOLUME_PRIVILEGES,
     privilege_sql,
+    referenced_columns,
 )
 from deltaplan.typeparser import TypeParseError, parse_type
 
@@ -1137,6 +1138,30 @@ def validate_schema(schema: Schema, where: str) -> tuple[Diagnostic, ...]:
     return ()
 
 
+def _not_null_in_collections(
+    data_type: DataType, path: str, *, inside: bool
+) -> list[str]:
+    """Paths of NOT NULL fields that sit inside an array or a map."""
+    found: list[str] = []
+    match data_type:
+        case Struct(fields=fields):
+            for field in fields:
+                here = f"{path}.{field.name}"
+                if inside and not field.nullable:
+                    found.append(here)
+                found.extend(_not_null_in_collections(field.type, here, inside=inside))
+        case Array(element=element):
+            found.extend(
+                _not_null_in_collections(element, f"{path}.element", inside=True)
+            )
+        case Map(key=key, value=value):
+            found.extend(_not_null_in_collections(key, f"{path}.key", inside=True))
+            found.extend(_not_null_in_collections(value, f"{path}.value", inside=True))
+        case _:
+            pass
+    return found
+
+
 def validate_function(function: Function, where: str) -> tuple[Diagnostic, ...]:
     found: list[Diagnostic] = []
     if len(function.parts) != 3:
@@ -1215,6 +1240,23 @@ def validate_table(table: Table, where: str) -> tuple[Diagnostic, ...]:
 
     for column in table.columns:
         _lint_field(column, column.name, table, error, warn)
+        for path in _not_null_in_collections(column.type, column.name, inside=False):
+            # Verified live: DELTA_NESTED_NOT_NULL_CONSTRAINT.
+            error(
+                f"{path} is NOT NULL inside an array or map, which Delta doesn't "
+                "support — only a struct's own fields can be NOT NULL"
+            )
+    names = {column.name.casefold() for column in table.columns}
+    for check in table.checks():
+        for missing in sorted(referenced_columns(check.expression) - names):
+            error(f"check {check.name!r} uses {missing!r}, which isn't a column")
+    for column in table.columns:
+        if column.generated is None:
+            continue
+        for missing in sorted(referenced_columns(column.generated) - names):
+            error(
+                f"generated column {column.name!r} uses {missing!r}, which isn't a column"
+            )
 
     for name in table.cluster_by:
         if name.casefold() not in seen:

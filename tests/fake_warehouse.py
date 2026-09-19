@@ -46,9 +46,11 @@ from deltaplan.model.types import (
     Mask,
     Struct,
     contains_timestamp_ntz,
+    walk,
 )
 from deltaplan.model.view import View
 from deltaplan.model.volume import Volume
+from deltaplan.sql import needs_name_mapping, referenced_columns
 from deltaplan.typeparser import parse_type
 
 Row = dict[str, str | None]
@@ -663,6 +665,7 @@ class FakeWarehouse:
                 table,
                 properties=(*table.properties, (NTZ_FEATURE, "supported")),
             )
+        _enforce_delta_rules(table)
         self.tables[table.name] = table
         self.versions[table.name] = self.versions.get(table.name, -1) + 1
         return ()
@@ -729,7 +732,10 @@ class FakeWarehouse:
                 "requires manually enablement of the following table feature(s): "
                 "timestampNtz"
             )
-        self._store(_apply_alter(table, clause))
+        _refuse_dependent_change(table, clause)
+        altered = _apply_alter(table, clause)
+        _enforce_delta_rules(altered)
+        self._store(altered)
         return ()
 
     def _rename_table(self, table: Table, new_name: str) -> tuple[Row, ...]:
@@ -944,6 +950,69 @@ def _check_columns(flat: str) -> None:
             raise FakeSqlError(f"information_schema has no column {word!r}: {flat}")
 
 
+def _enforce_delta_rules(table: Table) -> None:
+    """What Delta refuses in a table's shape — each seen live (2026-09-19)."""
+    names = [
+        name
+        for column in table.columns
+        for name in (column.name, *(f.name for _, f in walk(column.type, column.name)))
+    ]
+    mapped = table.properties_map().get("delta.columnMapping.mode") == "name"
+    if not mapped and any(needs_name_mapping(name) for name in names):
+        raise FakeSqlError(
+            "[DELTA_INVALID_CHARACTERS_IN_COLUMN_NAMES] Found invalid character(s) "
+            "in the column names of your schema."
+        )
+    for column in table.columns:
+        if _not_null_inside_collection(column.type, inside=False):
+            raise FakeSqlError(
+                f"[DELTA_NESTED_NOT_NULL_CONSTRAINT] {column.name} contains a NOT NULL "
+                "constraint inside an array or map."
+            )
+
+
+def _not_null_inside_collection(data_type: DataType, *, inside: bool) -> bool:
+    match data_type:
+        case Struct(fields=fields):
+            return any(
+                (inside and not f.nullable)
+                or _not_null_inside_collection(f.type, inside=inside)
+                for f in fields
+            )
+        case Array(element=element):
+            return _not_null_inside_collection(element, inside=True)
+        case Map(key=key, value=value):
+            return _not_null_inside_collection(
+                key, inside=True
+            ) or _not_null_inside_collection(value, inside=True)
+        case _:
+            return False
+
+
+def _refuse_dependent_change(table: Table, clause: str) -> None:
+    """Delta won't change the type of, rename or drop a column that a CHECK or a
+    generated column uses — seen live (2026-09-19)."""
+    match = re.match(
+        r"(?:ALTER COLUMN (\S+) TYPE|RENAME COLUMN (\S+) TO|DROP COLUMNS? \(?(\S+?)\)?$)",
+        clause,
+    )
+    if match is None:
+        return
+    column = _unquote(next(g for g in match.groups() if g).split(".")[0]).casefold()
+    for check in table.checks():
+        if column in referenced_columns(check.expression):
+            raise FakeSqlError(
+                f"[DELTA_CONSTRAINT_DEPENDENT_COLUMN_CHANGE] Cannot alter column "
+                f"{column}: the check constraint {check.name} uses it"
+            )
+    for other in table.columns:
+        if other.generated and column in referenced_columns(other.generated):
+            raise FakeSqlError(
+                f"[DELTA_GENERATED_COLUMNS_DEPENDENT_COLUMN_CHANGE] Cannot alter column "
+                f"{column}: the generated column {other.name} uses it"
+            )
+
+
 def _move_key(store: dict[str, _V], old: str, new: str) -> None:
     if old in store:
         store[new] = store.pop(old)
@@ -1052,16 +1121,42 @@ def _apply_alter(table: Table, clause: str) -> Table:
 
 
 def _add_column(table: Table, definition: str) -> Table:
-    match = re.fullmatch(r"(\S+) (.+?)(?: COMMENT (.+))?", definition)
+    name, rest = _split_name(definition)
+    match = re.fullmatch(r"(.+?)(?: COMMENT (.+))?", rest)
     if match is None:
         raise FakeSqlError(f"cannot read column definition: {definition}")
-    path = _unquote(match.group(1))
+    path = _unquote(name)
     added = Field(
         _leaf(path),
-        parse_type(match.group(2)),
-        comment=_unliteral(match.group(3)) if match.group(3) else None,
+        parse_type(match.group(1)),
+        comment=_unliteral(match.group(2)) if match.group(2) else None,
     )
     return _edit_container(table, path, lambda fields: (*fields, added))
+
+
+def _split_name(text: str) -> tuple[str, str]:
+    """A leading column name or dotted path — backticked parts may hold spaces —
+    and what follows it."""
+    index = 0
+    while True:
+        if text.startswith("`", index):
+            index += 1
+            while index < len(text):
+                if text[index] == "`" and text.startswith("``", index):
+                    index += 2
+                elif text[index] == "`":
+                    index += 1
+                    break
+                else:
+                    index += 1
+        else:
+            match = re.match(r"[^\s.`]+", text[index:])
+            if match is None:
+                raise FakeSqlError(f"cannot read a name in: {text}")
+            index += match.end()
+        if not text.startswith(".", index):
+            return text[:index], text[index:].lstrip()
+        index += 1
 
 
 def _move(table: Table, name: str, after: str | None) -> Table:
@@ -1468,7 +1563,7 @@ def _parse_column_definition(entry: str) -> Field:
     if found := re.search(r" DEFAULT (.+)$", entry):
         default = found.group(1)
         entry = entry[: found.start()]
-    name, _, rest = entry.partition(" ")
+    name, rest = _split_name(entry)
     parsed = parse_type(f"struct<{name}:{rest}>")
     if not isinstance(parsed, Struct) or len(parsed.fields) != 1:
         raise FakeSqlError(f"cannot read column definition: {entry}")
