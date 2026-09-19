@@ -68,7 +68,12 @@ They assert the things nothing else can:
 - plan → apply → re-plan is empty, against the real thing;
 - `DROP COLUMN` really is refused until column mapping is on;
 - every widening `widens()` claims is one Databricks accepts;
-- the history and lock SQL — `MERGE`, `INTERVAL`, `current_user()` — is valid.
+- the history and lock SQL — `MERGE`, `INTERVAL`, `current_user()` — is valid;
+- **dogfooding**: `tests/messy_schema.py` builds a schema the way a real team ends up
+  with one — years of `ALTER`s, masks, a Python UDF, legacy partitioning, awkward names —
+  and `test_live_dogfood.py` imports it, requires a plan of nothing but ownership
+  claims, adopts it, and changes it. When you meet a real-world table deltaplan
+  misreads, add its shape to the messy schema.
 
 Every Databricks behaviour deltaplan relies on should have a test here and a link to the
 documentation in its docstring. Where a behaviour is assumed but unverified, the code

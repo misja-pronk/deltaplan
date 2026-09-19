@@ -6,6 +6,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+Found by dogfooding — importing a messy, hand-built schema and planning it:
+
+- **A column named after a reserved word broke reading the table's definition.**
+  Databricks prints `select STRING` in `SHOW CREATE TABLE` without backticks;
+  such names are quoted before parsing. The table's identity, generated and
+  default columns were silently missing from its imported spec.
+- **Changing a column a CHECK uses failed at apply.** Delta refuses to change
+  the type of, rename or drop such a column. The CHECK is now dropped first and
+  put back after, as the spec has it. A change a generated column blocks is
+  refused with the reason, since a generated column can't be made again.
+- **A name with a space (or `,;{}()=`) failed at apply**: it needs column
+  mapping, which is now switched on — in `CREATE TABLE`, before adding such a
+  column, and on a rewrite's staging table.
+- `validate` rejects `NOT NULL` inside an array or map (Delta refuses it), and a
+  CHECK or generated column that uses a column the spec doesn't have.
+
+### Added
+
+- A live dogfooding test: a messy schema built by hand is imported, adopted and
+  changed, and every plan along the way must be what it should be.
+
 ## [0.1.0a3] - 2026-09-18
 
 Schemas and managed volumes as specs, and a `plan` that reads only what it
