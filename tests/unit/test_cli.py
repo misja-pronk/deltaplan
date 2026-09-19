@@ -609,3 +609,36 @@ def test_schema_prints_the_json_schema(kind: str) -> None:
         spec_schema.spec_schema() if kind == "spec" else spec_schema.project_schema()
     )
     assert json.loads(result.output) == expected
+
+
+# ---------------------------------------------------------------------------
+# what the terminal shows
+# ---------------------------------------------------------------------------
+
+
+def test_apply_shows_each_steps_risk(
+    project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`[meta]` is also Rich markup: printed as is, it vanished."""
+    from deltaplan.history import MemoryHistory
+    from fake_warehouse import FakeWarehouse
+
+    monkeypatch.setattr(cli, "_warehouse", lambda *_a, **_k: FakeWarehouse())
+    monkeypatch.setattr(cli, "_history", lambda *_a, **_k: MemoryHistory())
+    config, plan_file = str(project / "deltaplan.yml"), str(tmp_path / "plan.json")
+    assert runner.invoke(app, ["plan", "-t", "dev", "-c", config, "-o", plan_file])
+    result = runner.invoke(app, ["apply", plan_file, "-c", config])
+    assert result.exit_code == 0, result.output
+    assert "CREATE TABLE orders" in result.output
+    assert "[meta] ok" in result.output
+
+
+def test_an_error_quotes_the_spec_as_written(project: Path) -> None:
+    """`array[int]` is a common slip, and `[int]` is Rich markup: printed as is,
+    the message said `array` and its caret pointed at nothing."""
+    (project / "tables" / "orders.yml").write_text(
+        "table: main.sales.orders\ncolumns:\n  - name: tags\n    type: array[int]\n"
+    )
+    result = runner.invoke(app, ["validate", "--config", str(project / "deltaplan.yml")])
+    assert result.exit_code == 1
+    assert "  array[int]\n       ^" in result.output

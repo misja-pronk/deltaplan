@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from deltaplan.executor import ExecutionError, ExecutionResult, Executor
 from deltaplan.history import DeltaHistory, HistoryStore, Status
@@ -186,7 +187,7 @@ def validate(
         try:
             table = load_spec(path, variables, unresolved)
         except SpecError as error:
-            err.print(f"[red]{error}[/]")
+            err.print(f"[red]{escape(str(error))}[/]")
             problems += 1
             continue
         for diagnostic in validate_spec(table, str(path)):
@@ -201,7 +202,7 @@ def validate(
 
 def _print_diagnostic(diagnostic: Diagnostic) -> None:
     colour = "red" if diagnostic.severity == "error" else "yellow"
-    err.print(f"[{colour}]{diagnostic}[/]")
+    err.print(f"[{colour}]{escape(str(diagnostic))}[/]")
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +283,7 @@ def import_schema(
             text = MODELINE + "\n" + dump_spec(definition, catalog_variable=variable)
         path.write_text(text, encoding="utf-8")
         note = f" [dim](YAML: SQL can't say {reason})[/]" if reason else ""
-        out.print(f"[green]+[/] {path}{note}")
+        out.print(f"[green]+[/] {escape(str(path))}{note}")
 
     relations: list[Relation] = [entry.table for entry in live.tables]
     relations.extend(live.views)
@@ -307,7 +308,7 @@ def import_schema(
             text = MODELINE + "\n" + dump_spec(relation, catalog_variable=variable)
         path.write_text(text, encoding="utf-8")
         note = f" [dim](YAML: SQL can't say {reason})[/]" if reason else ""
-        out.print(f"[green]+[/] {path}{note}")
+        out.print(f"[green]+[/] {escape(str(path))}{note}")
 
     for name, reason in live.skipped:
         out.print(
@@ -316,7 +317,9 @@ def import_schema(
         )
 
     if not relations:
-        err.print(f"[yellow]No Delta tables, views or functions found in {schema}.[/]")
+        err.print(
+            f"[yellow]No Delta tables, views or functions found in {escape(schema)}.[/]"
+        )
 
 
 def _catalog_variable(target: Target | None, catalog: str) -> str | None:
@@ -476,11 +479,11 @@ def _output(
             render_plan(built, out)
             if output:
                 output.write_text(plan_json(built), encoding="utf-8")
-                out.print(f"\n[green]Wrote[/] {output}")
+                out.print(f"\n[green]Wrote[/] {escape(str(output))}")
             return
     if output:
         output.write_text(text, encoding="utf-8")
-        out.print(f"[green]Wrote[/] {output}")
+        out.print(f"[green]Wrote[/] {escape(str(output))}")
     else:
         typer.echo(text, nl=False)
 
@@ -506,7 +509,7 @@ def _plan(
             clone=clone,
         )
     except (PlanningError, IntrospectionError) as error:
-        err.print(f"[red]{error}[/]")
+        err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
 
 
@@ -553,7 +556,7 @@ def apply(
     try:
         result = executor.apply(built, allow_destructive=allow_destructive)
     except (ExecutionError, IntrospectionError) as error:
-        err.print(f"[red]{error}[/]")
+        err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
 
     _report(result, built, plan_file)
@@ -566,13 +569,13 @@ def _show_step(step: Step, status: Status, note: str | None) -> None:
     label = {"succeeded": "ok", "skipped": "skipped", "failed": "failed"}[status]
     line = (
         f"  [dim]{step.id}.[/] {step.title.ljust(TITLE_WIDTH)} "
-        f"[{RISK_STYLE[step.risk]}][{step.risk}][/] [{colour}]{label}[/]"
+        f"[{RISK_STYLE[step.risk]}]\\[{step.risk}][/] [{colour}]{label}[/]"
     )
     if status == "skipped" and note:
         line += f" [dim]({note})[/]"
     out.print(line)
     if status == "failed" and note:
-        err.print(f"     [red]{note}[/]")
+        err.print(f"     [red]{escape(note)}[/]")
 
 
 def _report(result: ExecutionResult, built: Plan, plan_file: Path) -> None:
@@ -616,7 +619,7 @@ def force_unlock(
     try:
         holder = _history(project, chosen, runner).force_unlock(chosen.name)
     except IntrospectionError as error:
-        err.print(f"[red]{error}[/]")
+        err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
     if holder is None:
         out.print(f"[green]{chosen.name} was not locked.[/]")
@@ -628,10 +631,10 @@ def _read_plan(path: Path) -> Plan:
     try:
         return plan_loads(path.read_text(encoding="utf-8"))
     except OSError as error:
-        err.print(f"[red]cannot read {path}: {error}[/]")
+        err.print(f"[red]cannot read {escape(f'{path}: {error}')}[/]")
         raise typer.Exit(1) from error
     except PlanFileError as error:
-        err.print(f"[red]{path}: {error}[/]")
+        err.print(f"[red]{escape(f'{path}: {error}')}[/]")
         raise typer.Exit(1) from error
 
 
@@ -639,7 +642,7 @@ def _history(project: Project, target: Target, runner: WarehouseRunner) -> Histo
     try:
         schema = project.history_schema_for(target)
     except KeyError as error:
-        err.print(f"[red]history_schema: {error.args[0]}[/]")
+        err.print(f"[red]history_schema: {escape(str(error.args[0]))}[/]")
         raise typer.Exit(1) from error
     if not schema:
         err.print(
@@ -675,7 +678,7 @@ def _optional_project(config: Path | None) -> Project | None:
     try:
         return load_project(path, os.environ)
     except SpecError as error:
-        err.print(f"[red]{error}[/]")
+        err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
 
 
@@ -698,7 +701,7 @@ def _target(project: Project, name: str | None) -> Target:
     try:
         return project.target(name)
     except KeyError as error:
-        err.print(f"[red]{error.args[0]}[/]")
+        err.print(f"[red]{escape(str(error.args[0]))}[/]")
         raise typer.Exit(1) from error
 
 
@@ -706,7 +709,7 @@ def _load(project: Project, target: Target) -> tuple[LoadedSpec, ...]:
     try:
         specs = load_specs(project, target)
     except (SpecError, FileNotFoundError) as error:
-        err.print(f"[red]{error}[/]")
+        err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
     if not specs:
         err.print("[yellow]No specs found.[/]")
@@ -801,7 +804,7 @@ def _introspect(
     try:
         return Introspector(runner, parallel=parallel).schema(catalog, schema)
     except IntrospectionError as error:
-        err.print(f"[red]{error}[/]")
+        err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
 
 
