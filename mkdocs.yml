@@ -83,7 +83,9 @@ extra:
 
 nav:
   - Home: index.md
-  - Installation: installation.md
+  - Get started:
+      - Your first project: getting-started.md
+      - Installation: installation.md
   - Guide:
       - A tour: tour.md
       - Feature gallery: features.md

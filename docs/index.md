@@ -15,7 +15,8 @@ touches anything.
 
 ![A deltaplan plan](assets/screens/tour-plan-change.svg)
 
-[Take the tour](tour.md){ .md-button .md-button--primary }
+[Get started](getting-started.md){ .md-button .md-button--primary }
+[Take the tour](tour.md){ .md-button }
 [See every feature](features.md){ .md-button }
 
 <hr class="dp-rule">
@@ -39,6 +40,7 @@ touches anything.
 
 ## Next steps
 
+- [Get started](getting-started.md) — your own workspace: install, import, plan, apply.
 - [A tour](tour.md) — one project from nothing to a reviewed pull request, in ten minutes.
 - [Feature gallery](features.md) — every kind of change, with its spec and its plan.
 - [Installation](installation.md) — install with uvx, uv tool, or pipx.

@@ -21,6 +21,9 @@ then apply it.
 uv tool install --prerelease allow deltaplan   # or: pip install --pre deltaplan
 ```
 
+**[Get started →](https://misja-pronk.github.io/deltaplan/getting-started/)** — install,
+import a schema, plan, apply: ten minutes on your own workspace.
+
 **[Take the tour →](https://misja-pronk.github.io/deltaplan/tour/)** — one project from
 nothing to a reviewed pull request, every step shown — or browse the
 [feature gallery](https://misja-pronk.github.io/deltaplan/features/). The

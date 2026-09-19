@@ -10,7 +10,7 @@ deltaplan is a Python 3.11+ CLI, published on [PyPI](https://pypi.org/project/de
 
     ```sh
     uv tool install --prerelease allow deltaplan
-    deltaplan version
+    deltaplan --version
     ```
 
 === "uvx"
@@ -23,7 +23,7 @@ deltaplan is a Python 3.11+ CLI, published on [PyPI](https://pypi.org/project/de
 
     ```sh
     pipx install --pip-args=--pre deltaplan
-    deltaplan version
+    deltaplan --version
     ```
 
 === "pip"
@@ -38,7 +38,7 @@ deltaplan is a Python 3.11+ CLI, published on [PyPI](https://pypi.org/project/de
 git clone https://github.com/misja-pronk/deltaplan
 cd deltaplan
 uv sync
-uv run deltaplan version
+uv run deltaplan --version
 ```
 
 ## Connecting to a workspace
