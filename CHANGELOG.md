@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0a4] - 2026-09-19
+
+Fixes found by dogfooding: a schema built by hand the way real ones end up,
+imported, adopted and changed on a live workspace. The live suite passes
+25 of 25.
+
 ### Fixed
 
 Found by dogfooding — importing a messy, hand-built schema and planning it:
