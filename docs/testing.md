@@ -109,6 +109,32 @@ the code, keep the test, and remove the `TODO(verify)` it settled — and if the
 warehouse agreed with the wrong assumption, fix the fake too, so the offline suite stops
 agreeing with it.
 
+### Asking one question of the workspace
+
+A single live question doesn't need the whole forty-minute suite. Push a branch with the
+test on it and run the suite against it, filtered:
+
+```sh
+gh workflow run integration.yml --ref my-branch -f k=the_test_name
+```
+
+That's the honest way to settle a Databricks behaviour before building on it: probe it,
+read the answer, then write the code and the test that keeps it.
+
+### When the metastore says it is full
+
+`QUOTA_EXCEEDED.UC_RESOURCE_QUOTA_EXCEEDED` — *"Cannot create 1 Table(s) ... (estimated
+count: 523, limit: 500)"* — usually isn't. Unity Catalog
+[counts tables as they are created](https://docs.databricks.com/aws/en/data-governance/unity-catalog/resource-quotas)
+and catches up with deletions later, so a day of live runs leaves the count far above
+what is really there.
+
+The suite handles it: before anything runs it drops `deltaplan_it_*` schemas older than
+half an hour (what a cancelled CI run leaves behind), then reads the quota, which is what
+asks Unity Catalog to recount. If the count is still at the limit it skips the suite
+rather than failing every test in it — the recount lands within about half an hour, and
+the next run goes through.
+
 ## The docs' pictures
 
 Every terminal on the docs site is deltaplan's own output. `tests/screens.py` writes a
