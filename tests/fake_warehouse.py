@@ -695,6 +695,8 @@ class FakeWarehouse:
             )
         _enforce_delta_rules(table)
         previous = self.tables.get(table.name)
+        if previous is not None and replacing:
+            table = _keeps_from(table, previous)
         if table.partitioned_by and (table.cluster_by or table.cluster_auto):
             raise FakeSqlError("SPECIFY_CLUSTER_BY_WITH_PARTITIONED_BY_IS_NOT_ALLOWED")
         if (
@@ -706,8 +708,6 @@ class FakeWarehouse:
             raise FakeSqlError(
                 "DELTA_CLUSTERING_TO_PARTITIONED_TABLE_WITH_NON_EMPTY_CLUSTERING_COLUMNS"
             )
-        # A replaced table keeps its owner (verified live); a new one is its
-        # creator's.
         table = replace(table, owner=previous.owner if previous else RUNNER)
         self.tables[table.name] = table
         self.versions[table.name] = self.versions.get(table.name, -1) + 1
@@ -1521,6 +1521,24 @@ def _idents(text: str) -> Iterable[str]:
     return [_unquote(part) for part in text.split(",") if part.strip()]
 
 
+def _keeps_from(table: Table, previous: Table) -> Table:
+    """What a replaced table keeps from the table it replaces — its tags, its
+    grants, its owner, and each column's tags, by name. Verified live
+    (2026-09-20), which is why the planner doesn't put them back."""
+    return replace(
+        table,
+        tags=previous.tags,
+        grants=previous.grants,
+        owner=previous.owner,
+        columns=tuple(
+            replace(column, tags=was.tags)
+            if (was := previous.column(column.name)) is not None
+            else column
+            for column in table.columns
+        ),
+    )
+
+
 def _retag(current: dict[str, str], verb: str, listed: str) -> dict[str, str]:
     """SET adds `'k' = 'v'` pairs; UNSET removes `'k'` keys, present or not."""
     if verb == "SET":
@@ -1706,7 +1724,18 @@ def _project(select: str, source: Table) -> Fields:
         expression, _, alias = item.strip().rpartition(" AS ")
         if not expression:
             raise FakeSqlError(f"projection item has no alias: {item}")
-        fields.append(Field(_unquote(alias), _infer(expression.strip(), source, {})))
+        name = _unquote(alias)
+        was = source.column(name)
+        # A column copied across as it is keeps its comment; a converted or
+        # renamed one comes out bare — verified live.
+        copied = was is not None and _unquote(expression.strip()) == name
+        fields.append(
+            Field(
+                name,
+                _infer(expression.strip(), source, {}),
+                comment=was.comment if copied and was else None,
+            )
+        )
     return tuple(fields)
 
 

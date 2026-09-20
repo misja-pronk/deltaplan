@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **A rewrite plans what it actually has to do.** A replace keeps the table's
+  tags, grants and owner, and a column's tags — verified live — so the plan no
+  longer lists steps to set them again; the tour's rewrite went from twelve
+  steps to nine. What a replace does lose is still put back: `NOT NULL`, the
+  constraints, a converted column's comment, and a renamed column's tags,
+  which stay behind on the old name. A live test asserts nothing is lost,
+  including the tags and grants the spec doesn't name.
+
 ## [0.1.0a6] - 2026-09-19
 
 What an engineer replacing a setup notebook needs: `deltaplan apply` in one

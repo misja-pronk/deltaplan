@@ -13,11 +13,10 @@ from syrupy.assertion import SnapshotAssertion
 from deltaplan.differ import diff
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
 from deltaplan.model.table import Check, PrimaryKey, Table
-from deltaplan.model.types import Field, Primitive, Struct, render_type
+from deltaplan.model.types import Field, Primitive, Struct
 from deltaplan.planner import (
     build_plan,
     build_projection,
-    ctas_result,
     needs_rewrite,
     replace_table_sql,
     staging_name,
@@ -514,19 +513,47 @@ def test_replace_table_sql(snapshot: SnapshotAssertion) -> None:
     assert f"{with_schema}\n\n{from_query}" == snapshot
 
 
-def test_ctas_result_admits_what_a_query_cannot_carry() -> None:
+def test_replace_result_says_what_a_replace_keeps() -> None:
+    """Verified live: the table keeps its tags, grants and owner, and a column
+    keeps its tags by name and its comment when it is copied across as it is.
+    Nullability and constraints are gone whatever happens."""
+    from dataclasses import replace as replace_fields
+
+    from deltaplan.model.table import Grant
+    from deltaplan.planner import replace_result
+
+    live = replace_fields(
+        table(
+            col("id", "bigint", nullable=False, comment="key"),
+            Field("kept", Primitive("string"), comment="stays", tags=(("pii", "no"),)),
+            col("amount", "int"),
+            tags=(("domain", "sales"),),
+            grants=(Grant("analysts", ("SELECT",)),),
+        ),
+        owner="data-eng",
+    )
     desired = table(
         col("id", "bigint", nullable=False, comment="key"),
-        col("a", "struct<b:string not null comment 'x'>"),
-        tags=(("domain", "sales"),),
+        col("kept", "string", comment="stays"),
+        col("amount", "string"),  # converted
+        col("added", "string", comment="new"),
         constraints=(PrimaryKey(("id",), "pk"),),
     )
-    produced = ctas_result(desired)
-    # Names, types and order survive a query; nothing else does.
-    assert produced.column_names == ("id", "a")
-    assert produced.column("id") == Field("id", Primitive("bigint"))
-    nested = produced.column("a")
-    assert nested is not None
-    assert render_type(nested.type) == "struct<b:string>"
-    assert produced.tags == () and produced.constraints == ()
-    assert produced.properties_map()["deltaplan.managed"] == "true"
+    produced = replace_result(desired, live, build_projection(desired, live))
+
+    identifier = produced.column("id")
+    assert identifier is not None
+    assert identifier.nullable, "NOT NULL is gone"
+    assert identifier.comment == "key", "a column copied as it is keeps its comment"
+    kept = produced.column("kept")
+    assert kept is not None and (kept.comment, kept.tags) == ("stays", (("pii", "no"),))
+    converted = produced.column("amount")
+    assert converted is not None and converted.comment is None, "a cast comes out bare"
+    added = produced.column("added")
+    assert added is not None and added.comment is None
+    assert produced.constraints == ()
+    assert (produced.tags, produced.grants, produced.owner) == (
+        live.tags,
+        live.grants,
+        live.owner,
+    )
