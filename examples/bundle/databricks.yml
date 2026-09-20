@@ -1,5 +1,6 @@
 # A Databricks Asset Bundle — the kind a project may already have for its jobs
-# and pipelines. deltaplan reads only its targets and variables.
+# and pipelines. deltaplan reads its targets and variables, and the Unity
+# Catalog objects it declares: those stay the bundle's to create.
 bundle:
   name: sales
 
@@ -11,6 +12,15 @@ variables:
     description: The SQL warehouse to run statements on
     lookup:
       warehouse: Starter Warehouse
+
+# The schema the tables live in. deltaplan leaves it to the bundle, and a spec
+# can name it: ${resources.schemas.sales.name}.
+resources:
+  schemas:
+    sales:
+      catalog_name: ${var.catalog}
+      name: sales
+      comment: Sales data
 
 targets:
   dev:

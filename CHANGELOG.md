@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A bundle's catalogs, schemas and volumes are read as context.** Teams keep
+  the schema itself in `databricks.yml`; deltaplan now reads those resources
+  (from the bundle and its included files, per target), lets a spec name one
+  the way the bundle does — `${resources.schemas.sales.name}` — and leaves the
+  object itself to the bundle: it won't create or manage it, a spec for one is
+  an error, `import` writes no spec for it, and a table whose schema hasn't
+  been deployed yet says "run `databricks bundle deploy` first" instead of
+  creating it.
+
 ## [0.1.0a7] - 2026-09-20
 
 A rewrite's plan says what it will really do, and nothing more.

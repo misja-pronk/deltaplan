@@ -1,9 +1,14 @@
-"""Targets from a Databricks Asset Bundle.
+"""Targets and Unity Catalog objects from a Databricks Asset Bundle.
 
 A project that already has a `databricks.yml` shouldn't have to list its targets
 twice. With `bundle: databricks.yml` in `deltaplan.yml`, the bundle's targets
 become deltaplan's: their names, the one marked `default: true`, the workspace
 each points at, and the bundle's variables as each target resolves them.
+
+A bundle can also declare catalogs, schemas and volumes. Those are read too —
+as context, never as deltaplan's work: a spec can name one with the bundle's own
+spelling (`${resources.schemas.sales.name}`), and deltaplan leaves the object
+itself to the bundle, which owns it.
 
 The bundle is someone else's format, so it is read leniently: only what
 deltaplan uses is looked at, and nothing else is validated.
@@ -55,6 +60,44 @@ class BundleTarget:
     host: str | None = None
     #: The warehouse a `warehouse_id: {lookup: {warehouse: …}}` names.
     warehouse_lookup: str | None = None
+    #: The catalogs, schemas and volumes the bundle declares for this target.
+    resources: tuple[BundleResource, ...] = ()
+
+
+#: The Unity Catalog resources deltaplan reads, and the parts each name is
+#: built from, widest first.
+RESOURCE_PARTS: dict[str, tuple[str, ...]] = {
+    "catalogs": ("name",),
+    "schemas": ("catalog_name", "name"),
+    "volumes": ("catalog_name", "schema_name", "name"),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class BundleResource:
+    """A catalog, schema or volume a bundle declares — and therefore owns."""
+
+    #: As the bundle spells it, so a reference to it reads the same: `schemas`.
+    kind: str
+    key: str
+    #: Each field as the bundle spells it: `name`, `catalog_name`, `schema_name`.
+    values: tuple[tuple[str, str], ...] = ()
+    #: Its full name, when every part could be read.
+    full_name: str | None = None
+    #: Why the full name couldn't be read, when it couldn't.
+    unreadable: str | None = None
+
+    @property
+    def singular(self) -> str:
+        """`schema`, for a sentence about one of them."""
+        return self.kind.removesuffix("s")
+
+    def references(self) -> dict[str, str]:
+        """What a spec can write: `${resources.schemas.sales.catalog_name}`."""
+        return {
+            f"resources.{self.kind}.{self.key}.{field}": value
+            for field, value in self.values
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +140,7 @@ def read_bundle(path: Path, environ: Mapping[str, str] | None = None) -> Bundle:
     name = _get(document, "bundle", "name")
     declared = _mapping(document.get("variables"), "variables")
     top_workspace = _mapping(document.get("workspace"), "workspace")
+    top_resources = _mapping(document.get("resources"), "resources")
     targets = _mapping(document.get("targets"), "targets")
     if not targets:
         raise BundleError(f"{path} has no targets")
@@ -110,6 +154,7 @@ def read_bundle(path: Path, environ: Mapping[str, str] | None = None) -> Bundle:
                 _mapping(body, f"target {target_name!r}"),
                 declared,
                 top_workspace,
+                top_resources,
                 bundle_name=name if isinstance(name, str) else "",
                 environ=environ or {},
             )
@@ -144,6 +189,7 @@ def _target(
     body: Mapping[str, object],
     declared: Mapping[str, object],
     top_workspace: Mapping[str, object],
+    top_resources: Mapping[str, object],
     *,
     bundle_name: str,
     environ: Mapping[str, str],
@@ -186,7 +232,72 @@ def _target(
         profile=profile if isinstance(profile, str) else None,
         host=host if isinstance(host, str) else None,
         warehouse_lookup=warehouse if isinstance(warehouse, str) else None,
+        resources=_resources(
+            top_resources,
+            _mapping(body.get("resources"), f"resources of target {name!r}"),
+            variables,
+            context,
+        ),
     )
+
+
+def _resources(
+    top: Mapping[str, object],
+    own: Mapping[str, object],
+    variables: Mapping[str, str],
+    context: Mapping[str, str],
+) -> tuple[BundleResource, ...]:
+    """The catalogs, schemas and volumes a target ends up with.
+
+    A target's `resources:` adds to the bundle's, field by field, as the
+    Databricks CLI merges them. Names are resolved as far as they can be —
+    a bundle's own `${resources.catalogs.x.name}` included, which is why
+    catalogs come before schemas and schemas before volumes.
+    """
+    merged: dict[tuple[str, str], dict[str, object]] = {}
+    for source in (top, own):
+        for kind in RESOURCE_PARTS:
+            for key, body in _mapping(source.get(kind), kind).items():
+                entry = merged.setdefault((kind, str(key)), {})
+                entry.update(_mapping(body, f"{kind}.{key}"))
+
+    found: list[BundleResource] = []
+    known = dict(context)
+    for kind in RESOURCE_PARTS:
+        for (entry_kind, key), body in merged.items():
+            if entry_kind != kind:
+                continue
+            resource = _resource(kind, key, body, variables, known)
+            known.update(resource.references())
+            found.append(resource)
+    return tuple(found)
+
+
+def _resource(
+    kind: str,
+    key: str,
+    body: Mapping[str, object],
+    variables: Mapping[str, str],
+    context: Mapping[str, str],
+) -> BundleResource:
+    values: dict[str, str] = {}
+    missing: list[str] = []
+    for field in RESOURCE_PARTS[kind]:
+        raw = body.get(field)
+        if not isinstance(raw, str):
+            missing.append(f"{field} is not text" if raw is not None else f"no {field}")
+            continue
+        resolved = _substitute(raw, variables, context)
+        if isinstance(resolved, _Unresolved):
+            missing.append(f"{field} {resolved.reason}")
+            continue
+        values[field] = resolved
+    if missing:
+        return BundleResource(
+            kind, key, tuple(values.items()), unreadable=f"{kind}.{key}: {missing[0]}"
+        )
+    full = ".".join(values[field] for field in RESOURCE_PARTS[kind])
+    return BundleResource(kind, key, tuple(values.items()), full_name=full)
 
 
 def _declared(variable: str, spec: object, target: str) -> _Raw:
@@ -297,10 +408,11 @@ def _merge(into: dict[str, object], other: Mapping[str, object]) -> None:
     """Fold an included file's variables and targets into the bundle's.
 
     A target named in several files gets its keys from all of them, as the
-    Databricks CLI merges them; the other top-level keys aren't deltaplan's
-    business.
+    Databricks CLI merges them, and so does a kind of resource — which is how
+    bundles usually keep them, one file per resource. The other top-level keys
+    aren't deltaplan's business.
     """
-    for key in ("variables", "targets"):
+    for key in ("variables", "targets", "resources"):
         incoming = _mapping(other.get(key), key)
         if not incoming:
             continue
@@ -308,7 +420,7 @@ def _merge(into: dict[str, object], other: Mapping[str, object]) -> None:
         for name, body in incoming.items():
             existing = current.get(name)
             if (
-                key == "targets"
+                key in {"targets", "resources"}
                 and isinstance(existing, Mapping)
                 and isinstance(body, Mapping)
             ):
