@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0a8] - 2026-09-20
+
+deltaplan reads the context an Asset Bundle already holds, and leaves what the
+bundle declares to the bundle.
+
 ### Added
 
 - **A bundle's catalogs, schemas and volumes are read as context.** Teams keep
