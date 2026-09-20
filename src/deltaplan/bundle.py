@@ -10,24 +10,27 @@ as context, never as deltaplan's work: a spec can name one with the bundle's own
 spelling (`${resources.schemas.sales.name}`), and deltaplan leaves the object
 itself to the bundle, which owns it.
 
-What a bundle says isn't always what it deploys: the Databricks CLI runs
-mutators over the configuration first. A target in `mode: development`, or one
-with `presets.name_prefix`, renames what it makes — a schema `sales` becomes
-`dev_jane_sales`, and a prefix `team_` makes it `teamsales` (both seen from the
-CLI, 2026-09-20). deltaplan doesn't reimplement that: when a target renames
-anything, it asks the CLI for the effective configuration
-(`databricks bundle validate -o json`), and without the CLI it says the name is
-unknown rather than guessing.
+What a bundle *says* isn't what it *deploys*: the Databricks CLI resolves
+variables, runs lookups against the workspace, and applies the mutators that
+rename things — a schema `sales` becomes `dev_jane_sales` in development mode,
+and a `team_` prefix makes it `teamsales`. deltaplan reimplements none of it. It
+asks the CLI (`databricks bundle validate -o json -t <target>`), which answers
+with every `${var.…}` filled in, every `lookup:` resolved, and every name as a
+deploy would make it (verified against a workspace, 2026-09-20).
 
-The bundle is someone else's format, so it is read leniently: only what
-deltaplan uses is looked at, and nothing else is validated.
+Reading the file is the fallback, for when the CLI isn't installed or can't
+reach a workspace — it needs one for anything it must look up, and answers
+nothing at all without credentials. The bundle is someone else's format, so it
+is read leniently: only what deltaplan uses is looked at, nothing is validated.
 
-What resolves offline: variable defaults, target overrides, `BUNDLE_VAR_<name>`
-from the environment, and references to `${var.<name>}`, `${bundle.name}` and
-`${bundle.target}`. What doesn't — lookups, complex variables,
-`${workspace.current_user.short_name}` — is recorded with the reason, so a spec
-that uses one fails saying why instead of "undefined". The one lookup deltaplan
-does resolve is a warehouse named by a `warehouse_id` variable, once connected.
+What that fallback resolves: variable defaults, target overrides,
+`BUNDLE_VAR_<name>` from the environment, and references to `${var.<name>}`,
+`${bundle.name}` and `${bundle.target}`. What it doesn't — lookups, complex
+variables, `${workspace.current_user.short_name}`, and every name a renaming
+target deploys under — is recorded with the reason, so a spec that uses one
+fails saying why instead of planning against the wrong object. The one lookup
+deltaplan resolves by itself is a warehouse named by a `warehouse_id` variable,
+once connected.
 
 https://docs.databricks.com/aws/en/dev-tools/bundles/variables
 https://docs.databricks.com/aws/en/dev-tools/bundles/settings
@@ -142,21 +145,64 @@ class Bundle:
         return None
 
 
-def effective_resources(
+def resolve_target(
     path: Path,
     target: str,
     *,
     profile: str | None = None,
     executable: str = "databricks",
-) -> tuple[BundleResource, ...] | None:
-    """What the Databricks CLI says the bundle's objects are called.
+) -> BundleTarget | None:
+    """The target as the Databricks CLI resolves it, or None if it can't say.
 
-    `databricks bundle validate -o json` is the configuration with every mutator
-    applied — the names a deploy would use. None when the CLI isn't there or
-    can't answer (a development target needs a workspace to know whose name to
-    put in front), and then the caller keeps the reason instead of a wrong name.
+    `databricks bundle validate -o json -t <target>` is the configuration a
+    deploy would use: `${var.…}` filled in, `lookup:` variables resolved against
+    the workspace, and every object under the name the target really deploys it
+    with. Verified against a live workspace (2026-09-20): each variable comes
+    back with a `value`, a warehouse lookup among them, and a development
+    target's schema as `dev_<user>_<name>`.
+
+    None when the CLI isn't installed, or answers with an error — it needs
+    credentials for anything it looks up, and refuses to resolve without them.
+    The caller then falls back to reading the file, which says *unknown* for
+    what only the CLI can settle.
     https://docs.databricks.com/aws/en/dev-tools/cli/bundle-commands
     """
+    document = _ask_cli(path, target, profile=profile, executable=executable)
+    if document is None:
+        return None
+    variables: dict[str, str] = {}
+    unresolved: dict[str, str] = {}
+    for name, spec in _mapping(document.get("variables"), "variables").items():
+        body = spec if isinstance(spec, Mapping) else {}
+        value = body.get("value", body.get("default"))
+        if isinstance(value, str | int | float | bool):
+            variables[str(name)] = str(value)
+        else:
+            unresolved[str(name)] = (
+                "the bundle leaves it a complex value, which a name can't be "
+                "built from — give it under this target's `vars`"
+            )
+    workspace = _mapping(document.get("workspace"), "workspace")
+    host, workspace_profile = workspace.get("host"), workspace.get("profile")
+    return BundleTarget(
+        name=target,
+        variables=tuple(sorted(variables.items())),
+        unresolved=tuple(sorted(unresolved.items())),
+        profile=workspace_profile if isinstance(workspace_profile, str) else None,
+        host=host if isinstance(host, str) else None,
+        # Nothing is left to look up or rename: these are the deployed names.
+        resources=_from_mapping(_mapping(document.get("resources"), "resources")),
+    )
+
+
+def _ask_cli(
+    path: Path,
+    target: str,
+    *,
+    profile: str | None,
+    executable: str,
+) -> Mapping[str, object] | None:
+    """`databricks bundle validate -o json`, parsed — or None if it didn't answer."""
     found = shutil.which(executable)
     if found is None:
         return None
@@ -169,22 +215,22 @@ def effective_resources(
             cwd=path.parent,
             capture_output=True,
             text=True,
-            timeout=120,
+            # It is asked on every command, so it may not hang around: without
+            # credentials it fails at once, and reading the file is the answer.
+            timeout=60,
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode != 0:
+        # It prints the unresolved configuration along with the error; taking
+        # that would be worse than reading the file ourselves.
         return None
     try:
         document = json.loads(result.stdout)
     except json.JSONDecodeError:
         return None
-    if not isinstance(document, dict):
-        return None
-    # The CLI resolves ${var.…} and the presets; references between resources it
-    # leaves to the deploy, so they are resolved here from its own answers.
-    return _from_mapping(_mapping(document.get("resources"), "resources"))
+    return document if isinstance(document, dict) else None
 
 
 def _from_mapping(resources: Mapping[str, object]) -> tuple[BundleResource, ...]:

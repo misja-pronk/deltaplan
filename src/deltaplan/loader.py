@@ -26,6 +26,7 @@ from deltaplan.bundle import (
     BundleResource,
     BundleTarget,
     read_bundle,
+    resolve_target,
 )
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.schema import Schema
@@ -179,6 +180,9 @@ class Project:
     #: `default: true` here or in the bundle.
     default_target: str | None = None
     bundle: Path | None = None
+    #: The targets as `deltaplan.yml` itself declared them, kept so a bundle
+    #: target can be merged again when the Databricks CLI answers for it.
+    own_targets: tuple[Target, ...] = ()
 
     def target(self, name: str) -> Target:
         for candidate in self.targets:
@@ -1092,6 +1096,7 @@ def load_project(path: Path, environ: Mapping[str, str] | None = None) -> Projec
         if default
     ]
     default_target = marked[0] if marked else None
+    own_targets: tuple[Target, ...] = ()
     if "bundle" in items:
         bundle_node = items["bundle"][0]
         bundle_path = root / _string(ctx, bundle_node, "bundle")
@@ -1106,6 +1111,7 @@ def load_project(path: Path, environ: Mapping[str, str] | None = None) -> Projec
                     f"target {target.name!r} isn't in the bundle (its targets: {known})",
                     target_locs[target.name],
                 )
+        own_targets = tuple(targets)
         own = {target.name: target for target in targets}
         targets = [_from_bundle(entry, own.get(entry.name)) for entry in bundle.targets]
         default_target = default_target or bundle.default
@@ -1133,6 +1139,7 @@ def load_project(path: Path, environ: Mapping[str, str] | None = None) -> Projec
         schema_modes=tuple(schema_modes),
         default_target=default_target,
         bundle=bundle_path,
+        own_targets=own_targets,
     )
 
 
@@ -1149,6 +1156,31 @@ def _defaults(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> list[bool]:
             "only one target can be the default", ctx.loc(items["targets"][0])
         )
     return found
+
+
+def as_deployed(
+    project: Project, target: Target, *, executable: str = "databricks"
+) -> Target:
+    """`target` as the Databricks CLI resolves the project's bundle for it.
+
+    A bundle's real values are the CLI's: it fills in every `${var.…}`, runs
+    `lookup:` variables against the workspace, and names each object the way a
+    deploy would. So it is asked first, once per command, and what deltaplan
+    read from the file stands in only when it can't answer — without the CLI, or
+    without credentials for it to look anything up with.
+
+    `deltaplan.yml` keeps the last word either way: its `vars`, `profile` and
+    `mode` go on top of whatever the bundle says.
+    """
+    if project.bundle is None:
+        return target
+    answer = resolve_target(
+        project.bundle, target.name, profile=target.profile, executable=executable
+    )
+    if answer is None:
+        return target
+    own = next((t for t in project.own_targets if t.name == target.name), None)
+    return _from_bundle(answer, own)
 
 
 def _from_bundle(entry: BundleTarget, own: Target | None) -> Target:

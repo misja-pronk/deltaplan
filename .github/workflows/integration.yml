@@ -44,6 +44,8 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+      # The bundle tests ask the real CLI what a bundle resolves to.
+      - uses: databricks/setup-cli@v1.17.0
       - id: creds
         name: Credentials configured?
         run: |

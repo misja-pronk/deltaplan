@@ -15,13 +15,13 @@ import pytest
 from typer.testing import CliRunner
 
 from deltaplan import cli
-from deltaplan.bundle import BundleError, read_bundle
+from deltaplan.bundle import BundleError, read_bundle, resolve_target
 
 if TYPE_CHECKING:
     from deltaplan.bundle import BundleTarget
     from deltaplan.model.view import Relation
     from fake_warehouse import FakeWarehouse
-from deltaplan.loader import SpecError, load_project, load_specs
+from deltaplan.loader import SpecError, as_deployed, load_project, load_specs
 from deltaplan.model.table import Table
 
 if TYPE_CHECKING:
@@ -649,42 +649,117 @@ def stub_cli(directory: Path, output: str, *, code: int = 0) -> str:
     return f"{binary.parent}:{os.environ['PATH']}"
 
 
-def test_the_cli_is_asked_what_a_renaming_target_deploys(
+def test_the_cli_is_asked_what_the_target_deploys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from deltaplan.bundle import effective_resources
-
+    """The CLI's answer is the bundle's real values — names, and variables."""
     path = write(tmp_path, "databricks.yml", RENAMING)
-    answer = """{"resources": {"schemas": {"sales": {"catalog_name": "main",
+    answer = """{"variables": {"catalog": {"value": "main"},
+      "warehouse_id": {"lookup": {"warehouse": "Starter"}, "value": "abc123"}},
+      "workspace": {"host": "https://example.cloud.databricks.com"},
+      "resources": {"schemas": {"sales": {"catalog_name": "main",
       "name": "dev_jane_sales"}}, "volumes": {"landing": {"catalog_name": "main",
       "schema_name": "${resources.schemas.sales.name}", "name": "landing"}}}}"""
     monkeypatch.setenv("PATH", stub_cli(tmp_path, answer))
-    resources = effective_resources(path, "dev")
-    assert resources is not None
-    names = {r.key: r.full_name for r in resources}
+    target = resolve_target(path, "dev")
+    assert target is not None
+    names = {r.key: r.full_name for r in target.resources}
     # The CLI leaves references between resources to the deploy; deltaplan
     # resolves them from the names the CLI did settle.
     assert names == {
         "sales": "main.dev_jane_sales",
         "landing": "main.dev_jane_sales.landing",
     }
+    assert dict(target.variables) == {"catalog": "main", "warehouse_id": "abc123"}
+    assert target.host == "https://example.cloud.databricks.com"
 
 
-def test_without_the_cli_nothing_is_claimed(
+def test_a_lookup_the_cli_resolved_is_the_warehouse(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from deltaplan.bundle import effective_resources
+    """Verified live: `bundle validate` runs a `lookup:` and returns the id."""
+    write(tmp_path, "databricks.yml", RENAMING)
+    write(
+        tmp_path,
+        "deltaplan.yml",
+        "specs: [tables]\nbundle: databricks.yml\n",
+    )
+    answer = """{"variables": {"warehouse_id": {"lookup": {"warehouse": "Starter"},
+      "value": "abc123"}}, "resources": {}}"""
+    monkeypatch.setenv("PATH", stub_cli(tmp_path, answer))
+    project = load_project(tmp_path / "deltaplan.yml")
+    target = as_deployed(project, project.target("dev"))
+    assert target.warehouse_id == "abc123"
+    assert target.warehouse_lookup is None, "there is nothing left to look up"
 
+
+def test_deltaplan_yml_still_has_the_last_word(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write(tmp_path, "databricks.yml", RENAMING)
+    write(
+        tmp_path,
+        "deltaplan.yml",
+        "specs: [tables]\nbundle: databricks.yml\n"
+        "targets:\n  dev:\n    mode: strict\n    vars: {catalog: mine}\n",
+    )
+    answer = """{"variables": {"catalog": {"value": "theirs"}}, "resources": {}}"""
+    monkeypatch.setenv("PATH", stub_cli(tmp_path, answer))
+    project = load_project(tmp_path / "deltaplan.yml")
+    target = as_deployed(project, project.target("dev"))
+    assert target.variables_map()["catalog"] == "mine"
+    assert target.mode == "strict"
+
+
+def test_a_complex_variable_is_unresolved_with_a_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = write(tmp_path, "databricks.yml", RENAMING)
+    answer = """{"variables": {"cluster": {"value": {"spark_version": "15.4"}}},
+      "resources": {}}"""
+    monkeypatch.setenv("PATH", stub_cli(tmp_path, answer))
+    target = resolve_target(path, "dev")
+    assert target is not None
+    assert "complex value" in dict(target.unresolved)["cluster"]
+
+
+def test_without_the_cli_the_file_stands_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = write(tmp_path, "databricks.yml", RENAMING)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-    assert effective_resources(path, "dev") is None
+    assert resolve_target(path, "dev") is None
 
 
 def test_a_cli_that_fails_is_not_an_answer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from deltaplan.bundle import effective_resources
-
+    """It prints the *unresolved* configuration with its error — worse than
+    reading the file ourselves, so it is not taken."""
     path = write(tmp_path, "databricks.yml", RENAMING)
     monkeypatch.setenv("PATH", stub_cli(tmp_path, "boom", code=1))
-    assert effective_resources(path, "dev") is None
+    assert resolve_target(path, "dev") is None
+
+
+def test_a_failed_cli_leaves_the_names_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Falling back must not plan against the name in the file: a development
+    target deploys another one, and a spec that uses it has to say so."""
+    write(tmp_path, "databricks.yml", RENAMING)
+    write(
+        tmp_path,
+        "deltaplan.yml",
+        "specs: [tables]\nbundle: databricks.yml\n",
+    )
+    write(
+        tmp_path,
+        "tables/orders.yml",
+        "table: main.${resources.schemas.sales.name}.orders\n"
+        "columns:\n  - {name: id, type: bigint}\n",
+    )
+    monkeypatch.setenv("PATH", stub_cli(tmp_path, "boom", code=1))
+    project = load_project(tmp_path / "deltaplan.yml")
+    target = as_deployed(project, project.target("dev"))
+    with pytest.raises(SpecError, match="development"):
+        load_specs(project, target)

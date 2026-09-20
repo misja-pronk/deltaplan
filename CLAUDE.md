@@ -127,7 +127,12 @@ Since then, beyond the design: schema creation, hooks and backfills, identity /
 generated / default columns, foreign keys, SQL functions (`model/function.py`;
 `Relation = Table | View | Function`) and Asset Bundle targets (`bundle.py`, a
 new module the layout doesn't list: it reads someone else's YAML leniently,
-which `loader.py`'s strict validator shouldn't). External tables are out of
+which `loader.py`'s strict validator shouldn't). A bundle is resolved by asking
+the Databricks CLI (`bundle validate -o json -t <target>`), whose answer carries
+the variables, the lookups and the names a deploy really uses; reading the file
+is the fallback for when the CLI can't answer, and says *unknown* rather than
+guessing. Offline tests hide a real `databricks` from PATH
+(`tests/unit/conftest.py`). External tables are out of
 scope for now — managed tables only.
 
 **SQL specs** (`sqlspec.py`, `features.py`) overturn a DESIGN.md non-goal, by

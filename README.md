@@ -81,8 +81,9 @@ everything — [the list](https://misja-pronk.github.io/deltaplan/formats/) says
 - **Reviewable.** The plan is a data structure; the terminal, Markdown (for PR comments)
   and JSON renderers all read the same object.
 - **At home next to an Asset Bundle.** Your `databricks.yml` already has the targets,
-  the workspaces, the variables and often the schema; deltaplan reads them, names the
-  schema the way the bundle does, and leaves what the bundle declares to the bundle —
+  the workspaces, the variables and often the schema. deltaplan asks the Databricks CLI
+  what they resolve to — lookups, development renaming and all — names the schema the
+  way the bundle does, and leaves what the bundle declares to the bundle —
   [details](https://misja-pronk.github.io/deltaplan/bundles/).
 
 ## Commands
