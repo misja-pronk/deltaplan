@@ -19,7 +19,7 @@ from collections.abc import Iterator
 import pytest
 
 from deltaplan.introspect import Introspector, WarehouseRunner
-from deltaplan.sql import quote_qualified
+from deltaplan.sql import quote_ident, quote_qualified
 
 
 @pytest.fixture(scope="session")
@@ -46,6 +46,42 @@ def runner(warehouse_id: str) -> WarehouseRunner:
     except Exception as error:  # the SDK raises ValueError when nothing is configured
         pytest.skip(f"no Databricks workspace configured: {error}")
     return WarehouseRunner(client, warehouse_id)
+
+
+#: How long a test schema may live before it can only be a leak. No test here
+#: holds one for more than a couple of minutes.
+STALE_AFTER = "30 MINUTES"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def sweep(runner: WarehouseRunner, catalog: str) -> None:
+    """Drop the schemas a killed run left behind.
+
+    Every test drops its own schema when it finishes, but a cancelled CI run
+    never gets to — a new push to a pull request cancels the suite mid-test.
+    What is left keeps its tables, and Unity Catalog counts those against the
+    metastore's quota (500 by default), so a few cancelled runs are enough to
+    make every later run fail with QUOTA_EXCEEDED. This sweeps them first.
+    https://docs.databricks.com/aws/en/data-governance/unity-catalog/index.html
+    """
+    try:
+        stale = runner.query(
+            f"SELECT schema_name FROM {quote_ident(catalog)}."
+            "information_schema.schemata WHERE schema_name LIKE 'deltaplan_it_%' "
+            f"AND created < current_timestamp() - INTERVAL {STALE_AFTER}"
+        )
+    except Exception as error:  # noqa: BLE001 - a sweep must never fail the suite
+        print(f"could not look for stale test schemas: {error}")
+        return
+    for row in stale:
+        name = row["schema_name"]
+        if not name:
+            continue
+        print(f"dropping the stale test schema {catalog}.{name}")
+        try:
+            runner.query(f"DROP SCHEMA {quote_qualified(f'{catalog}.{name}')} CASCADE")
+        except Exception as error:  # noqa: BLE001
+            print(f"  could not drop it: {error}")
 
 
 @pytest.fixture
