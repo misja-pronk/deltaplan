@@ -1,4 +1,4 @@
-<svg class="rich-terminal" viewBox="0 0 994 318.4" xmlns="http://www.w3.org/2000/svg">
+<svg class="rich-terminal" viewBox="0 0 994 294.0" xmlns="http://www.w3.org/2000/svg">
     <!-- Generated with Rich https://www.textualize.io -->
     <style>
 
@@ -44,7 +44,7 @@
 
     <defs>
     <clipPath id="dp-feature-partitioning-clip-terminal">
-      <rect x="0" y="0" width="975.0" height="267.4" />
+      <rect x="0" y="0" width="975.0" height="243.0" />
     </clipPath>
     <clipPath id="dp-feature-partitioning-line-0">
     <rect x="0" y="1.5" width="976" height="24.65"/>
@@ -73,12 +73,9 @@
 <clipPath id="dp-feature-partitioning-line-8">
     <rect x="0" y="196.7" width="976" height="24.65"/>
             </clipPath>
-<clipPath id="dp-feature-partitioning-line-9">
-    <rect x="0" y="221.1" width="976" height="24.65"/>
-            </clipPath>
     </defs>
 
-    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="992" height="316.4" rx="8"/><text class="dp-feature-partitioning-title" fill="#c5c8c6" text-anchor="middle" x="496" y="27">deltaplan</text>
+    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="992" height="292" rx="8"/><text class="dp-feature-partitioning-title" fill="#c5c8c6" text-anchor="middle" x="496" y="27">deltaplan</text>
             <g transform="translate(26,22)">
             <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
             <circle cx="22" cy="0" r="7" fill="#febc2e"/>
@@ -93,12 +90,11 @@
 </text><text class="dp-feature-partitioning-r6" x="24.4" y="68.8" textLength="24.4" clip-path="url(#dp-feature-partitioning-line-2)">~&#160;</text><text class="dp-feature-partitioning-r3" x="48.8" y="68.8" textLength="414.8" clip-path="url(#dp-feature-partitioning-line-2)">partitioned&#160;by&#160;(event_date)&#160;→&#160;none</text><text class="dp-feature-partitioning-r3" x="976" y="68.8" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-2)">
 </text><text class="dp-feature-partitioning-r6" x="24.4" y="93.2" textLength="24.4" clip-path="url(#dp-feature-partitioning-line-3)">~&#160;</text><text class="dp-feature-partitioning-r3" x="48.8" y="93.2" textLength="439.2" clip-path="url(#dp-feature-partitioning-line-3)">cluster_by&#160;[event_date,&#160;customer_id]</text><text class="dp-feature-partitioning-r3" x="976" y="93.2" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-3)">
 </text><text class="dp-feature-partitioning-r7" x="24.4" y="117.6" textLength="24.4" clip-path="url(#dp-feature-partitioning-line-4)">↻&#160;</text><text class="dp-feature-partitioning-r3" x="48.8" y="117.6" textLength="85.4" clip-path="url(#dp-feature-partitioning-line-4)">rewrite</text><text class="dp-feature-partitioning-r3" x="976" y="117.6" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-4)">
-</text><text class="dp-feature-partitioning-r8" x="48.8" y="142" textLength="36.6" clip-path="url(#dp-feature-partitioning-line-5)">1.&#160;</text><text class="dp-feature-partitioning-r3" x="85.4" y="142" textLength="353.8" clip-path="url(#dp-feature-partitioning-line-5)">STAGE&#160;rewritten&#160;data&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-partitioning-r7" x="439.2" y="142" textLength="109.8" clip-path="url(#dp-feature-partitioning-line-5)">[rewrite]</text><text class="dp-feature-partitioning-r8" x="549" y="142" textLength="122" clip-path="url(#dp-feature-partitioning-line-5)">&#160;&#160;(2.1&#160;TB)</text><text class="dp-feature-partitioning-r3" x="976" y="142" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-5)">
-</text><text class="dp-feature-partitioning-r8" x="0" y="166.4" textLength="866.2" clip-path="url(#dp-feature-partitioning-line-6)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;·&#160;a&#160;full&#160;copy&#160;is&#160;written&#160;alongside&#160;the&#160;table,&#160;then&#160;dropped&#160;again</text><text class="dp-feature-partitioning-r3" x="976" y="166.4" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-6)">
-</text><text class="dp-feature-partitioning-r8" x="48.8" y="190.8" textLength="36.6" clip-path="url(#dp-feature-partitioning-line-7)">2.&#160;</text><text class="dp-feature-partitioning-r3" x="85.4" y="190.8" textLength="353.8" clip-path="url(#dp-feature-partitioning-line-7)">REPLACE&#160;TABLE&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-partitioning-r7" x="439.2" y="190.8" textLength="109.8" clip-path="url(#dp-feature-partitioning-line-7)">[rewrite]</text><text class="dp-feature-partitioning-r8" x="549" y="190.8" textLength="122" clip-path="url(#dp-feature-partitioning-line-7)">&#160;&#160;(2.1&#160;TB)</text><text class="dp-feature-partitioning-r3" x="976" y="190.8" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-7)">
-</text><text class="dp-feature-partitioning-r8" x="48.8" y="215.2" textLength="36.6" clip-path="url(#dp-feature-partitioning-line-8)">3.&#160;</text><text class="dp-feature-partitioning-r3" x="85.4" y="215.2" textLength="353.8" clip-path="url(#dp-feature-partitioning-line-8)">DROP&#160;staging&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-partitioning-r8" x="439.2" y="215.2" textLength="73.2" clip-path="url(#dp-feature-partitioning-line-8)">[meta]</text><text class="dp-feature-partitioning-r3" x="976" y="215.2" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-8)">
-</text><text class="dp-feature-partitioning-r3" x="976" y="239.6" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-9)">
-</text><text class="dp-feature-partitioning-r2" x="0" y="264" textLength="829.6" clip-path="url(#dp-feature-partitioning-line-10)">Plan:&#160;0&#160;add,&#160;1&#160;change,&#160;0&#160;destroy&#160;·&#160;3&#160;steps&#160;·&#160;2&#160;rewrites&#160;·&#160;0&#160;warnings</text><text class="dp-feature-partitioning-r3" x="976" y="264" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-10)">
+</text><text class="dp-feature-partitioning-r8" x="48.8" y="142" textLength="36.6" clip-path="url(#dp-feature-partitioning-line-5)">1.&#160;</text><text class="dp-feature-partitioning-r3" x="85.4" y="142" textLength="353.8" clip-path="url(#dp-feature-partitioning-line-5)">REPLACE&#160;TABLE&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="dp-feature-partitioning-r7" x="439.2" y="142" textLength="109.8" clip-path="url(#dp-feature-partitioning-line-5)">[rewrite]</text><text class="dp-feature-partitioning-r8" x="549" y="142" textLength="122" clip-path="url(#dp-feature-partitioning-line-5)">&#160;&#160;(2.1&#160;TB)</text><text class="dp-feature-partitioning-r3" x="976" y="142" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-5)">
+</text><text class="dp-feature-partitioning-r8" x="0" y="166.4" textLength="915" clip-path="url(#dp-feature-partitioning-line-6)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;·&#160;the&#160;table&#160;is&#160;rebuilt&#160;from&#160;itself&#160;in&#160;one&#160;statement,&#160;so&#160;its&#160;data&#160;is&#160;</text><text class="dp-feature-partitioning-r3" x="976" y="166.4" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-6)">
+</text><text class="dp-feature-partitioning-r8" x="0" y="190.8" textLength="146.4" clip-path="url(#dp-feature-partitioning-line-7)">written&#160;once</text><text class="dp-feature-partitioning-r3" x="976" y="190.8" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-7)">
+</text><text class="dp-feature-partitioning-r3" x="976" y="215.2" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-8)">
+</text><text class="dp-feature-partitioning-r2" x="0" y="239.6" textLength="805.2" clip-path="url(#dp-feature-partitioning-line-9)">Plan:&#160;0&#160;add,&#160;1&#160;change,&#160;0&#160;destroy&#160;·&#160;1&#160;step&#160;·&#160;1&#160;rewrite&#160;·&#160;0&#160;warnings</text><text class="dp-feature-partitioning-r3" x="976" y="239.6" textLength="12.2" clip-path="url(#dp-feature-partitioning-line-9)">
 </text>
     </g>
     </g>

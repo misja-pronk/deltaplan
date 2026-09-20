@@ -594,31 +594,14 @@ class _Planner:
             )
             return
 
+        # Nothing is converted: the table can read itself and be replaced in one
+        # statement, which writes its data once instead of twice. A staging copy
+        # earns its second write only when a conversion could lose something —
+        # then it is checked before the table is touched.
+        direct = projection.copies_only
         select = ",\n  ".join(projection.expressions)
-        self.emit(
-            table_diff.table,
-            "STAGE rewritten data",
-            "rewrite",
-            sql=(
-                f"CREATE OR REPLACE TABLE {quote_qualified(staging)}"
-                + (
-                    # A name only column mapping allows needs it here too.
-                    "\nTBLPROPERTIES (\n  "
-                    f"{quote_literal(COLUMN_MAPPING_PROPERTY)} = 'name'\n)"
-                    if any(needs_name_mapping(n) for n in _all_names(desired))
-                    else ""
-                )
-                + f" AS\nSELECT\n  {select}\nFROM {quote_qualified(table_diff.table)}"
-            ),
-            est_bytes=facts.size_bytes,
-            postcheck=staging_postcheck(table_diff.table, staging, projection),
-            failure=(
-                "staging lost rows or values: a conversion turned something into "
-                f"NULL. {table_diff.table} is untouched; the staged copy is kept at "
-                f"{staging} to inspect. Give the column a `using:` expression"
-            ),
-            note="a full copy is written alongside the table, then dropped again",
-        )
+        if not direct:
+            self._stage(table_diff, desired, projection, staging, select)
         # A rewrite copies the columns the spec lists and nothing else, so one the
         # spec removed goes with it — which makes this step destructive, whatever
         # else it is.
@@ -642,10 +625,17 @@ class _Planner:
             "destructive" if dropped else "rewrite",
             sql=replace_table_sql(
                 replace(desired, properties=(*desired.properties, *carried_properties)),
-                source=staging,
+                source=table_diff.table if direct else staging,
+                select=projection.expressions if direct else None,
             ),
             est_bytes=facts.size_bytes,
             undo_hint=_restore_hint(facts),
+            note=(
+                "the table is rebuilt from itself in one statement, so its data is "
+                "written once"
+                if direct
+                else None
+            ),
             warnings=(
                 (f"drops {', '.join(dropped)} along with the rewrite",) if dropped else ()
             ),
@@ -676,11 +666,51 @@ class _Planner:
             )
         for column, tags in carried:
             self._emit_column_tags(table_diff.table, column, tags)
+        if not direct:
+            self.emit(
+                table_diff.table,
+                "DROP staging",
+                "meta",
+                sql=f"DROP TABLE IF EXISTS {quote_qualified(staging)}",
+            )
+
+    def _stage(
+        self,
+        table_diff: TableDiff,
+        desired: Table,
+        projection: Projection,
+        staging: str,
+        select: str,
+    ) -> None:
+        """The converted data, written beside the table and checked before it.
+
+        A conversion is the one thing a rewrite can get wrong quietly, so it
+        happens in a table of its own first: the postcheck counts what came out
+        while the original is still there to compare against.
+        """
         self.emit(
             table_diff.table,
-            "DROP staging",
-            "meta",
-            sql=f"DROP TABLE IF EXISTS {quote_qualified(staging)}",
+            "STAGE rewritten data",
+            "rewrite",
+            sql=(
+                f"CREATE OR REPLACE TABLE {quote_qualified(staging)}"
+                + (
+                    # A name only column mapping allows needs it here too.
+                    "\nTBLPROPERTIES (\n  "
+                    f"{quote_literal(COLUMN_MAPPING_PROPERTY)} = 'name'\n)"
+                    if any(needs_name_mapping(n) for n in _all_names(desired))
+                    else ""
+                )
+                + f" AS\nSELECT\n  {select}\nFROM {quote_qualified(table_diff.table)}"
+            ),
+            est_bytes=table_diff.facts.size_bytes,
+            postcheck=staging_postcheck(table_diff.table, staging, projection),
+            failure=(
+                "staging lost rows or values: a conversion turned something into "
+                f"NULL. {table_diff.table} is untouched; the staged copy is kept at "
+                f"{staging} to inspect. Give the column a `using:` expression"
+            ),
+            note="a full copy is written alongside the table, then dropped again",
         )
 
     def plan_change(self, change: Change, facts: TableFacts) -> None:
@@ -1875,10 +1905,22 @@ class Projection:
     #: (new column, live column) for every value that is *converted* rather than
     #: copied — the ones a failed conversion could quietly turn into NULL.
     conversions: tuple[tuple[str, str], ...] = ()
+    #: Columns whose value is worked out rather than copied: a conversion, or a
+    #: `using:` expression.
+    computed: tuple[str, ...] = ()
 
     @property
     def complete(self) -> bool:
         return not self.problems
+
+    @property
+    def copies_only(self) -> bool:
+        """No live value is transformed — every column is copied, or starts empty.
+
+        Such a rewrite has nothing a staging copy could catch, so it is written
+        as one statement that reads the table and replaces it.
+        """
+        return not self.computed
 
 
 def build_projection(desired: Table, live: Table) -> Projection:
@@ -1886,6 +1928,7 @@ def build_projection(desired: Table, live: Table) -> Projection:
     expressions: list[str] = []
     problems: list[str] = []
     conversions: list[tuple[str, str]] = []
+    computed: list[str] = []
     for column in desired.columns:
         source = _live_counterpart(column, live)
         expression = (
@@ -1897,9 +1940,14 @@ def build_projection(desired: Table, live: Table) -> Projection:
             problems.append(column.name)
             continue
         expressions.append(f"{expression} AS {quote_ident(column.name)}")
-        if column.using is None and source is not None and source.type != column.type:
+        if column.using is not None:
+            computed.append(column.name)
+        elif source is not None and source.type != column.type:
             conversions.append((column.name, source.name))
-    return Projection(tuple(expressions), tuple(problems), tuple(conversions))
+            computed.append(column.name)
+    return Projection(
+        tuple(expressions), tuple(problems), tuple(conversions), tuple(computed)
+    )
 
 
 def staging_postcheck(table: str, staging: str, projection: Projection) -> str:
@@ -2011,6 +2059,7 @@ def replace_table_sql(
     table: Table,
     *,
     source: str | None = None,
+    select: tuple[str, ...] | None = None,
 ) -> str:
     """`CREATE OR REPLACE TABLE`, either with an explicit schema or from a query.
 
@@ -2020,6 +2069,11 @@ def replace_table_sql(
     Verified live: after a REPLACE, `RESTORE TABLE … TO VERSION AS OF` the
     version before it brings back the old columns, types and rows.
     https://docs.databricks.com/aws/en/delta/history
+
+    `source` may be the table itself: a statement that reads a table and
+    replaces it in one go is allowed, and writes the data once (verified live,
+    2026-09-20). `select` is the projection to read it with; without one the
+    source is copied as it stands.
     """
     if source is None:
         return create_table_sql(table).replace(
@@ -2041,7 +2095,11 @@ def replace_table_sql(
         for key, value in sorted(properties.items())
     )
     clauses.append(f"TBLPROPERTIES (\n{rendered}\n)")
-    clauses.append(f"AS SELECT * FROM {quote_qualified(source)}")
+    if select is None:
+        clauses.append(f"AS SELECT * FROM {quote_qualified(source)}")
+    else:
+        clauses.append("AS SELECT\n  " + ",\n  ".join(select))
+        clauses.append(f"FROM {quote_qualified(source)}")
     return "\n".join(clauses)
 
 

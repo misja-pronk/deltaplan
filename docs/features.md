@@ -53,9 +53,9 @@ Which widenings Delta allows was checked against a live workspace.
 ## Rewrites
 
 A type change that isn't a widening means the data has to move. deltaplan stages the
-converted rows, replaces the table from them (keeping its identity and history), puts
-back what a query result can't carry, and drops the staging copy. `using:` says how to
-convert where a plain cast isn't right.
+converted rows, checks them against the original, replaces the table from them (keeping
+its identity and history), puts back what a query result can't carry, and drops the
+staging copy. `using:` says how to convert where a plain cast isn't right.
 
 ```yaml title="tables/orders.yml"
 --8<-- "assets/screens/feature-rewrite.yml"
@@ -85,7 +85,8 @@ refused with a clear reason, not a half-applied plan.
 
 The migration most older Databricks tables need: take `partitioned_by` out, put
 `cluster_by` in. Delta can't cluster a partitioned table in place, so the plan rewrites
-it, rows and all, and shows what that costs.
+it, rows and all, and shows what that costs. Nothing is converted here, so it is a
+single statement: [the data is written once](safety.md#a-rewrite-that-converts-nothing-writes-once).
 
 ```yaml title="tables/events.yml"
 --8<-- "assets/screens/feature-partitioning.yml"
