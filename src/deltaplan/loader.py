@@ -138,6 +138,9 @@ class Target:
     #: The catalogs, schemas and volumes a bundle declares: a spec may name one,
     #: and deltaplan leaves the object itself to the bundle.
     resources: tuple[BundleResource, ...] = ()
+    #: Why the bundle renames what it deploys for this target, when it does —
+    #: then only the Databricks CLI knows the names.
+    renames: str | None = None
 
     def variables_map(self) -> dict[str, str]:
         """The target's variables, and what a bundle's resources are called —
@@ -235,9 +238,15 @@ def substitute(
         if name in variables:
             return variables[name]
         if unresolved and name in unresolved:
+            advice = (
+                "install the Databricks CLI so deltaplan can ask what it deploys "
+                "under, or write the name out here"
+                if name.startswith("resources.")
+                else "set it under this target's vars in deltaplan.yml"
+            )
             raise KeyError(
-                f"variable ${{{name}}} comes from the bundle but {unresolved[name]}; "
-                "set it under this target's vars in deltaplan.yml"
+                f"variable ${{{name}}} comes from the bundle but "
+                f"{unresolved[name]}; {advice}"
             )
         known = ", ".join(sorted(variables)) or "none defined"
         raise KeyError(f"undefined variable ${{{name}}} (known: {known})")
@@ -1153,6 +1162,10 @@ def _from_bundle(entry: BundleTarget, own: Target | None) -> Target:
     if own is not None:
         variables |= own.variables_map()
     unresolved = {k: v for k, v in entry.unresolved if k not in variables}
+    for resource in entry.resources:
+        if resource.unreadable is not None:
+            for reference in resource.reference_names():
+                unresolved.setdefault(reference, resource.unreadable)
     warehouse_id = own.warehouse_id if own else None
     lookup = None
     if warehouse_id is None:
@@ -1168,6 +1181,7 @@ def _from_bundle(entry: BundleTarget, own: Target | None) -> Target:
         unresolved=tuple(sorted(unresolved.items())),
         warehouse_lookup=lookup,
         resources=entry.resources,
+        renames=entry.renames,
     )
 
 

@@ -6,6 +6,7 @@ override, which beats the variable's default.
 https://docs.databricks.com/aws/en/dev-tools/bundles/variables
 """
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -579,3 +580,111 @@ def test_a_table_in_a_deployed_schema_is_planned_as_usual() -> None:
     plan = cast("Plan", planned([orders], fake, {"dev.sales": "schema 'sales'"}))
     titles = [step.title for step in plan.steps]
     assert titles == ["CREATE TABLE orders"], "no CREATE SCHEMA: the bundle made it"
+
+
+# ---------------------------------------------------------------------------
+# what the CLI's mutators rename
+# ---------------------------------------------------------------------------
+
+RENAMING = """\
+bundle:
+  name: shop
+resources:
+  schemas:
+    sales:
+      catalog_name: main
+      name: sales
+targets:
+  dev:
+    default: true
+    mode: development
+  prefixed:
+    presets:
+      name_prefix: team_
+  plain: {}
+"""
+
+
+def test_a_target_that_renames_claims_no_names(tmp_path: Path) -> None:
+    """`mode: development` makes `sales` into `dev_jane_sales`, and a
+    `name_prefix` of `team_` into `teamsales` — seen from the CLI, and not
+    something deltaplan reimplements."""
+    dev, prefixed, plain = read_bundle(
+        write(tmp_path, "databricks.yml", RENAMING)
+    ).targets
+    assert dev.renames is not None and "mode is development" in dev.renames
+    assert prefixed.renames is not None and "'team_'" in prefixed.renames
+    assert plain.renames is None
+
+    [sales] = [r for r in dev.resources if r.key == "sales"]
+    assert sales.full_name is None
+    assert "mode is development" in (sales.unreadable or "")
+    # A target that renames nothing is read here, as before.
+    assert [r.full_name for r in plain.resources] == ["main.sales"]
+
+
+def test_a_spec_says_why_a_renamed_name_is_unknown(tmp_path: Path) -> None:
+    write(tmp_path, "databricks.yml", RENAMING)
+    write(
+        tmp_path, "deltaplan.yml", "version: 1\nspecs: [tables]\nbundle: databricks.yml\n"
+    )
+    write(
+        tmp_path,
+        "tables/orders.yml",
+        "table: main.${resources.schemas.sales.name}.orders\n"
+        "columns:\n  - {name: id, type: bigint}\n",
+    )
+    project = load_project(tmp_path / "deltaplan.yml")
+    with pytest.raises(SpecError, match="install the Databricks CLI"):
+        load_specs(project, project.target("dev"))
+
+
+def stub_cli(directory: Path, output: str, *, code: int = 0) -> str:
+    """A `databricks` that answers `bundle validate -o json`, and the PATH to
+    find it on — in front of the real one, whose shell the stub itself needs."""
+    binary = directory / "bin" / "databricks"
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    binary.write_text(f"#!/bin/bash\ncat <<'JSON'\n{output}\nJSON\nexit {code}\n")
+    binary.chmod(0o755)
+    return f"{binary.parent}:{os.environ['PATH']}"
+
+
+def test_the_cli_is_asked_what_a_renaming_target_deploys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from deltaplan.bundle import effective_resources
+
+    path = write(tmp_path, "databricks.yml", RENAMING)
+    answer = """{"resources": {"schemas": {"sales": {"catalog_name": "main",
+      "name": "dev_jane_sales"}}, "volumes": {"landing": {"catalog_name": "main",
+      "schema_name": "${resources.schemas.sales.name}", "name": "landing"}}}}"""
+    monkeypatch.setenv("PATH", stub_cli(tmp_path, answer))
+    resources = effective_resources(path, "dev")
+    assert resources is not None
+    names = {r.key: r.full_name for r in resources}
+    # The CLI leaves references between resources to the deploy; deltaplan
+    # resolves them from the names the CLI did settle.
+    assert names == {
+        "sales": "main.dev_jane_sales",
+        "landing": "main.dev_jane_sales.landing",
+    }
+
+
+def test_without_the_cli_nothing_is_claimed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from deltaplan.bundle import effective_resources
+
+    path = write(tmp_path, "databricks.yml", RENAMING)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert effective_resources(path, "dev") is None
+
+
+def test_a_cli_that_fails_is_not_an_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from deltaplan.bundle import effective_resources
+
+    path = write(tmp_path, "databricks.yml", RENAMING)
+    monkeypatch.setenv("PATH", stub_cli(tmp_path, "boom", code=1))
+    assert effective_resources(path, "dev") is None

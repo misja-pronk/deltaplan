@@ -10,6 +10,15 @@ as context, never as deltaplan's work: a spec can name one with the bundle's own
 spelling (`${resources.schemas.sales.name}`), and deltaplan leaves the object
 itself to the bundle, which owns it.
 
+What a bundle says isn't always what it deploys: the Databricks CLI runs
+mutators over the configuration first. A target in `mode: development`, or one
+with `presets.name_prefix`, renames what it makes — a schema `sales` becomes
+`dev_jane_sales`, and a prefix `team_` makes it `teamsales` (both seen from the
+CLI, 2026-09-20). deltaplan doesn't reimplement that: when a target renames
+anything, it asks the CLI for the effective configuration
+(`databricks bundle validate -o json`), and without the CLI it says the name is
+unknown rather than guessing.
+
 The bundle is someone else's format, so it is read leniently: only what
 deltaplan uses is looked at, and nothing else is validated.
 
@@ -26,7 +35,10 @@ https://docs.databricks.com/aws/en/dev-tools/bundles/settings
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,6 +74,8 @@ class BundleTarget:
     warehouse_lookup: str | None = None
     #: The catalogs, schemas and volumes the bundle declares for this target.
     resources: tuple[BundleResource, ...] = ()
+    #: Why this target's resources are renamed by the CLI, when they are.
+    renames: str | None = None
 
 
 #: The Unity Catalog resources deltaplan reads, and the parts each name is
@@ -99,6 +113,13 @@ class BundleResource:
             for field, value in self.values
         }
 
+    def reference_names(self) -> tuple[str, ...]:
+        """Every name a spec could write for it, readable or not."""
+        return tuple(
+            f"resources.{self.kind}.{self.key}.{field}"
+            for field in RESOURCE_PARTS[self.kind]
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Bundle:
@@ -121,6 +142,62 @@ class Bundle:
         return None
 
 
+def effective_resources(
+    path: Path,
+    target: str,
+    *,
+    profile: str | None = None,
+    executable: str = "databricks",
+) -> tuple[BundleResource, ...] | None:
+    """What the Databricks CLI says the bundle's objects are called.
+
+    `databricks bundle validate -o json` is the configuration with every mutator
+    applied — the names a deploy would use. None when the CLI isn't there or
+    can't answer (a development target needs a workspace to know whose name to
+    put in front), and then the caller keeps the reason instead of a wrong name.
+    https://docs.databricks.com/aws/en/dev-tools/cli/bundle-commands
+    """
+    found = shutil.which(executable)
+    if found is None:
+        return None
+    command = [found, "bundle", "validate", "-o", "json", "-t", target]
+    if profile:
+        command += ["-p", profile]
+    try:
+        result = subprocess.run(  # noqa: S603 - the CLI, found on PATH
+            command,
+            cwd=path.parent,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        document = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(document, dict):
+        return None
+    # The CLI resolves ${var.…} and the presets; references between resources it
+    # leaves to the deploy, so they are resolved here from its own answers.
+    return _from_mapping(_mapping(document.get("resources"), "resources"))
+
+
+def _from_mapping(resources: Mapping[str, object]) -> tuple[BundleResource, ...]:
+    found: list[BundleResource] = []
+    known: dict[str, str] = {}
+    for kind in RESOURCE_PARTS:
+        for key, body in _mapping(resources.get(kind), kind).items():
+            resource = _resource(kind, str(key), _mapping(body, kind), {}, known)
+            known.update(resource.references())
+            found.append(resource)
+    return tuple(found)
+
+
 def find_bundle(directory: Path) -> Path | None:
     """The bundle file in a directory, if there is one."""
     for name in BUNDLE_FILES:
@@ -141,6 +218,7 @@ def read_bundle(path: Path, environ: Mapping[str, str] | None = None) -> Bundle:
     declared = _mapping(document.get("variables"), "variables")
     top_workspace = _mapping(document.get("workspace"), "workspace")
     top_resources = _mapping(document.get("resources"), "resources")
+    top_presets = _mapping(document.get("presets"), "presets")
     targets = _mapping(document.get("targets"), "targets")
     if not targets:
         raise BundleError(f"{path} has no targets")
@@ -155,6 +233,7 @@ def read_bundle(path: Path, environ: Mapping[str, str] | None = None) -> Bundle:
                 declared,
                 top_workspace,
                 top_resources,
+                top_presets,
                 bundle_name=name if isinstance(name, str) else "",
                 environ=environ or {},
             )
@@ -190,6 +269,7 @@ def _target(
     declared: Mapping[str, object],
     top_workspace: Mapping[str, object],
     top_resources: Mapping[str, object],
+    top_presets: Mapping[str, object],
     *,
     bundle_name: str,
     environ: Mapping[str, str],
@@ -221,6 +301,7 @@ def _target(
         resolved_host = _substitute(host, variables, context)
         host = resolved_host if isinstance(resolved_host, str) else None
 
+    renames = _renames(body, top_presets)
     lookup = raw.get(WAREHOUSE_VARIABLE)
     warehouse = lookup.spec.get("warehouse") if isinstance(lookup, _Lookup) else None
 
@@ -232,13 +313,31 @@ def _target(
         profile=profile if isinstance(profile, str) else None,
         host=host if isinstance(host, str) else None,
         warehouse_lookup=warehouse if isinstance(warehouse, str) else None,
+        renames=renames,
         resources=_resources(
             top_resources,
             _mapping(body.get("resources"), f"resources of target {name!r}"),
             variables,
             context,
+            renames,
         ),
     )
+
+
+def _renames(body: Mapping[str, object], top_presets: Mapping[str, object]) -> str | None:
+    """Why this target's resources come out under other names, if they do.
+
+    `mode: development` and `presets.name_prefix` both rename what the bundle
+    deploys, in ways only the Databricks CLI knows exactly — it made `sales`
+    into `dev_jane_sales` under one and `teamsales` under the other.
+    """
+    presets = {**top_presets, **_mapping(body.get("presets"), "presets")}
+    if body.get("mode") == "development":
+        return "its mode is development, which renames what the bundle deploys"
+    prefix = presets.get("name_prefix")
+    if isinstance(prefix, str) and prefix:
+        return f"its presets put {prefix!r} in front of what the bundle deploys"
+    return None
 
 
 def _resources(
@@ -246,6 +345,7 @@ def _resources(
     own: Mapping[str, object],
     variables: Mapping[str, str],
     context: Mapping[str, str],
+    renames: str | None = None,
 ) -> tuple[BundleResource, ...]:
     """The catalogs, schemas and volumes a target ends up with.
 
@@ -268,6 +368,12 @@ def _resources(
             if entry_kind != kind:
                 continue
             resource = _resource(kind, key, body, variables, known)
+            if renames is not None:
+                # The name here isn't the name it deploys under; only the CLI
+                # knows that, so nothing is claimed until it is asked.
+                resource = BundleResource(
+                    kind, key, unreadable=f"{kind}.{key}: {renames}"
+                )
             known.update(resource.references())
             found.append(resource)
     return tuple(found)

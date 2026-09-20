@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A bundle's names are what it deploys, not what it says.** A target in
+  `mode: development` or with `presets.name_prefix` is renamed by the
+  Databricks CLI first — `sales` becomes `dev_jane_sales`, and a `team_`
+  prefix makes it `teamsales`. deltaplan asks the CLI
+  (`databricks bundle validate -o json`) for such a target instead of reading
+  the file, and without the CLI it says the name is unknown, with the reason,
+  rather than using the wrong one.
+
 ## [0.1.0a8] - 2026-09-20
 
 deltaplan reads the context an Asset Bundle already holds, and leaves what the
