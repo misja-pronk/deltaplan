@@ -129,11 +129,25 @@ count: 523, limit: 500)"* — usually isn't. Unity Catalog
 and catches up with deletions later, so a day of live runs leaves the count far above
 what is really there.
 
-The suite handles it: before anything runs it drops `deltaplan_it_*` schemas older than
-half an hour (what a cancelled CI run leaves behind), then reads the quota, which is what
-asks Unity Catalog to recount. If the count is still at the limit it skips the suite
-rather than failing every test in it — the recount lands within about half an hour, and
-the next run goes through.
+Two things keep it from happening, and one says so when it does:
+
+- **A test schema keeps nothing it drops.** `ALTER SCHEMA … SET RETAIN DROPPED TO 0
+  HOURS` turns off the seven-day
+  [recovery period](https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-undrop-table),
+  because a dropped table still counts against the quota for as long as `UNDROP` could
+  bring it back. Without this, a suite that makes a hundred tables a run fills a
+  500-table metastore in a couple of days while holding almost nothing.
+- **Schemas a cancelled run left behind are swept.** A new push cancels a running suite
+  mid-test, and its `deltaplan_it_*` schema is never dropped; anything older than half an
+  hour goes.
+- **Then the quota is read**, which is what asks Unity Catalog to recount it. If it is
+  still at the limit the suite skips rather than failing every test in it — with one
+  line saying why.
+
+If the count stays above what the catalogs really hold, it is dropped tables still inside
+their recovery period, from before the setting above. They age out; a metastore that
+needs to run this suite often is worth asking your Databricks account team to raise the
+table quota on.
 
 ## The docs' pictures
 

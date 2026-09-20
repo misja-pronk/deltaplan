@@ -139,10 +139,24 @@ def recount(runner: WarehouseRunner, *, wait_seconds: float = 30) -> str | None:
 
 @pytest.fixture
 def schema(runner: WarehouseRunner, catalog: str) -> Iterator[str]:
-    """An empty schema, dropped with everything in it when the test finishes."""
+    """An empty schema, dropped with everything in it when the test finishes.
+
+    Dropped is not gone: a dropped table stays recoverable with `UNDROP` for
+    seven days by default, and it still counts against the metastore's table
+    quota while it does — which is how a metastore holding 191 tables comes to
+    refuse the 501st. A test's tables are worth nothing a second after it ends,
+    so this schema keeps none of them.
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-undrop-table
+    """
     name = f"deltaplan_it_{uuid.uuid4().hex[:8]}"
     full = f"{catalog}.{name}"
     runner.query(f"CREATE SCHEMA {quote_qualified(full)}")
+    try:
+        runner.query(
+            f"ALTER SCHEMA {quote_qualified(full)} SET RETAIN DROPPED TO 0 HOURS"
+        )
+    except Exception as error:  # noqa: BLE001 - older workspaces may not have it
+        print(f"could not turn off the recovery period for {full}: {error}")
     try:
         yield full
     finally:
