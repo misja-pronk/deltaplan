@@ -139,9 +139,6 @@ class Target:
     #: The catalogs, schemas and volumes a bundle declares: a spec may name one,
     #: and deltaplan leaves the object itself to the bundle.
     resources: tuple[BundleResource, ...] = ()
-    #: Why the bundle renames what it deploys for this target, when it does —
-    #: then only the Databricks CLI knows the names.
-    renames: str | None = None
 
     def variables_map(self) -> dict[str, str]:
         """The target's variables, and what a bundle's resources are called —
@@ -1213,7 +1210,6 @@ def _from_bundle(entry: BundleTarget, own: Target | None) -> Target:
         unresolved=tuple(sorted(unresolved.items())),
         warehouse_lookup=lookup,
         resources=entry.resources,
-        renames=entry.renames,
     )
 
 
