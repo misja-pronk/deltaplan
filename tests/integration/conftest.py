@@ -13,6 +13,7 @@ Also set DATABRICKS_WAREHOUSE_ID, and optionally DELTAPLAN_TEST_CATALOG (default
 from __future__ import annotations
 
 import os
+import time
 import uuid
 from collections.abc import Iterator
 
@@ -82,6 +83,47 @@ def sweep(runner: WarehouseRunner, catalog: str) -> None:
             runner.query(f"DROP SCHEMA {quote_qualified(f'{catalog}.{name}')} CASCADE")
         except Exception as error:  # noqa: BLE001
             print(f"  could not drop it: {error}")
+    recount(runner)
+
+
+def recount(runner: WarehouseRunner, *, wait_seconds: float = 90) -> None:
+    """Ask Unity Catalog to count the metastore's tables again.
+
+    The quota count only goes up by itself: "Unity Catalog updates the quota
+    count only during resource creation. The count might be out of date if only
+    delete operations have been performed." A suite that creates and drops
+    hundreds of tables in a day therefore meets QUOTA_EXCEEDED on a metastore
+    that is nearly empty — 523 of 500, with ninety tables actually there.
+
+    Reading the quota is what triggers a refresh, and the refresh is
+    asynchronous ("new counts might not be returned in the first call"), so it
+    is read until the number settles or the wait runs out. Never fatal: if the
+    count really is at the limit, the test that needs a table says so.
+    https://docs.databricks.com/aws/en/data-governance/unity-catalog/resource-quotas
+    """
+    try:
+        metastore = runner.client.metastores.current().metastore_id
+        if metastore is None:
+            return
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            quota = runner.client.resource_quotas.get_quota(
+                parent_securable_type="metastore",
+                parent_full_name=metastore,
+                quota_name="table-quota",
+            ).quota_info
+            if quota is None:
+                return
+            count, limit = quota.quota_count, quota.quota_limit
+            print(f"the metastore counts {count} tables of {limit}")
+            if count is None or limit is None or count < limit:
+                return
+            if time.monotonic() > deadline:
+                print("  still at the limit; the tests will say what that costs")
+                return
+            time.sleep(10)
+    except Exception as error:  # noqa: BLE001 - a recount must never fail the suite
+        print(f"could not ask for a recount: {error}")
 
 
 @pytest.fixture
