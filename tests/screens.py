@@ -982,6 +982,63 @@ def start(studio: Studio) -> None:
     studio.shoot("start-change", "deltaplan apply", answer="y")
 
 
+#: Named the way the bundle names it, so it is written in one place only.
+BUNDLE_ORDERS = """\
+table: ${resources.schemas.sales.catalog_name}.${resources.schemas.sales.name}.orders
+comment: Order facts
+columns:
+  - {name: order_id, type: bigint, nullable: false}
+  - {name: amount, type: "decimal(18,2)"}
+"""
+
+
+@scene
+def bundle(studio: Studio) -> None:
+    """A project whose targets, variables and schema come from a bundle."""
+    studio.write(
+        "databricks.yml",
+        """\
+        bundle:
+          name: shop
+
+        variables:
+          catalog:
+            default: dev
+
+        resources:
+          schemas:
+            sales:
+              catalog_name: ${var.catalog}
+              name: sales
+              comment: Sales data
+
+        targets:
+          dev:
+            default: true
+          prod:
+            variables:
+              catalog: prod
+    """,
+    )
+    studio.write(
+        "deltaplan.yml",
+        """\
+        version: 1
+        specs: [tables]
+        bundle: databricks.yml
+        history_schema: ${catalog}.deltaplan
+    """,
+    )
+    studio.write("tables/orders.yml", BUNDLE_ORDERS)
+    studio.quote("databricks.yml", "bundle-databricks.yml")
+    studio.quote("deltaplan.yml", "bundle-project.yml")
+    studio.quote("tables/orders.yml", "bundle-orders.yml")
+    # Before the bundle has deployed its schema, and after.
+    studio.shoot("bundle-undeployed", "deltaplan plan")
+    studio.fake.schemas.add("dev.sales")
+    studio.shoot("bundle-plan", "deltaplan plan")
+
+
 @scene
 def feature_import(studio: Studio) -> None:
     from deltaplan.model.table import Grant

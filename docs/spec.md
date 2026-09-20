@@ -72,91 +72,17 @@ Without `-t`, a command uses the only target, or the one marked `default: true`.
 ### Next to an Asset Bundle
 
 A project that already has a [Databricks Asset Bundle](https://docs.databricks.com/aws/en/dev-tools/bundles/)
-doesn't need to list its targets twice. Name the bundle, and its targets become
-deltaplan's:
+doesn't repeat what it says. Name the bundle, and its targets, workspaces, variables and
+the Unity Catalog objects it declares become deltaplan's context:
 
 ```yaml
 specs: [tables]
 bundle: databricks.yml                 # relative to this file
-
-targets:                               # optional: only what a bundle has no word for
-  prod:
-    mode: strict
-    warehouse_id: abc123def456
 ```
 
-From the bundle deltaplan takes each target's name, the `default: true` one, its
-`workspace` (`profile`, or `host`), and the bundle's variables as that target resolves
-them: defaults, the target's overrides, `BUNDLE_VAR_<name>` from the environment, and
-references to `${var.…}`, `${bundle.target}` and `${bundle.name}`. Files listed under
-`include:` are read too.
-
-- **Specs can spell a variable either way**: `${catalog}` or the bundle's
-  `${var.catalog}`.
-- **deltaplan.yml has the last word.** Its targets add `mode` and `warehouse_id`, and
-  their `vars` and `profile` override the bundle's. A target there that the bundle
-  doesn't have is an error — it's almost certainly a typo.
-- **The warehouse** is the target's `warehouse_id`, else the bundle's `warehouse_id`
-  variable. If that variable is a lookup (`lookup: {warehouse: "Starter Warehouse"}`,
-  as the `default-sql` template writes it), deltaplan finds the warehouse by name once
-  connected.
-- **Some variables need a workspace**: other lookups, complex variables, and anything
-  using `${workspace.current_user.short_name}`. deltaplan doesn't guess them. A spec
-  that uses one fails and says why; give the value under the target's `vars` instead.
-- A bundle's own `mode: development | production` is about jobs and pipelines and has
-  nothing to do with deltaplan's `additive | strict`, so it's ignored.
-
-#### The catalogs, schemas and volumes a bundle declares
-
-Teams often keep the schema itself in the bundle:
-
-```yaml title="databricks.yml"
-resources:
-  schemas:
-    sales:
-      catalog_name: ${var.catalog}
-      name: sales
-      comment: Sales data
-```
-
-deltaplan reads those — `catalogs`, `schemas` and `volumes`, from the bundle and from
-the files it includes, resolved with each target's variables — and treats them as the
-bundle's:
-
-- **A spec can name one**, in the bundle's own spelling, so the name lives in one place:
-
-    ```yaml
-    table: ${resources.schemas.sales.catalog_name}.${resources.schemas.sales.name}.orders
-    ```
-
-- **deltaplan doesn't create or manage them.** Two tools creating the same schema is how
-  a `databricks bundle deploy` ends up meeting an object it didn't make. A deltaplan
-  spec for one is an error naming the bundle, and `import` writes no spec for it.
-- **A table whose schema the bundle hasn't deployed yet** stops the plan with
-  "run `databricks bundle deploy` first" rather than creating the schema itself.
-- A name deltaplan can't resolve offline — one that needs the workspace — leaves that
-  resource alone; the bundle still owns it.
-
-#### When the bundle renames what it deploys
-
-A target in `mode: development`, or one with `presets.name_prefix`, doesn't deploy the
-names that are in the file. The Databricks CLI rewrites them first, and not in a way
-worth guessing at: a schema `sales` becomes `dev_jane_sales` under development mode, and
-a prefix of `team_` makes it `teamsales` — the underscore is dropped. Schemas are
-renamed; catalogs and volumes aren't.
-
-So deltaplan doesn't reimplement it. For a target that renames anything, it asks the CLI
-for the configuration as deployed:
-
-```sh
-databricks bundle validate -o json -t dev
-```
-
-and uses the names that come back, resolving the `${resources.…}` references the CLI
-leaves to the deploy. That needs the [Databricks CLI](https://docs.databricks.com/aws/en/dev-tools/cli/)
-on your `PATH`, and a development target needs it to be logged in — it has to know whose
-name goes in front. Without it, those names stay *unknown*: a spec that uses one says why
-instead of planning against the wrong schema.
+**[With an Asset Bundle](bundles.md)** has the whole story: what is taken from where,
+how a spec names a schema the bundle declares, what deltaplan won't touch, and what
+development mode renames.
 
 ## Variables
 
