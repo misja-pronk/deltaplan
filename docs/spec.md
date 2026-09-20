@@ -137,6 +137,27 @@ bundle's:
 - A name deltaplan can't resolve offline — one that needs the workspace — leaves that
   resource alone; the bundle still owns it.
 
+#### When the bundle renames what it deploys
+
+A target in `mode: development`, or one with `presets.name_prefix`, doesn't deploy the
+names that are in the file. The Databricks CLI rewrites them first, and not in a way
+worth guessing at: a schema `sales` becomes `dev_jane_sales` under development mode, and
+a prefix of `team_` makes it `teamsales` — the underscore is dropped. Schemas are
+renamed; catalogs and volumes aren't.
+
+So deltaplan doesn't reimplement it. For a target that renames anything, it asks the CLI
+for the configuration as deployed:
+
+```sh
+databricks bundle validate -o json -t dev
+```
+
+and uses the names that come back, resolving the `${resources.…}` references the CLI
+leaves to the deploy. That needs the [Databricks CLI](https://docs.databricks.com/aws/en/dev-tools/cli/)
+on your `PATH`, and a development target needs it to be logged in — it has to know whose
+name goes in front. Without it, those names stay *unknown*: a spec that uses one says why
+instead of planning against the wrong schema.
+
 ## Variables
 
 `${catalog}` and friends come from the target's `vars`, so one spec serves dev, staging
