@@ -20,10 +20,10 @@ workspace, ~40 minutes — runs on every pull request that touches code, and nig
 it isn't required, so read it before merging anything that changes the SQL deltaplan
 sends. Its credentials are GitHub environment secrets in `databricks-test`.
 
-A release is a tag: bump `version` in `pyproject.toml` and move the CHANGELOG's
-`[Unreleased]` notes under it in a PR, then push `vX.Y.Z`. **The owner tags releases
-themselves** — prepare the bump PR and give them the command. CONTRIBUTING.md has the
-details.
+A release is a version: bump `version` in `pyproject.toml` and move the CHANGELOG's
+`[Unreleased]` notes under it in a PR. Merging that PR is the release — `release.yml`
+watches `pyproject.toml` on `main`, publishes to PyPI and makes the tag. Ask before
+merging a bump PR; it ships. CONTRIBUTING.md has the details.
 
 ## Layout
 

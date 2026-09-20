@@ -113,34 +113,32 @@ documentation in its docstring. There is a fuller description in
 
 ## Releasing
 
-A release is a tag. The version in `pyproject.toml` says what it is; pushing the matching
-tag ships it.
+A release is a version. `pyproject.toml` says what it is, and merging the bump is what
+ships it.
 
-1. In a pull request, bump the version and move the changelog notes under it:
+In a pull request, bump the version and move the changelog notes under it:
 
-   ```sh
-   uv version 0.1.0a7          # or: uv version --bump patch / minor / major
-   ```
+```sh
+uv version 0.1.0a7          # or: uv version --bump patch / minor / major
+```
 
-   In `CHANGELOG.md`, rename `## [Unreleased]` to `## [0.1.0a7] - <date>` and start a
-   fresh, empty `## [Unreleased]` above it. Merge it once `ci` passes.
+In `CHANGELOG.md`, rename `## [Unreleased]` to `## [0.1.0a7] - <date>` and start a fresh,
+empty `## [Unreleased]` above it. Merge it once `ci` passes — that is the whole release.
 
-2. Tag the merged commit on `main` and push the tag:
+The [`release`](.github/workflows/release.yml) workflow watches `pyproject.toml` on
+`main`. When it finds a version that isn't tagged and isn't on PyPI, it runs the gate on
+that commit, publishes to **PyPI** (Trusted Publishing — no API token), and creates the
+GitHub release with the changelog's notes, which is what makes the `v0.1.0a7` tag. A
+version with `a`, `b` or `rc` is marked a pre-release. The Action's `v0` tag moves to
+every 0.x release, so `uses: misja-pronk/deltaplan@v0` follows the newest.
 
-   ```sh
-   git switch main && git pull
-   git tag v0.1.0a7
-   git push origin v0.1.0a7
-   ```
+Nothing else triggers it, so a `pyproject.toml` change that isn't a bump — a dependency,
+a ruff rule — costs one run that says "nothing to release" and stops. A bump without
+changelog notes under that version fails instead of publishing something unexplained.
 
-The [`release`](.github/workflows/release.yml) workflow checks that the tag matches the
-version and sits on `main`, runs the gate once more on that commit, publishes to **PyPI**
-(Trusted Publishing — no API token), and creates the GitHub release with the changelog's
-notes. A version with `a`, `b` or `rc` is marked a pre-release. The GitHub Action's `v0`
-tag moves to every 0.x release, so `uses: misja-pronk/deltaplan@v0` follows the newest.
-
-If the tag doesn't match the version, nothing is published: delete the tag
-(`git push origin :refs/tags/v0.1.0a7`), fix, and tag again.
+If a release fails halfway, fix what broke and run the workflow again from the Actions
+tab: whatever already landed (the PyPI file, the tag) makes it stop rather than repeat
+itself.
 
 ## Previewing the docs
 
