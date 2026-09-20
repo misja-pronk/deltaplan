@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0a9] - 2026-09-20
+
+A bundle resolves the way a deploy does, and rebuilding a table costs one pass
+over its data instead of two.
+
 ### Changed
 
 - **A bundle is resolved by the Databricks CLI, not by deltaplan.** For any
