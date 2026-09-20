@@ -91,12 +91,15 @@ rather than one statement per change:
    table keeps its identity and its Delta history, which is what makes the recorded
    restore point worth having, and the swap is a single statement, so readers never see
    an empty table.
-3. A query result carries names, types and an order and nothing else, so what it can't
-   carry — `NOT NULL`, comments, tags, constraints, grants — is put back with ordinary
-   `ALTER`s. That includes what the spec *doesn't* declare: properties someone else set
-   (a retention setting, say), their tags, their constraints and their grants are all
-   carried across exactly as they were. Rebuilding a table never diffs away what
-   deltaplan doesn't manage.
+3. What the replace loses is put back with ordinary `ALTER`s: `NOT NULL`, the
+   constraints, and the comment of any column whose values were converted. A replace
+   keeps the table's tags, its grants and its owner, and each column's tags under the
+   same name (all verified against a live workspace), so the plan doesn't pretend to
+   set them again — but a *renamed* column's tags stay behind on the old name, and
+   those it does put back. That includes what the spec doesn't declare: properties
+   someone else set (a retention setting, say), their tags, their constraints and their
+   grants all survive. Rebuilding a table never diffs away what deltaplan doesn't
+   manage.
 4. The staging table is dropped.
 
 deltaplan writes the conversion itself where it honestly can: a cast between scalars, a

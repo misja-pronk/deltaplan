@@ -198,3 +198,74 @@ def test_constraints_nobody_declared_survive_a_rewrite() -> None:
     after = fake.tables[NAME]
     assert after.primary_key() == PrimaryKey(("id",), "orders_pk")
     assert after.checks() == (Check("positive", "id > 0"),)
+
+
+def test_tags_grants_and_an_owner_survive_a_rewrite_without_a_step() -> None:
+    """A replace keeps them (verified live), so the plan doesn't say it will put
+    them back — but they have to still be there afterwards."""
+    from dataclasses import replace as replace_fields
+
+    from deltaplan.model.table import Grant
+    from deltaplan.model.types import Field, Primitive
+    from helpers import run
+
+    live = replace_fields(
+        table(
+            col("id", "bigint"),
+            Field("amount", Primitive("string"), tags=(("pii", "no"),)),
+            name=NAME,
+            properties=MANAGED,
+            tags=(("domain", "sales"), ("unmanaged", "yes")),
+            grants=(Grant("analysts", ("SELECT",)), Grant("finance", ("MODIFY",))),
+        ),
+        owner="data-eng",
+    )
+    desired = table(
+        col("id", "bigint"),
+        Field("amount", Primitive("bigint"), tags=(("pii", "no"),)),
+        name=NAME,
+        tags=(("domain", "sales"),),
+        grants=(Grant("analysts", ("SELECT",)),),
+    )
+    fake, plan = plan_against(desired, live)
+    titles = [step.title for step in plan.steps]
+    assert "SET TAGS" not in titles
+    assert "SET COLUMN TAGS" not in titles
+    assert not any(title.startswith("GRANT") for title in titles)
+    assert "SET OWNER" not in titles
+
+    run(plan, fake)
+    after = fake.tables[NAME]
+    assert dict(after.tags) == {"domain": "sales", "unmanaged": "yes"}
+    assert dict(after.columns[1].tags) == {"pii": "no"}
+    assert {g.principal for g in after.grants} == {"analysts", "finance"}
+    assert after.owner == "data-eng"
+
+
+def test_a_renamed_column_gets_its_tags_back() -> None:
+    """They stay behind on the old name, so these the plan does put back."""
+    from deltaplan.model.types import Field, Primitive
+    from helpers import run
+
+    live = table(
+        col("id", "bigint"),
+        Field("old_name", Primitive("string"), tags=(("pii", "name"), ("team", "crm"))),
+        name=NAME,
+        properties=MANAGED,
+    )
+    desired = table(
+        col("id", "string"),  # forces the rewrite
+        Field(
+            "new_name",
+            Primitive("string"),
+            tags=(("pii", "name"),),
+            renamed_from="old_name",
+        ),
+        name=NAME,
+    )
+    fake, plan = plan_against(desired, live)
+    assert [s.title for s in plan.steps].count("SET COLUMN TAGS") == 2, "declared + not"
+
+    run(plan, fake)
+    after = fake.tables[NAME]
+    assert dict(after.columns[1].tags) == {"pii": "name", "team": "crm"}

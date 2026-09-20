@@ -650,16 +650,14 @@ class _Planner:
                 (f"drops {', '.join(dropped)} along with the rewrite",) if dropped else ()
             ),
         )
-        # A query result has names, types and an order and nothing else, so the
-        # rest of the shape is put back with ordinary ALTERs — worked out by the
-        # differ rather than by a second hand-rolled list.
-        finishing = compute_changes(desired, ctas_result(desired))
-        # REPLACE keeps the table's tags and grants, and a column's tags while
-        # it keeps its name (verified live). The ones the spec doesn't declare
-        # are put back all the same: it costs a statement, and it covers a column
-        # renamed by the same rewrite — a rewrite must not diff away what
-        # deltaplan doesn't manage.
-        carried = _unmanaged_tags(desired, live)
+        # What the replace leaves behind, diffed against the spec: that is how
+        # the planner works out the ordinary ALTERs that finish the job —
+        # reusing the differ rather than hand-rolling a second list of them.
+        finishing = compute_changes(desired, replace_result(desired, live, projection))
+        # A renamed column's tags stay behind on the old name, so the ones the
+        # spec doesn't declare are put back by hand — a rewrite must not diff
+        # away what deltaplan doesn't manage.
+        carried = _tags_left_behind(desired, live)
         for change in finishing:
             self.plan_change(change, facts)
         # Constraints the spec doesn't declare are put back too: a query result
@@ -676,23 +674,8 @@ class _Planner:
             self._add_constraint(
                 Change(table_diff.table, "add_constraint", after=live_key)
             )
-        # The same goes for access. Declared grants come back through the diff
-        # above; grants to principals the spec doesn't name are put back here.
-        declared = desired.grants_map()
-        for grant in live.grants:
-            if grant.principal not in declared:
-                self._emit_grant(table_diff.table, grant.principal, grant.privileges)
         for column, tags in carried:
-            if column:
-                self._emit_column_tags(table_diff.table, column, tags)
-            else:
-                self.emit(
-                    table_diff.table,
-                    "SET TAGS",
-                    "meta",
-                    sql=set_tags_sql(table_diff.table, tags),
-                    note="put back after the rewrite, as the table had them",
-                )
+            self._emit_column_tags(table_diff.table, column, tags)
         self.emit(
             table_diff.table,
             "DROP staging",
@@ -2062,42 +2045,59 @@ def replace_table_sql(
     return "\n".join(clauses)
 
 
-def _unmanaged_tags(
+def _tags_left_behind(
     desired: Table, live: Table
 ) -> list[tuple[str, tuple[tuple[str, str], ...]]]:
-    """Live tags the spec doesn't declare, as (column or "", tags) pairs."""
+    """Tags a rename leaves on the old column, which the spec doesn't declare.
+
+    A replace keeps a column's tags under the same name (verified live), so only
+    a renamed column loses them — and only the ones the spec doesn't name, since
+    the rest come back through the diff.
+    """
     carried: list[tuple[str, tuple[tuple[str, str], ...]]] = []
-    declared_table = desired.tags_map()
-    table_tags = tuple((k, v) for k, v in live.tags if k not in declared_table)
-    if table_tags:
-        carried.append(("", table_tags))
-    for live_column in live.columns:
-        column = desired.column(live_column.name) or next(
-            (c for c in desired.columns if c.renamed_from == live_column.name), None
-        )
-        if column is None:
-            continue  # the column is going; its tags go with it
+    for column in desired.columns:
+        if column.renamed_from is None:
+            continue
+        was = live.column(column.renamed_from)
+        if was is None:
+            continue
         declared = dict(column.tags)
-        extra = tuple((k, v) for k, v in live_column.tags if k not in declared)
+        extra = tuple((k, v) for k, v in was.tags if k not in declared)
         if extra:
             carried.append((column.name, extra))
     return carried
 
 
-def ctas_result(desired: Table) -> Table:
+def replace_result(desired: Table, live: Table, projection: Projection) -> Table:
     """What `CREATE OR REPLACE TABLE … AS SELECT` leaves behind.
 
-    A query result has names, types and an order; it has no nullability,
-    comments, tags or constraints. Diffing this against the desired table is how
-    the planner works out which ordinary `ALTER`s finish the job — reusing the
-    differ rather than hand-rolling a second list of them.
+    Verified live (2026-09-20): the table keeps its tags, its grants and its
+    owner, and a column keeps its tags and its comment when it is copied across
+    under the same name — a converted or renamed one doesn't. Gone either way:
+    nullability and constraints. Diffing this against the spec is what makes the
+    planner put back what the replace really loses, and nothing else.
     """
+    converted = {new for new, _ in projection.conversions}
+
+    def as_replaced(column: Field) -> Field:
+        was = live.column(column.name)
+        copied = was is not None and column.name not in converted
+        return Field(
+            column.name,
+            _bare(column.type),
+            comment=was.comment if copied and was else None,
+            tags=was.tags if was is not None else (),
+        )
+
     return Table(
         name=desired.name,
-        columns=tuple(Field(c.name, _bare(c.type)) for c in desired.columns),
+        columns=tuple(as_replaced(column) for column in desired.columns),
         comment=desired.comment,
         cluster_by=desired.cluster_by,
         cluster_auto=desired.cluster_auto,
+        tags=live.tags,
+        grants=live.grants,
+        owner=live.owner,
         partitioned_by=desired.partitioned_by or None,
         properties=(*desired.properties, (MANAGED_PROPERTY, "true")),
     )

@@ -244,3 +244,81 @@ def test_a_table_is_renamed_with_its_data(
     assert introspector.table(old.name) is None
     again = plan_tables([new], introspector, target="integration", tool_version="0.1.0")
     assert again.empty
+
+
+def test_a_rewrite_keeps_what_a_replace_keeps(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """The plan no longer puts back a table's tags, grants and owner, because a
+    replace keeps them (verified 2026-09-20) — so this asserts they are still
+    there afterwards, including the ones the spec doesn't name. A renamed
+    column's tags do stay behind on the old name, and those the plan puts back.
+    https://docs.databricks.com/aws/en/database-objects/tags
+    """
+    import os
+    from dataclasses import replace as replace_fields
+
+    from deltaplan.executor import Executor
+    from deltaplan.history import MemoryHistory
+    from deltaplan.model.table import Grant
+    from deltaplan.model.types import Field, Primitive
+    from deltaplan.planning import plan_tables
+
+    principal = os.environ.get("DELTAPLAN_TEST_PRINCIPAL", "account users")
+    name = f"{schema}.orders"
+    quoted = quote_qualified(name)
+    original = replace_fields(
+        table(
+            col("order_id", "bigint", nullable=False),
+            Field("amount", Primitive("int"), comment="Gross", tags=(("pii", "no"),)),
+            Field("old_name", Primitive("string"), tags=(("pii", "name"),)),
+            name=name,
+            tags=(("domain", "sales"),),
+            grants=(Grant(principal, ("SELECT",)),),
+        ),
+        owner=principal,
+    )
+
+    def planned(spec: Table) -> Plan:
+        return plan_tables([spec], introspector, target="it", tool_version="0")
+
+    result = Executor(runner, introspector, MemoryHistory()).apply(planned(original))
+    assert result.ok, result.error
+    runner.query(f"INSERT INTO {quoted} VALUES (1, 5, 'x')")
+    # Set by someone else, and never named by the spec below.
+    runner.query(f"ALTER TABLE {quoted} SET TAGS ('unmanaged' = 'yes')")
+    runner.query(f"ALTER TABLE {quoted} ALTER COLUMN old_name SET TAGS ('team' = 'crm')")
+
+    rewritten = replace_fields(
+        original,
+        columns=(
+            original.columns[0],
+            Field("amount", Primitive("string"), comment="Gross", tags=(("pii", "no"),)),
+            Field(
+                "new_name",
+                Primitive("string"),
+                tags=(("pii", "name"),),
+                renamed_from="old_name",
+            ),
+        ),
+    )
+    plan = planned(rewritten)
+    titles = [step.title for step in plan.steps]
+    assert "REPLACE TABLE" in titles
+    assert "SET TAGS" not in titles, "a replace keeps the table's tags"
+    assert not any(title.startswith("GRANT") for title in titles)
+    assert "SET OWNER" not in titles
+    result = Executor(runner, introspector, MemoryHistory()).apply(plan)
+    assert result.ok, result.error
+
+    assert planned(rewritten).empty, "the spec is satisfied"
+    live = introspector.table(name)
+    assert live is not None
+    assert dict(live.table.tags) == {"domain": "sales", "unmanaged": "yes"}
+    assert live.table.owner == principal
+    assert live.table.grants == (Grant(principal, ("SELECT",)),)
+    by_name = {column.name: column for column in live.table.columns}
+    assert dict(by_name["amount"].tags) == {"pii": "no"}, "kept through a cast"
+    assert dict(by_name["new_name"].tags) == {"pii": "name", "team": "crm"}
+    assert by_name["amount"].comment == "Gross"
+    assert runner.query(f"SELECT amount FROM {quoted}") == ({"amount": "5"},)
