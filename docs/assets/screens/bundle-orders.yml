@@ -1,0 +1,5 @@
+table: ${resources.schemas.sales.catalog_name}.${resources.schemas.sales.name}.orders
+comment: Order facts
+columns:
+  - {name: order_id, type: bigint, nullable: false}
+  - {name: amount, type: "decimal(18,2)"}

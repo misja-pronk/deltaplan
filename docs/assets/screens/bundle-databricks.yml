@@ -1,0 +1,20 @@
+bundle:
+  name: shop
+
+variables:
+  catalog:
+    default: dev
+
+resources:
+  schemas:
+    sales:
+      catalog_name: ${var.catalog}
+      name: sales
+      comment: Sales data
+
+targets:
+  dev:
+    default: true
+  prod:
+    variables:
+      catalog: prod

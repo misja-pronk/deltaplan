@@ -4,6 +4,11 @@ From an existing schema to tables you change by editing a file, in about ten min
 You need a Databricks workspace with Unity Catalog, a SQL warehouse, and a schema you may
 change: a dev catalog is the place to start.
 
+!!! tip "Already have an Asset Bundle?"
+    Start at [With an Asset Bundle](bundles.md) instead: deltaplan reads your
+    `databricks.yml` — its targets, workspaces, variables and the schemas it declares —
+    so you write none of it twice.
+
 ## 1. Install
 
 ```sh

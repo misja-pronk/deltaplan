@@ -35,13 +35,15 @@ touches anything.
   (`address.element.zip`), with per-field comments and renames.
 - **Built for CI** — a `drift` command with a non-zero exit code, a Markdown renderer
   for PR comments, and JSON for anything else.
-- **Fits your stack** — Python-native, Apache-2.0, and happy next to Databricks Asset
-  Bundles.
+- **Fits your stack** — Python-native, Apache-2.0, and at home next to a
+  [Databricks Asset Bundle](bundles.md): it reads your bundle's targets, variables and
+  schemas, and leaves what the bundle declares to the bundle.
 
 ## Next steps
 
 - [Get started](getting-started.md) — your own workspace: install, import, plan, apply.
 - [A tour](tour.md) — one project from nothing to a reviewed pull request, in ten minutes.
+- [With an Asset Bundle](bundles.md) — if your project already has a `databricks.yml`.
 - [Feature gallery](features.md) — every kind of change, with its spec and its plan.
 - [Installation](installation.md) — install with uvx, uv tool, or pipx.
 - [Writing a spec](spec.md) — the YAML format, types, and renames.
