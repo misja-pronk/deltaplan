@@ -19,7 +19,6 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from deltaplan.bundle import effective_resources
 from deltaplan.executor import ExecutionError, ExecutionResult, Executor
 from deltaplan.history import DeltaHistory, HistoryStore, Status
 from deltaplan.introspect import (
@@ -34,6 +33,7 @@ from deltaplan.loader import (
     Project,
     SpecError,
     Target,
+    as_deployed,
     dump_spec,
     find_project_file,
     load_project,
@@ -897,18 +897,14 @@ def _target(project: Project, name: str | None) -> Target:
 
 
 def _named(project: Project, name: str) -> Target:
-    """The target, under the names its bundle really deploys.
+    """The target, as the Databricks CLI resolves its bundle.
 
-    A bundle in development mode, or one with a `name_prefix`, renames what it
-    makes, and only the Databricks CLI knows exactly how — so it is asked, once,
-    and only for a target that renames something. Without the CLI the names stay
-    unknown, with the reason, rather than wrong.
+    Variables, lookups and the names a deploy really uses are the CLI's to
+    settle, so it is asked once per command. Without it — not installed, or no
+    credentials for it to look anything up with — what deltaplan read from the
+    bundle file stands in, and says *unknown* rather than guessing.
     """
-    target = project.target(name)
-    if project.bundle is None or target.renames is None:
-        return target
-    resources = effective_resources(project.bundle, target.name, profile=target.profile)
-    return target if resources is None else replace(target, resources=resources)
+    return as_deployed(project, project.target(name))
 
 
 def _load(project: Project, target: Target) -> tuple[LoadedSpec, ...]:

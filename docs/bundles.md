@@ -3,7 +3,12 @@
 Most Databricks projects already have a
 [bundle](https://docs.databricks.com/aws/en/dev-tools/bundles/): `databricks.yml`, with
 the targets, the workspaces, the variables, and often the schema the tables live in.
-deltaplan reads it, so none of that is written twice.
+deltaplan takes all of that from it, so none of it is written twice.
+
+It doesn't interpret your bundle to do that. It asks the Databricks CLI — the same
+`databricks bundle validate` a deploy runs — and uses the answer: variables filled in,
+`lookup:` variables resolved against the workspace, and every object under the name a
+deploy would really give it.
 
 The division is simple: **the bundle owns the containers, deltaplan owns the tables in
 them.**
@@ -22,12 +27,14 @@ That's the whole connection. From the bundle deltaplan takes:
 |---|---|
 | `targets` and the `default: true` one | its own targets; `-t` picks one, and without `-t` the bundle's default |
 | `workspace.profile` / `workspace.host` | how to reach the workspace |
-| `variables` | `${catalog}` and friends in your specs |
-| a `warehouse_id` variable | the SQL warehouse, including a `lookup:` by name |
+| `variables`, resolved | `${catalog}` and friends in your specs — including a `lookup:` the CLI ran |
+| a `warehouse_id` variable | the SQL warehouse to plan and apply on |
 | `resources.catalogs`, `.schemas`, `.volumes` | names your specs can use — and objects deltaplan leaves alone |
 
-Files listed under `include:` are read too, which is where most bundles keep their
-resources.
+Everything in that table comes from one `databricks bundle validate -o json -t <target>`,
+run once per command, so what deltaplan sees is what a deploy would do — mutators,
+presets and all. Files listed under `include:` are part of that, which is where most
+bundles keep their resources.
 
 ## Name things once
 
@@ -66,7 +73,7 @@ So the order of a first run is: `databricks bundle deploy`, then `deltaplan appl
 ## Development mode, and other renaming
 
 A target in `mode: development`, or one with `presets.name_prefix`, does not deploy the
-names that are in the file — the Databricks CLI rewrites them first:
+names that are in the file — the CLI rewrites them first:
 
 | target | the schema `sales` deploys as |
 |---|---|
@@ -74,20 +81,21 @@ names that are in the file — the Databricks CLI rewrites them first:
 | `presets: {name_prefix: team_}` | `teamsales` — the underscore dropped |
 | neither | `sales` |
 
-Schemas are renamed this way; catalogs and volumes aren't. deltaplan doesn't
-reimplement any of it. For a target that renames anything it asks the CLI for the
-configuration as deployed —
+deltaplan reimplements none of that, which is the reason it asks rather than reads. The
+same call settles the other things a file can't: a `lookup:` variable becomes the id it
+looked up, and `${workspace.current_user.short_name}` becomes a user.
 
-```sh
-databricks bundle validate -o json -t dev
-```
+## Without the CLI
 
-— and uses the names that come back. That means the
-[Databricks CLI](https://docs.databricks.com/aws/en/dev-tools/cli/) has to be on your
-`PATH` for such a target, and be logged in: a development target has to know whose name
-goes in front. Without it the names stay *unknown*, and a spec that uses one says why,
-rather than planning against the wrong schema. A target that renames nothing is read
-straight from the file, with no CLI needed.
+The [Databricks CLI](https://docs.databricks.com/aws/en/dev-tools/cli/) has to be on
+your `PATH`, and logged in — it resolves nothing at all without credentials. When it
+can't answer, deltaplan reads the bundle file itself and resolves what a file can:
+variable defaults, target overrides, `BUNDLE_VAR_<name>` from the environment, and
+`${var.…}`, `${bundle.name}` and `${bundle.target}` references.
+
+What it won't do is guess the rest. A lookup, a complex variable, a current user, and
+every name a renaming target deploys under stay **unknown**, with the reason attached —
+so a spec that uses one fails saying why, instead of planning against the wrong schema.
 
 ## deltaplan.yml has the last word
 
@@ -110,18 +118,19 @@ typo. And a bundle's own `mode: development | production` is about jobs and pipe
 has nothing to do with deltaplan's [`additive` or `strict`](safety.md#additive-and-strict-schemas),
 and is ignored.
 
-## What needs a workspace
+## What still can't be settled
 
-Some values a bundle can't settle on its own: a `lookup:` other than the warehouse, a
-complex variable, anything using `${workspace.current_user.short_name}`. deltaplan
-doesn't guess them. A spec that uses one fails and says which value is missing and why;
-give it under that target's `vars` instead.
+A variable whose value isn't a name — a whole cluster definition, say — can't become
+part of one. deltaplan says so rather than rendering something odd into a table name:
+give that target a `vars` entry with the string you meant.
 
 ## In CI
 
-The [GitHub Action](ci.md) takes the same target name:
+The [GitHub Action](ci.md) takes the same target name, and wants the CLI in the job —
+which a bundle workflow installs anyway:
 
 ```yaml
+- uses: databricks/setup-cli@v1.17.0
 - uses: misja-pronk/deltaplan@v0
   with:
     target: prod          # the bundle's target
@@ -131,6 +140,7 @@ Deploy the bundle first and apply after, so the schemas exist before the tables 
 in them:
 
 ```yaml
+- uses: databricks/setup-cli@v1.17.0
 - run: databricks bundle deploy -t prod
 - uses: misja-pronk/deltaplan@v0
   with:

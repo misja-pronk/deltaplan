@@ -6,15 +6,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- **A bundle's names are what it deploys, not what it says.** A target in
-  `mode: development` or with `presets.name_prefix` is renamed by the
-  Databricks CLI first — `sales` becomes `dev_jane_sales`, and a `team_`
-  prefix makes it `teamsales`. deltaplan asks the CLI
-  (`databricks bundle validate -o json`) for such a target instead of reading
-  the file, and without the CLI it says the name is unknown, with the reason,
-  rather than using the wrong one.
+- **A bundle is resolved by the Databricks CLI, not by deltaplan.** For any
+  target with a `bundle:`, deltaplan runs
+  `databricks bundle validate -o json -t <target>` once per command and uses
+  the answer: every `${var.…}` filled in, every `lookup:` run against the
+  workspace, and every object under the name a deploy would give it — which
+  for `mode: development` is `dev_jane_sales`, and under
+  `presets.name_prefix: team_` is `teamsales`. Lookups other than the
+  warehouse and `${workspace.current_user.…}` therefore work now, where they
+  used to be *unknown*. Reading the bundle file stays as the fallback for when
+  the CLI isn't installed or has no credentials — it resolves nothing without
+  them — and it still says *unknown* with a reason rather than guessing.
+  `deltaplan.yml` keeps the last word either way. Bundles also have a guide of
+  their own now: **With an Asset Bundle** in the docs.
+- **A rewrite that converts nothing writes the data once.** Rebuilding a table
+  staged the whole thing and then replaced it from the staging copy — two full
+  writes, even for changes that touch no value. Databricks allows a table to
+  read itself and be replaced in the same statement (verified live), so new
+  partitioning, the move to liquid clustering, a rename or a dropped column is
+  now a single `REPLACE TABLE`: half the writes, and one step in the plan
+  instead of three. A conversion — a cast, or a `using:` expression — still
+  stages, because that is the one thing a rewrite can get quietly wrong, and
+  staging is what lets it be checked while the original is still there.
 
 ## [0.1.0a8] - 2026-09-20
 

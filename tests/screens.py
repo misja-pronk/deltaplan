@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import io
+import os
 import re
 import shlex
 import shutil
@@ -36,6 +37,7 @@ from deltaplan import cli
 from deltaplan.executor import Executor
 from deltaplan.history import MemoryHistory
 from fake_warehouse import FakeWarehouse
+from helpers import path_without
 
 #: Columns in every picture: a docs page scales a wider terminal down until its
 #: text is too small to read, so this is a standard terminal's width.
@@ -149,7 +151,11 @@ def _console() -> Console:
 
 @contextlib.contextmanager
 def _patched(studio: Studio, console: Console) -> Iterator[None]:
-    """Point the CLI at the scene's warehouse and console."""
+    """Point the CLI at the scene's warehouse and console.
+
+    And take the Databricks CLI off `PATH`: a picture must show what deltaplan
+    does, not what happens to be installed on the machine that took it.
+    """
     replacements: dict[str, object] = {
         "out": console,
         "err": console,
@@ -161,9 +167,12 @@ def _patched(studio: Studio, console: Console) -> Iterator[None]:
     saved = {name: getattr(cli, name) for name in replacements}
     for name, value in replacements.items():
         setattr(cli, name, value)
+    path = os.environ.get("PATH", "")
+    os.environ["PATH"] = path_without("databricks")
     try:
         yield
     finally:
+        os.environ["PATH"] = path
         for name, value in saved.items():
             setattr(cli, name, value)
 

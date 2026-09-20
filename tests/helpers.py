@@ -1,5 +1,8 @@
 """Small builders, so tests read as tables rather than as constructor calls."""
 
+import os
+from pathlib import Path
+
 from deltaplan.model.plan import Plan
 from deltaplan.model.table import Constraint, Grant, Table
 from deltaplan.model.types import Column, Field
@@ -153,3 +156,17 @@ def run(plan: Plan, fake: FakeWarehouse) -> None:
         if step.sql is None:
             raise AssertionError(f"step {step.id} ({step.title}) has no SQL")
         fake.query(step.sql)
+
+
+def path_without(executable: str) -> str:
+    """`PATH`, minus every directory that has this program in it.
+
+    Offline tests must not shell out to whatever a machine happens to have
+    installed: with the real `databricks` on PATH, deltaplan would ask it about
+    a bundle instead of reading the file, and the test would say different
+    things on different laptops.
+    """
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    return os.pathsep.join(
+        part for part in parts if part and not (Path(part) / executable).exists()
+    )

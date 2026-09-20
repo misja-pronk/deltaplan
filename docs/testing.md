@@ -109,6 +109,46 @@ the code, keep the test, and remove the `TODO(verify)` it settled — and if the
 warehouse agreed with the wrong assumption, fix the fake too, so the offline suite stops
 agreeing with it.
 
+### Asking one question of the workspace
+
+A single live question doesn't need the whole forty-minute suite. Push a branch with the
+test on it and run the suite against it, filtered:
+
+```sh
+gh workflow run integration.yml --ref my-branch -f k=the_test_name
+```
+
+That's the honest way to settle a Databricks behaviour before building on it: probe it,
+read the answer, then write the code and the test that keeps it.
+
+### When the metastore says it is full
+
+`QUOTA_EXCEEDED.UC_RESOURCE_QUOTA_EXCEEDED` — *"Cannot create 1 Table(s) ... (estimated
+count: 523, limit: 500)"* — usually isn't. Unity Catalog
+[counts tables as they are created](https://docs.databricks.com/aws/en/data-governance/unity-catalog/resource-quotas)
+and catches up with deletions later, so a day of live runs leaves the count far above
+what is really there.
+
+Two things keep it from happening, and one says so when it does:
+
+- **A test schema keeps nothing it drops.** `ALTER SCHEMA … SET RETAIN DROPPED TO 0
+  HOURS` turns off the seven-day
+  [recovery period](https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-undrop-table),
+  because a dropped table still counts against the quota for as long as `UNDROP` could
+  bring it back. Without this, a suite that makes a hundred tables a run fills a
+  500-table metastore in a couple of days while holding almost nothing.
+- **Schemas a cancelled run left behind are swept.** A new push cancels a running suite
+  mid-test, and its `deltaplan_it_*` schema is never dropped; anything older than half an
+  hour goes.
+- **Then the quota is read**, which is what asks Unity Catalog to recount it. If it is
+  still at the limit the suite skips rather than failing every test in it — with one
+  line saying why.
+
+If the count stays above what the catalogs really hold, it is dropped tables still inside
+their recovery period, from before the setting above. They age out; a metastore that
+needs to run this suite often is worth asking your Databricks account team to raise the
+table quota on.
+
 ## The docs' pictures
 
 Every terminal on the docs site is deltaplan's own output. `tests/screens.py` writes a
