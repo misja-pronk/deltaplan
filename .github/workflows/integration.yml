@@ -17,6 +17,11 @@ on:
   schedule:
     - cron: "0 3 * * *" # 03:00 UTC nightly
   workflow_dispatch:
+    inputs:
+      k:
+        description: "Run only the live tests matching this pytest -k expression"
+        required: false
+        default: ""
 
 concurrency:
   # A new push to a pull request makes its running suite moot.
@@ -50,4 +55,13 @@ jobs:
           fi
       - name: Tests (pytest -m integration)
         if: steps.creds.outputs.present == 'true'
-        run: uv run pytest -m integration -rA
+        # -k comes from the dispatch form, so it goes through the environment
+        # and stays quoted: never interpolated into the script itself.
+        env:
+          ONLY: ${{ inputs.k }}
+        run: |
+          if [ -n "$ONLY" ]; then
+            uv run pytest -m integration -rA -k "$ONLY"
+          else
+            uv run pytest -m integration -rA
+          fi
