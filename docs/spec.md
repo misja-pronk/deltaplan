@@ -56,7 +56,9 @@ schemas:                               # per-schema overrides of the target's mo
 
 A schema that doesn't exist yet is created — once, just before the first table or view
 that needs it — so a fresh target plans from nothing. deltaplan creates schemas but never
-catalogs, and never drops a schema.
+catalogs, and never drops a schema. A schema an
+[Asset Bundle declares](#the-catalogs-schemas-and-volumes-a-bundle-declares) is the
+bundle's: deltaplan leaves that one alone too.
 
 `history_schema` and the `schemas:` keys may use the target's variables, like a spec
 can, so one project file serves every catalog. What the modes mean is in the
@@ -103,6 +105,37 @@ references to `${var.…}`, `${bundle.target}` and `${bundle.name}`. Files liste
   that uses one fails and says why; give the value under the target's `vars` instead.
 - A bundle's own `mode: development | production` is about jobs and pipelines and has
   nothing to do with deltaplan's `additive | strict`, so it's ignored.
+
+#### The catalogs, schemas and volumes a bundle declares
+
+Teams often keep the schema itself in the bundle:
+
+```yaml title="databricks.yml"
+resources:
+  schemas:
+    sales:
+      catalog_name: ${var.catalog}
+      name: sales
+      comment: Sales data
+```
+
+deltaplan reads those — `catalogs`, `schemas` and `volumes`, from the bundle and from
+the files it includes, resolved with each target's variables — and treats them as the
+bundle's:
+
+- **A spec can name one**, in the bundle's own spelling, so the name lives in one place:
+
+    ```yaml
+    table: ${resources.schemas.sales.catalog_name}.${resources.schemas.sales.name}.orders
+    ```
+
+- **deltaplan doesn't create or manage them.** Two tools creating the same schema is how
+  a `databricks bundle deploy` ends up meeting an object it didn't make. A deltaplan
+  spec for one is an error naming the bundle, and `import` writes no spec for it.
+- **A table whose schema the bundle hasn't deployed yet** stops the plan with
+  "run `databricks bundle deploy` first" rather than creating the schema itself.
+- A name deltaplan can't resolve offline — one that needs the workspace — leaves that
+  resource alone; the bundle still owns it.
 
 ## Variables
 

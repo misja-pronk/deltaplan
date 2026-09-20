@@ -19,7 +19,7 @@ sides at once:
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from typing import TypeVar
 
@@ -62,6 +62,7 @@ def plan_tables(
     check_order: bool = False,
     clone: bool = False,
     select: Callable[[str], bool] | None = None,
+    owned_elsewhere: Mapping[str, str] | None = None,
 ) -> Plan:
     """Plan every function, table and view against live state.
 
@@ -78,6 +79,10 @@ def plan_tables(
     `select` narrows the plan to the specs whose names it accepts. A selection
     plans what it names and nothing else: no orphans, no unmanaged report — so
     a table left out of it can never look like one whose spec is gone.
+
+    `owned_elsewhere` maps the full name of a catalog, schema or volume another
+    tool declares — a Databricks Asset Bundle — to what declares it. deltaplan
+    neither creates nor manages those; the tables inside them are its business.
     """
     # Functions have a namespace of their own; only tables and views can clash.
     described = {spec.name for spec in specs if isinstance(spec, Table | View)}
@@ -91,6 +96,7 @@ def plan_tables(
         lambda function: function.body,
         "functions call each other",
     )
+    _refuse_bundle_conflicts(specs, schemas, owned_elsewhere or {})
     _refuse_kind_changes([s for s in specs if isinstance(s, Table | View)], schemas)
     _refuse_shared_names(
         [*functions, *[s for s in specs if isinstance(s, Volume)]], described, schemas
@@ -311,6 +317,37 @@ def _reads(query: str, name: str) -> bool:
     pattern = r"\s*\.\s*".join(rf"`?{re.escape(part)}`?" for part in name.split("."))
     found = re.search(rf"(?<![\w`.]){pattern}(?![\w`])", query, re.IGNORECASE)
     return found is not None
+
+
+def _refuse_bundle_conflicts(
+    specs: Sequence[Relation],
+    schemas: dict[tuple[str, str], LiveSchema],
+    owned: Mapping[str, str],
+) -> None:
+    """What a bundle declares is the bundle's: deltaplan won't manage it too.
+
+    Two tools creating the same schema is how a `databricks bundle deploy` ends
+    up meeting an object it didn't make. So a spec for one is refused, and a
+    table whose schema the bundle hasn't deployed yet says so rather than
+    creating it.
+    """
+    if not owned:
+        return
+    for spec in specs:
+        declares = owned.get(spec.name.lower())
+        if declares is not None and isinstance(spec, Schema | Volume):
+            raise PlanningError(
+                f"the bundle declares {spec.name} as {declares}, so deltaplan "
+                "won't manage it too — remove the spec, or the bundle's resource"
+            )
+        if isinstance(spec, Schema | Volume):
+            continue
+        declares = owned.get(spec.schema.lower())
+        if declares is not None and not _schema_of(schemas, spec.name).exists:
+            raise PlanningError(
+                f"{spec.schema} is the bundle's {declares}, and isn't there yet — "
+                "run `databricks bundle deploy` first; deltaplan won't create it"
+            )
 
 
 def _refuse_shared_names(

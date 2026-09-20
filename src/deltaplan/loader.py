@@ -20,7 +20,13 @@ from typing import Literal, TypeAlias
 import yaml
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
-from deltaplan.bundle import WAREHOUSE_VARIABLE, BundleError, BundleTarget, read_bundle
+from deltaplan.bundle import (
+    WAREHOUSE_VARIABLE,
+    BundleError,
+    BundleResource,
+    BundleTarget,
+    read_bundle,
+)
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
@@ -65,7 +71,10 @@ from deltaplan.typeparser import TypeParseError, parse_type
 SPEC_SUFFIXES = (".yml", ".yaml", ".sql")
 CONFIG_NAMES = ("deltaplan.yml", "deltaplan.yaml")
 #: `${name}`, or `${var.name}` — the spelling a bundle uses for the same thing.
-VARIABLE = re.compile(r"\$\{(?:var\.)?([A-Za-z_][A-Za-z0-9_]*)\}")
+#: Dotted names are a bundle's resources: `${resources.schemas.sales.name}`.
+VARIABLE = re.compile(
+    r"\$\{(?:var\.)?([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\}"
+)
 
 Mode: TypeAlias = Literal["additive", "strict"]
 Severity: TypeAlias = Literal["error", "warning"]
@@ -126,9 +135,25 @@ class Target:
     host: str | None = None
     unresolved: tuple[tuple[str, str], ...] = ()
     warehouse_lookup: str | None = None
+    #: The catalogs, schemas and volumes a bundle declares: a spec may name one,
+    #: and deltaplan leaves the object itself to the bundle.
+    resources: tuple[BundleResource, ...] = ()
 
     def variables_map(self) -> dict[str, str]:
-        return dict(self.variables)
+        """The target's variables, and what a bundle's resources are called —
+        `${resources.schemas.sales.name}`, the bundle's own spelling."""
+        references: dict[str, str] = {}
+        for resource in self.resources:
+            references |= resource.references()
+        return references | dict(self.variables)
+
+    def owned_by_the_bundle(self) -> dict[str, str]:
+        """Full name -> what declares it, for every object the bundle owns."""
+        return {
+            resource.full_name.lower(): f"{resource.singular} {resource.key!r}"
+            for resource in self.resources
+            if resource.full_name is not None
+        }
 
     def unresolved_map(self) -> dict[str, str]:
         return dict(self.unresolved)
@@ -1142,6 +1167,7 @@ def _from_bundle(entry: BundleTarget, own: Target | None) -> Target:
         host=entry.host,
         unresolved=tuple(sorted(unresolved.items())),
         warehouse_lookup=lookup,
+        resources=entry.resources,
     )
 
 

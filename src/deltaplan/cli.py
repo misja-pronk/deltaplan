@@ -309,6 +309,13 @@ def import_schema(
     # Owners stay out of imported specs: often a person's email, and not the
     # same across workspaces. A spec that names one has it enforced.
     definition = replace(live.definition, owner=None) if live.definition else None
+    owned = chosen.owned_by_the_bundle() if chosen else {}
+    if definition is not None and definition.name.lower() in owned:
+        out.print(
+            f"[dim]· {escape(definition.name)} is the bundle's "
+            f"{escape(owned[definition.name.lower()])} — no spec written for it[/]"
+        )
+        definition = None
     if definition is not None and (
         definition.comment or definition.tags or definition.grants
     ):
@@ -600,6 +607,7 @@ def _plan(
             check_order=check_order,
             clone=clone,
             select=chosen,
+            owned_elsewhere=target.owned_by_the_bundle(),
         )
     except (PlanningError, IntrospectionError) as error:
         err.print(f"[red]{escape(str(error))}[/]")

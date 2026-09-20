@@ -15,6 +15,11 @@ from typer.testing import CliRunner
 
 from deltaplan import cli
 from deltaplan.bundle import BundleError, read_bundle
+
+if TYPE_CHECKING:
+    from deltaplan.bundle import BundleTarget
+    from deltaplan.model.view import Relation
+    from fake_warehouse import FakeWarehouse
 from deltaplan.loader import SpecError, load_project, load_specs
 from deltaplan.model.table import Table
 
@@ -406,3 +411,171 @@ def test_a_bundle_host_is_used_when_there_is_no_profile(
         {"profile": "prod"},
         {"profile": "mine"},
     ]
+
+
+# ---------------------------------------------------------------------------
+# what the bundle owns: catalogs, schemas and volumes
+# ---------------------------------------------------------------------------
+
+RESOURCES = """\
+bundle:
+  name: sales
+
+variables:
+  catalog:
+    default: dev
+
+resources:
+  catalogs:
+    main:
+      name: ${var.catalog}
+  schemas:
+    sales:
+      catalog_name: ${resources.catalogs.main.name}
+      name: sales
+      comment: Sales data
+  volumes:
+    landing:
+      catalog_name: ${resources.catalogs.main.name}
+      schema_name: sales
+      name: landing
+
+targets:
+  dev:
+    default: true
+  prod:
+    variables:
+      catalog: prod
+    resources:
+      schemas:
+        sales:
+          comment: Sales data, production
+"""
+
+
+def resources_of(target: object) -> dict[str, str | None]:
+    return {r.key: r.full_name for r in cast("BundleTarget", target).resources}
+
+
+def test_a_bundles_catalogs_schemas_and_volumes_are_read(tmp_path: Path) -> None:
+    dev, prod = read_bundle(write(tmp_path, "databricks.yml", RESOURCES)).targets
+    assert resources_of(dev) == {
+        "main": "dev",
+        "sales": "dev.sales",
+        "landing": "dev.sales.landing",
+    }
+    # Each target resolves them with its own variables.
+    assert resources_of(prod) == {
+        "main": "prod",
+        "sales": "prod.sales",
+        "landing": "prod.sales.landing",
+    }
+
+
+def test_a_name_that_cannot_be_read_says_why(tmp_path: Path) -> None:
+    text = """\
+bundle:
+  name: sales
+resources:
+  volumes:
+    landing:
+      catalog_name: main
+      name: landing
+  schemas:
+    late:
+      catalog_name: main
+      name: ${workspace.current_user.short_name}
+targets:
+  dev:
+    default: true
+"""
+    [dev] = read_bundle(write(tmp_path, "databricks.yml", text)).targets
+    unreadable = {r.key: r.unreadable for r in dev.resources if r.unreadable}
+    assert unreadable["landing"] == "volumes.landing: no schema_name"
+    assert "workspace.current_user" in (unreadable["late"] or "")
+    assert all(r.full_name is None for r in dev.resources)
+
+
+def test_resources_come_from_included_files_too(tmp_path: Path) -> None:
+    write(
+        tmp_path,
+        "databricks.yml",
+        "bundle:\n  name: sales\ninclude: [resources/*.yml]\n"
+        "targets:\n  dev:\n    default: true\n",
+    )
+    write(
+        tmp_path,
+        "resources/schemas.yml",
+        "resources:\n  schemas:\n    sales:\n"
+        "      catalog_name: dev\n      name: sales\n",
+    )
+    [dev] = read_bundle(tmp_path / "databricks.yml").targets
+    assert resources_of(dev) == {"sales": "dev.sales"}
+
+
+def test_a_spec_can_name_them_the_way_the_bundle_does(tmp_path: Path) -> None:
+    write(tmp_path, "databricks.yml", RESOURCES)
+    write(
+        tmp_path,
+        "deltaplan.yml",
+        "version: 1\nspecs: [tables]\nbundle: databricks.yml\n",
+    )
+    write(
+        tmp_path,
+        "tables/orders.yml",
+        "table: ${resources.schemas.sales.catalog_name}."
+        "${resources.schemas.sales.name}.orders\n"
+        "columns:\n  - {name: id, type: bigint}\n",
+    )
+    project = load_project(tmp_path / "deltaplan.yml")
+    [spec] = load_specs(project, project.target("dev"))
+    assert cast("Table", spec.table).name == "dev.sales.orders"
+
+
+# ---------------------------------------------------------------------------
+# the bundle owns them; deltaplan owns the tables inside them
+# ---------------------------------------------------------------------------
+
+
+def planned(specs: list[object], fake: object, owned: dict[str, str]) -> object:
+    from deltaplan.introspect import Introspector
+    from deltaplan.planning import plan_tables
+
+    return plan_tables(
+        cast("list[Relation]", specs),
+        Introspector(cast("FakeWarehouse", fake)),
+        target="dev",
+        tool_version="0",
+        owned_elsewhere=owned,
+    )
+
+
+def test_deltaplan_will_not_manage_a_schema_the_bundle_declares() -> None:
+    from deltaplan.model.schema import Schema
+    from deltaplan.planning import PlanningError
+    from fake_warehouse import FakeWarehouse
+
+    with pytest.raises(PlanningError, match="remove the spec, or the bundle's resource"):
+        planned([Schema("dev.sales")], FakeWarehouse(), {"dev.sales": "schema 'sales'"})
+
+
+def test_a_table_waits_for_the_bundle_to_deploy_its_schema() -> None:
+    from deltaplan.planning import PlanningError
+    from fake_warehouse import FakeWarehouse
+    from helpers import col, table
+
+    orders = table(col("id", "bigint"), name="dev.sales.orders")
+    with pytest.raises(PlanningError, match="run `databricks bundle deploy` first"):
+        planned([orders], FakeWarehouse(), {"dev.sales": "schema 'sales'"})
+
+
+def test_a_table_in_a_deployed_schema_is_planned_as_usual() -> None:
+    from deltaplan.model.plan import Plan
+    from fake_warehouse import FakeWarehouse
+    from helpers import col, table
+
+    fake = FakeWarehouse(schemas={"dev.sales"})
+    orders = table(col("id", "bigint"), name="dev.sales.orders")
+    plan = cast("Plan", planned([orders], fake, {"dev.sales": "schema 'sales'"}))
+    titles = [step.title for step in plan.steps]
+    assert titles == ["CREATE TABLE orders"], "no CREATE SCHEMA: the bundle made it"
