@@ -83,10 +83,14 @@ def sweep(runner: WarehouseRunner, catalog: str) -> None:
             runner.query(f"DROP SCHEMA {quote_qualified(f'{catalog}.{name}')} CASCADE")
         except Exception as error:  # noqa: BLE001
             print(f"  could not drop it: {error}")
-    recount(runner)
+    full = recount(runner)
+    if full is not None:
+        # Not a failure of anything this suite tests, and every table it makes
+        # would fail the same way: say it once, clearly, and stop.
+        pytest.skip(full)
 
 
-def recount(runner: WarehouseRunner, *, wait_seconds: float = 90) -> None:
+def recount(runner: WarehouseRunner, *, wait_seconds: float = 30) -> str | None:
     """Ask Unity Catalog to count the metastore's tables again.
 
     The quota count only goes up by itself: "Unity Catalog updates the quota
@@ -96,15 +100,16 @@ def recount(runner: WarehouseRunner, *, wait_seconds: float = 90) -> None:
     that is nearly empty — 523 of 500, with ninety tables actually there.
 
     Reading the quota is what triggers a refresh, and the refresh is
-    asynchronous ("new counts might not be returned in the first call"), so it
-    is read until the number settles or the wait runs out. Never fatal: if the
-    count really is at the limit, the test that needs a table says so.
+    asynchronous — counts are "accurate to within 30 minutes of the last create
+    operation" — so this reads it a few times and then gives up. Returns why
+    the suite can't run when the metastore is at its limit, and None when there
+    is room.
     https://docs.databricks.com/aws/en/data-governance/unity-catalog/resource-quotas
     """
     try:
         metastore = runner.client.metastores.current().metastore_id
         if metastore is None:
-            return
+            return None
         deadline = time.monotonic() + wait_seconds
         while True:
             quota = runner.client.resource_quotas.get_quota(
@@ -113,17 +118,23 @@ def recount(runner: WarehouseRunner, *, wait_seconds: float = 90) -> None:
                 quota_name="table-quota",
             ).quota_info
             if quota is None:
-                return
+                return None
             count, limit = quota.quota_count, quota.quota_limit
             print(f"the metastore counts {count} tables of {limit}")
             if count is None or limit is None or count < limit:
-                return
+                return None
             if time.monotonic() > deadline:
-                print("  still at the limit; the tests will say what that costs")
-                return
+                return (
+                    f"the metastore's table quota is full: {count} of {limit}. "
+                    "Unity Catalog counts tables as they are created and catches "
+                    "up with deletions later, so a day of live runs can leave the "
+                    "count above what is really there. This read asked it to "
+                    "recount; try again in half an hour."
+                )
             time.sleep(10)
     except Exception as error:  # noqa: BLE001 - a recount must never fail the suite
         print(f"could not ask for a recount: {error}")
+        return None
 
 
 @pytest.fixture
