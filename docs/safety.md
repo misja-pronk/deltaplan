@@ -102,6 +102,25 @@ rather than one statement per change:
    manage.
 4. The staging table is dropped.
 
+### A rewrite that converts nothing writes once
+
+Plenty of rewrites don't change a single value: new partitioning, the move to liquid
+clustering, a rename, a dropped column. There is nothing a staged copy could catch, so
+there isn't one — the table reads itself and is replaced in the same statement (Databricks
+allows that; verified against a live workspace), and its data is written once instead of
+twice:
+
+```
+  ↻ rewrite
+    1. REPLACE TABLE                [rewrite]  (2.1 TB)
+         · the table is rebuilt from itself in one statement, so its data is written once
+```
+
+Everything else is unchanged: the table keeps its identity and history, `apply` records
+the version before the step, and the plan's undo hint is the `RESTORE TABLE` that goes
+with it. Staging is kept for the one thing it was made for — a conversion that could
+quietly turn values into NULL.
+
 deltaplan writes the conversion itself where it honestly can: a cast between scalars, a
 `named_struct` rebuilt **by name** (never by position, which would quietly move one
 field's values into another), and a `transform` over an array of structs. Where it

@@ -9,6 +9,8 @@ the history and lock SQL, which the fake never sees.
 
 from __future__ import annotations
 
+from dataclasses import replace as with_fields
+
 import pytest
 
 from deltaplan.differ import diff
@@ -215,6 +217,50 @@ def test_a_rewrite_converts_the_data_it_moves(
     # The staging table is cleaned up.
     staging = introspector.table(f"{name}__deltaplan_rewrite")
     assert staging is None
+
+
+def test_a_rewrite_that_converts_nothing_is_one_statement(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """A table reads itself and is replaced in one go — the data written once.
+
+    Repartitioning rebuilds a table without changing a single value, so there is
+    nothing a staging copy could catch. Verified here on real rows: the
+    statement is accepted, every row survives it, and no staging table is made.
+    https://docs.databricks.com/aws/en/tables/partitions
+    """
+    name = f"{schema}.events"
+    columns = (
+        col("id", "bigint", nullable=False),
+        col("day", "date"),
+        col("region", "string"),
+    )
+    live_table = with_fields(table(*columns, name=name), partitioned_by=("region",))
+    runner.query(create_table_sql(live_table))
+    runner.query(
+        f"INSERT INTO {quote_qualified(name)} SELECT id, "
+        "date_add(DATE'2026-01-01', CAST(id % 5 AS INT)), "
+        "CASE WHEN id % 2 = 0 THEN 'eu' ELSE 'us' END FROM range(100)"
+    )
+
+    desired = with_fields(table(*columns, name=name), partitioned_by=("day",))
+    plan = plan_for(desired, introspector)
+    assert [step.title for step in plan.steps][0] == "REPLACE TABLE"
+    assert not any("__deltaplan_rewrite" in (step.sql or "") for step in plan.steps), (
+        "nothing is converted, so nothing is staged"
+    )
+    assert f"FROM {quote_qualified(name)}" in (plan.steps[0].sql or "")
+    assert executor(runner, schema).apply(plan).ok
+
+    [row] = runner.query(
+        "SELECT count(*) AS rows, count(DISTINCT day) AS days, "
+        f"count(DISTINCT region) AS regions FROM {quote_qualified(name)}"
+    )
+    assert (row["rows"], row["days"], row["regions"]) == ("100", "5", "2")
+    live = introspector.table(name)
+    assert live is not None
+    assert live.table.partitioned_by == ("day",)
+    assert diff(desired, live.table) == (), "the table must match the spec"
 
 
 def test_a_table_is_renamed_with_its_data(
