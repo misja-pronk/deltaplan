@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0a7] - 2026-09-20
+
+A rewrite's plan says what it will really do, and nothing more.
+
 ### Changed
 
 - **A rewrite plans what it actually has to do.** A replace keeps the table's
