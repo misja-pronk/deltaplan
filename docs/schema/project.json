@@ -13,6 +13,31 @@
       "type": "string",
       "description": "Where apply keeps its run history."
     },
+    "manage": {
+      "type": "object",
+      "description": "What deltaplan looks after here. Everything is managed unless it says otherwise; false hands it to another tool, and the key is then refused in a spec.",
+      "properties": {
+        "grants": {
+          "type": "boolean"
+        },
+        "masks": {
+          "type": "boolean"
+        },
+        "owner": {
+          "type": "boolean"
+        },
+        "properties": {
+          "type": "boolean"
+        },
+        "row_filters": {
+          "type": "boolean"
+        },
+        "tags": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
     "schemas": {
       "type": "object",
       "description": "Per-schema mode, keyed catalog.schema.",

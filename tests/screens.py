@@ -950,6 +950,30 @@ def feature_strict(studio: Studio) -> None:
 
 
 @scene
+def feature_manage(studio: Studio) -> None:
+    """Handing grants and tags to the tool that already owns them."""
+    studio.write("deltaplan.yml", PROJECT + "\nmanage:\n  grants: false\n  tags: false\n")
+    spec = (
+        "table: ${catalog}.sales.orders\n"
+        "columns:\n"
+        "  - {name: order_id, type: bigint, nullable: false}\n"
+        '  - {name: amount, type: "decimal(18,2)"}\n'
+    )
+    studio.write("tables/orders.yml", spec)
+    studio.apply()
+    # Someone sets a grant anyway: the spec is refused, and says who owns it.
+    studio.write(
+        "tables/orders.yml",
+        spec + "grants:\n  - {principal: analysts, privileges: [SELECT]}\n",
+    )
+    studio.quote("deltaplan.yml", "feature-manage.yml")
+    studio.shoot("feature-manage", "deltaplan validate")
+    # And a plan says what it could not have touched.
+    studio.write("tables/orders.yml", spec + "comment: Order facts\n")
+    studio.shoot("feature-manage-plan", "deltaplan plan")
+
+
+@scene
 def start(studio: Studio) -> None:
     """The getting-started page: an empty directory, a schema made by hand."""
     from deltaplan.model.table import Grant

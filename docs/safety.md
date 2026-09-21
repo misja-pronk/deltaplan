@@ -67,6 +67,17 @@ Every step in a plan carries a class, and the class decides what happens:
 Prerequisites are steps, not side effects: if a rename needs column mapping, you see
 "enable columnMapping" as its own numbered line with its own warning.
 
+## What isn't deltaplan's
+
+A project can hand part of a table to the tool that already owns it —
+[`manage:`](spec.md#what-deltaplan-manages) in `deltaplan.yml`. That line is drawn where
+specs are read, so nothing handed over can reach a plan by any route.
+
+It cuts one way only. deltaplan stops *declaring* grants, tags or masks; it doesn't stop
+*knowing* about them, because knowing is what keeps it from destroying them. A table with
+a column mask still refuses to be rebuilt. A renamed column's tags are still put back
+after a rewrite. What another tool set stays exactly as that tool left it.
+
 ## What a rewrite actually does
 
 A table that needs a rewrite is rebuilt rather than patched, so its plan is a sequence

@@ -69,6 +69,34 @@ There is a runnable example of exactly this layout in
 
 Without `-t`, a command uses the only target, or the one marked `default: true`.
 
+### What deltaplan manages
+
+deltaplan manages everything it knows how to, unless the project says otherwise:
+
+```yaml
+manage:
+  grants: false      # our policy framework owns these
+  tags: false        # and the tags its ABAC rules read
+```
+
+What can be handed over: `grants`, `tags`, `owner`, `properties`, `masks` and
+`row_filters`. The shape of a table — its columns, types, constraints, partitioning —
+can't: that is what deltaplan is for.
+
+Handing one over means the key is refused in a spec (where you write it, with the line
+number), left out of the editors' JSON Schema, never written by `import`, and never in a
+plan. For grants it also means the workspace isn't asked about them at all.
+
+It does **not** mean deltaplan forgets they exist. It still reads what it must not
+destroy: a table with a column mask still refuses a rewrite, and a renamed column's tags
+are still put back afterwards. And turning something off later removes nothing — grants
+and tags deltaplan set stay where they are.
+
+!!! tip "Your editor, too"
+    `deltaplan schema > .deltaplan/spec.json`, run inside the project, writes the schema
+    with those keys left out; point your editor at that file and it stops offering what
+    `validate` would refuse.
+
 ### Next to an Asset Bundle
 
 A project that already has a [Databricks Asset Bundle](https://docs.databricks.com/aws/en/dev-tools/bundles/)

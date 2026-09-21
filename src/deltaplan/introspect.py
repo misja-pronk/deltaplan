@@ -24,6 +24,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from deltaplan.ddl import DdlError, read_columns
+from deltaplan.manage import EVERYTHING, Manage
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
@@ -169,6 +170,11 @@ class Introspector:
     """Reads live state through a `SqlRunner`."""
 
     runner: SqlRunner
+    #: What this project manages. Only grants are skipped when handed over:
+    #: everything else is still read, because deltaplan has to know it is there
+    #: not to destroy it — a masked table refuses a rewrite, and a renamed
+    #: column's tags are put back after one.
+    manage: Manage = EVERYTHING
     #: How many per-table queries (DESCRIBE DETAIL, SHOW CREATE TABLE, SHOW
     #: TBLPROPERTIES) run at once. One per table, each about a second on a
     #: warehouse: sequentially, a 300-table schema took minutes.
@@ -511,7 +517,7 @@ class Introspector:
             parameters.setdefault(owner, []).append(
                 Parameter(name, _parse_live_type(row.get("full_data_type"), owner, name))
             )
-        privilege_rows = self.runner.query(
+        privilege_rows = self._privileges(
             "SELECT routine_name, grantee, privilege_type, inherited_from "
             f"FROM {_information_schema(catalog)}.routine_privileges "
             f"WHERE routine_schema = {quote_literal(schema)}"
@@ -589,7 +595,7 @@ class Introspector:
                     row.get("tag_value") or ""
                 )
         held: dict[str, dict[str, list[str]]] = {}
-        for row in self.runner.query(
+        for row in self._privileges(
             "SELECT volume_name, grantee, privilege_type, inherited_from "
             f"FROM {_information_schema(catalog)}.volume_privileges "
             f"WHERE volume_schema = {literal}"
@@ -647,7 +653,7 @@ class Introspector:
             if r.get("tag_name")
         }
         held: dict[str, list[str]] = {}
-        for r in self.runner.query(
+        for r in self._privileges(
             "SELECT grantee, privilege_type, inherited_from "
             f"FROM {_information_schema(catalog)}.schema_privileges "
             f"WHERE schema_name = {literal}"
@@ -731,6 +737,17 @@ class Introspector:
             )
         return filters
 
+    def _privileges(self, statement: str) -> tuple[Row, ...]:
+        """Privilege rows — or none at all, when grants aren't deltaplan's here.
+
+        One gate for every securable: a project that hands grants to another
+        tool doesn't ask the workspace about them, so they can never reach a
+        plan by any route.
+        """
+        if not self.manage.manages("grants"):
+            return ()
+        return self.runner.query(statement)
+
     def _grant_rows(self, catalog: str, schema: str) -> dict[str, dict[str, list[str]]]:
         """Privileges granted on each table directly — not inherited from above.
 
@@ -739,7 +756,7 @@ class Introspector:
         Verified live: a direct grant says `NONE`, one on the schema `SCHEMA`.
         https://docs.databricks.com/aws/en/sql/language-manual/information-schema/table_privileges
         """
-        rows = self.runner.query(
+        rows = self._privileges(
             "SELECT table_name, grantee, privilege_type, inherited_from "
             f"FROM {_information_schema(catalog)}.table_privileges "
             f"WHERE table_schema = {quote_literal(schema)}"

@@ -7,6 +7,8 @@ apart.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from deltaplan.model.change import CREATE_KINDS, Change
 from deltaplan.model.table import Check, ForeignKey, PrimaryKey, RowFilter, Table
 from deltaplan.model.types import Decimal, Field, Mask, as_data_type, render_type
@@ -29,6 +31,13 @@ def human_bytes(size: int | None) -> str | None:
             return f"{rendered} {unit}"
         value /= 1024
     return None  # pragma: no cover - the loop always returns
+
+
+def listed(names: Sequence[str]) -> str:
+    """`a`, `a and b`, `a, b and c` — a sentence, not a list."""
+    if len(names) <= 1:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 def display_name(name: str) -> str:

@@ -24,7 +24,13 @@ from rich.text import Text
 
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Risk, Step, TableDiff
-from deltaplan.render.labels import describe, display_name, human_bytes, table_verb
+from deltaplan.render.labels import (
+    describe,
+    display_name,
+    human_bytes,
+    listed,
+    table_verb,
+)
 
 RISK_STYLE: dict[Risk, str] = {
     "meta": "dim",
@@ -81,6 +87,15 @@ def render_plan(plan: Plan, console: Console) -> None:
         )
         for name in plan.unmanaged_tables:
             console.print(Text(f"  · {name}", style="dim"))
+    if plan.not_managed:
+        console.print()
+        console.print(
+            Text(
+                f"{listed(plan.not_managed)} are managed elsewhere: deltaplan "
+                "doesn't read or change them here.",
+                style="dim",
+            )
+        )
     if not changing:
         return
     console.print()

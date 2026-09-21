@@ -42,6 +42,7 @@ from deltaplan.loader import (
     spec_files,
     validate_spec,
 )
+from deltaplan.manage import EVERYTHING, Manage
 from deltaplan.model.plan import Plan, Step
 from deltaplan.model.view import Relation
 from deltaplan.model.volume import Volume
@@ -185,16 +186,21 @@ def validate(
 ) -> None:
     """Lint specs. No workspace, no network — safe in a pre-commit hook."""
     chosen: Target | None = None
+    found: Project | None = None
     if paths:
         files = tuple(paths)
-        if target:
-            chosen = _target(_project(config), target)
+        # A project is optional here, but if there is one its line between
+        # deltaplan and other tools holds for these files too.
+        found = _optional_project(config)
+        if target and found:
+            chosen = _target(found, target)
     else:
-        project = _project(config)
-        chosen = _target(project, target)
-        files = spec_files(project)
+        found = _project(config)
+        chosen = _target(found, target)
+        files = spec_files(found)
     variables = chosen.variables_map() if chosen else {}
     unresolved = chosen.unresolved_map() if chosen else {}
+    manage = found.manage if found else EVERYTHING
 
     if not files:
         err.print("[yellow]No specs found.[/]")
@@ -203,7 +209,7 @@ def validate(
     problems = 0
     for path in files:
         try:
-            table = load_spec(path, variables, unresolved)
+            table = load_spec(path, variables, unresolved, manage)
         except SpecError as error:
             err.print(f"[red]{escape(str(error))}[/]")
             problems += 1
@@ -237,8 +243,15 @@ def schema_command(
         ),
     ] = SchemaKind.spec,
 ) -> None:
-    """Print the JSON Schema editors use for completion and inline errors."""
-    schema = spec_schema() if kind is SchemaKind.spec else project_schema()
+    """Print the JSON Schema editors use for completion and inline errors.
+
+    In a project that hands something to another tool (`manage:`), the spec
+    schema leaves those keys out — so an editor stops offering what `validate`
+    would refuse. Write it next to your specs and point your editor at it.
+    """
+    project = _optional_project(None)
+    manage = project.manage if project else EVERYTHING
+    schema = spec_schema(manage) if kind is SchemaKind.spec else project_schema()
     typer.echo(json.dumps(schema, indent=2))
 
 
@@ -279,8 +292,9 @@ def import_schema(
 
     project = _optional_project(config)
     chosen = _target(project, target) if project else None
+    manage = project.manage if project else EVERYTHING
     live = _introspect(
-        _warehouse(warehouse_id, chosen, profile), parts[0], parts[1], parallel
+        _warehouse(warehouse_id, chosen, profile), parts[0], parts[1], parallel, manage
     )
 
     if project is None and config is None and output is None:
@@ -327,7 +341,11 @@ def import_schema(
             text = dump_sql_spec(definition, catalog_variable=variable)
         else:
             path = directory / "_schema.yml"
-            text = MODELINE + "\n" + dump_spec(definition, catalog_variable=variable)
+            text = (
+                MODELINE
+                + "\n"
+                + dump_spec(definition, catalog_variable=variable, manage=manage)
+            )
         path.write_text(text, encoding="utf-8")
         note = f" [dim](YAML: SQL can't say {reason})[/]" if reason else ""
         out.print(f"[green]+[/] {escape(str(path))}{note}")
@@ -357,7 +375,11 @@ def import_schema(
             path = directory / f"{stem}.yml"
             # The first line points an editor at the schema: completion and
             # inline errors from the moment the file is opened.
-            text = MODELINE + "\n" + dump_spec(relation, catalog_variable=variable)
+            text = (
+                MODELINE
+                + "\n"
+                + dump_spec(relation, catalog_variable=variable, manage=manage)
+            )
         path.write_text(text, encoding="utf-8")
         note = f" [dim](YAML: SQL can't say {reason})[/]" if reason else ""
         out.print(f"[green]+[/] {escape(str(path))}{note}")
@@ -601,7 +623,7 @@ def _plan(
     try:
         return plan_tables(
             relations,
-            Introspector(runner, parallel=parallel),
+            Introspector(runner, project.manage, parallel=parallel),
             target=target.name,
             tool_version=package_version(),
             mode_for=lambda schema: project.mode_for(target, schema),
@@ -609,6 +631,7 @@ def _plan(
             clone=clone,
             select=chosen,
             owned_elsewhere=target.owned_by_the_bundle(),
+            manage=project.manage,
         )
     except (PlanningError, IntrospectionError) as error:
         err.print(f"[red]{escape(str(error))}[/]")
@@ -1001,10 +1024,14 @@ def _find_warehouse(client: "WorkspaceClient", name: str) -> str:
 
 
 def _introspect(
-    runner: WarehouseRunner, catalog: str, schema: str, parallel: int = 8
+    runner: WarehouseRunner,
+    catalog: str,
+    schema: str,
+    parallel: int = 8,
+    manage: Manage = EVERYTHING,
 ) -> LiveSchema:
     try:
-        return Introspector(runner, parallel=parallel).schema(catalog, schema)
+        return Introspector(runner, manage, parallel=parallel).schema(catalog, schema)
     except IntrospectionError as error:
         err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error

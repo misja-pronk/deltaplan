@@ -28,6 +28,7 @@ from deltaplan.bundle import (
     read_bundle,
     resolve_target,
 )
+from deltaplan.manage import ASPECT_OF, EVERYTHING, MANAGEABLE, Manage, strip
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
@@ -177,6 +178,8 @@ class Project:
     #: `default: true` here or in the bundle.
     default_target: str | None = None
     bundle: Path | None = None
+    #: What this project leaves to another tool.
+    manage: Manage = EVERYTHING
     #: The targets as `deltaplan.yml` itself declared them, kept so a bundle
     #: target can be merged again when the Databricks CLI answers for it.
     own_targets: tuple[Target, ...] = ()
@@ -263,6 +266,8 @@ class _Ctx:
     #: Leave `${var}` alone. The project file is read before any target is
     #: chosen, so its variables can only be resolved later.
     raw: bool = False
+    #: What this project hands to another tool; those keys are refused here.
+    manage: Manage = EVERYTHING
 
     def loc(self, node: Node) -> Loc:
         mark = node.start_mark
@@ -306,13 +311,26 @@ def _known_keys(
     *,
     allowed: set[str],
     what: str,
+    manage: Manage = EVERYTHING,
 ) -> None:
+    permitted = manage.keys(allowed)
     for key, (_, loc) in items.items():
-        if key not in allowed:
-            options = ", ".join(sorted(allowed))
+        if key in permitted:
+            continue
+        if key in allowed:
+            # A real key, handed to another tool: say that, rather than
+            # pretending deltaplan never heard of it.
+            aspect = ASPECT_OF[key]
             raise SpecError(
-                f"unknown key {key!r} in {what} (expected one of: {options})", loc
+                f"{key!r} isn't deltaplan's in this project: deltaplan.yml has "
+                f"`manage.{aspect}: false`, so {aspect} are set somewhere else. "
+                "Remove the key here, or manage them with deltaplan",
+                loc,
             )
+        options = ", ".join(sorted(permitted))
+        raise SpecError(
+            f"unknown key {key!r} in {what} (expected one of: {options})", loc
+        )
 
 
 def _require(
@@ -521,7 +539,7 @@ def _read_map(ctx: _Ctx, node: Node) -> Map:
 
 def _read_field(ctx: _Ctx, node: Node) -> Field:
     items = _mapping(ctx, node, "a field")
-    _known_keys(items, allowed=FIELD_KEYS, what="a field")
+    _known_keys(items, allowed=FIELD_KEYS, what="a field", manage=ctx.manage)
     name = _string(ctx, _require(ctx, items, node, "name", "a field"), "field name")
     field_type = _read_type(
         ctx, _require(ctx, items, node, "type", f"field {name!r}"), f"type of {name!r}"
@@ -741,6 +759,7 @@ def load_spec(
     path: Path,
     variables: Mapping[str, str] | None = None,
     unresolved: Mapping[str, str] | None = None,
+    manage: Manage = EVERYTHING,
 ) -> Relation:
     """Read one spec file: a table, or — with a `view:` or `function:` key — one
     of those. A `.sql` file is a CREATE statement, read by `deltaplan.sqlspec`."""
@@ -753,6 +772,7 @@ def load_spec(
         path,
         tuple(sorted((variables or {}).items())),
         tuple(sorted((unresolved or {}).items())),
+        manage=manage,
     )
     node = _compose(path)
     if node is None:
@@ -805,7 +825,7 @@ VOLUME_KEYS = {"volume", "comment", "tags", "grants", "owner"}
 
 
 def _read_volume_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Volume:
-    _known_keys(items, allowed=VOLUME_KEYS, what="a volume spec")
+    _known_keys(items, allowed=VOLUME_KEYS, what="a volume spec", manage=ctx.manage)
     name = _string(ctx, items["volume"][0], "volume name")
     comment = _string(ctx, items["comment"][0], "comment") if "comment" in items else None
     tags: tuple[tuple[str, str], ...] = ()
@@ -821,7 +841,7 @@ def _read_volume_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Volume:
 
 
 def _read_schema_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Schema:
-    _known_keys(items, allowed=SCHEMA_KEYS, what="a schema spec")
+    _known_keys(items, allowed=SCHEMA_KEYS, what="a schema spec", manage=ctx.manage)
     name = _string(ctx, items["schema"][0], "schema name")
     comment = _string(ctx, items["comment"][0], "comment") if "comment" in items else None
     tags: tuple[tuple[str, str], ...] = ()
@@ -839,7 +859,7 @@ def _read_schema_spec(ctx: _Ctx, items: dict[str, tuple[Node, Loc]]) -> Schema:
 def _read_function_spec(
     ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]
 ) -> Function:
-    _known_keys(items, allowed=FUNCTION_KEYS, what="a function spec")
+    _known_keys(items, allowed=FUNCTION_KEYS, what="a function spec", manage=ctx.manage)
     name = _string(ctx, items["function"][0], "function name")
     parameters: list[Parameter] = []
     if "parameters" in items:
@@ -878,7 +898,7 @@ def _read_function_spec(
 
 
 def _read_view(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> View:
-    _known_keys(items, allowed=VIEW_KEYS, what="a view spec")
+    _known_keys(items, allowed=VIEW_KEYS, what="a view spec", manage=ctx.manage)
     name = _string(ctx, items["view"][0], "view name")
     query = _string(ctx, _require(ctx, items, node, "query", "a view spec"), "query")
     if not query.strip():
@@ -913,7 +933,7 @@ def _read_view(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Vie
 
 
 def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Table:
-    _known_keys(items, allowed=TABLE_KEYS, what="a spec")
+    _known_keys(items, allowed=TABLE_KEYS, what="a spec", manage=ctx.manage)
 
     name = _string(ctx, _require(ctx, items, node, "table", "a spec"), "table name")
     columns_node = _require(ctx, items, node, "columns", "a spec")
@@ -1038,7 +1058,15 @@ def _read_grants(
 # project config
 # ---------------------------------------------------------------------------
 
-CONFIG_KEYS = {"version", "specs", "targets", "history_schema", "schemas", "bundle"}
+CONFIG_KEYS = {
+    "version",
+    "specs",
+    "targets",
+    "history_schema",
+    "schemas",
+    "bundle",
+    "manage",
+}
 TARGET_KEYS = {"vars", "warehouse_id", "mode", "profile", "default"}
 
 
@@ -1128,6 +1156,8 @@ def load_project(path: Path, environ: Mapping[str, str] | None = None) -> Projec
                 )
             schema_modes.append((schema, _read_mode(ctx, mode_node)))
 
+    manage = _read_manage(ctx, items["manage"][0]) if "manage" in items else EVERYTHING
+
     return Project(
         root=root,
         spec_paths=spec_paths,
@@ -1137,6 +1167,7 @@ def load_project(path: Path, environ: Mapping[str, str] | None = None) -> Projec
         default_target=default_target,
         bundle=bundle_path,
         own_targets=own_targets,
+        manage=manage,
     )
 
 
@@ -1213,6 +1244,25 @@ def _from_bundle(entry: BundleTarget, own: Target | None) -> Target:
     )
 
 
+def _read_manage(ctx: _Ctx, node: Node) -> Manage:
+    """`manage:` — what deltaplan looks after here, and what it leaves alone.
+
+    Everything is managed unless this says otherwise, so a project that says
+    nothing behaves as it always did.
+    """
+    elsewhere: list[str] = []
+    for aspect, (value_node, key_loc) in _mapping(ctx, node, "manage").items():
+        if aspect not in MANAGEABLE:
+            known = ", ".join(sorted(MANAGEABLE))
+            raise SpecError(
+                f"deltaplan can't hand over {aspect!r} (it can hand over: {known})",
+                key_loc,
+            )
+        if not _bool(ctx, value_node, f"manage.{aspect}"):
+            elsewhere.append(aspect)
+    return Manage(tuple(sorted(elsewhere)))
+
+
 def _read_mode(ctx: _Ctx, node: Node) -> Mode:
     raw = _string(ctx, node, "mode")
     if raw not in {"additive", "strict"}:
@@ -1259,7 +1309,7 @@ def load_specs(project: Project, target: Target) -> tuple[LoadedSpec, ...]:
     variables = target.variables_map()
     unresolved = target.unresolved_map()
     return tuple(
-        LoadedSpec(path, load_spec(path, variables, unresolved))
+        LoadedSpec(path, load_spec(path, variables, unresolved, project.manage))
         for path in spec_files(project)
     )
 
@@ -1588,14 +1638,21 @@ def _with_catalog_variable(
     return document
 
 
-def dump_spec(table: Relation, *, catalog_variable: str | None = None) -> str:
+def dump_spec(
+    table: Relation,
+    *,
+    catalog_variable: str | None = None,
+    manage: Manage = EVERYTHING,
+) -> str:
     """Render a table or view as a spec file, the way `import` writes it.
 
     Types are written in the string notation, which carries nested comments and
     nullability, so the result round-trips through `load_table` unchanged.
     `catalog_variable` puts the catalog back behind a `${var}`, so one imported
-    spec serves every target.
+    spec serves every target. `manage` leaves out what this project hands to
+    another tool, so `import` never writes a key `validate` would refuse.
     """
+    table = strip(table, manage)
     name = table.name
     if catalog_variable:
         _, _, rest = name.partition(".")
