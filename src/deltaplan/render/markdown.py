@@ -20,6 +20,7 @@ from deltaplan.render.labels import (
     describe,
     display_name,
     human_bytes,
+    listed,
     table_verb,
 )
 
@@ -253,6 +254,15 @@ def _left_alone(plan: Plan) -> list[str]:
     if plan.unmanaged_tables:
         names = ", ".join(_code(display_name(n)) for n in plan.unmanaged_tables)
         lines += [f"<sub>Unmanaged, left untouched: {names}</sub>", ""]
+    if plan.not_managed:
+        # A reviewer should be able to tell what this plan could not have
+        # changed, not just what it will.
+        names = listed([_code(aspect) for aspect in plan.not_managed])
+        lines += [
+            f"<sub>{names} are managed elsewhere: deltaplan doesn't read or "
+            "change them here.</sub>",
+            "",
+        ]
     return lines
 
 

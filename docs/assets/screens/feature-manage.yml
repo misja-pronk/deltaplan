@@ -1,0 +1,12 @@
+version: 1
+specs: [tables]
+history_schema: ${catalog}.deltaplan
+
+targets:
+  dev:
+    vars:
+      catalog: dev
+
+manage:
+  grants: false
+  tags: false

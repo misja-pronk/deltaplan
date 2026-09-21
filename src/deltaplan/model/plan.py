@@ -158,6 +158,12 @@ class Plan:
     #: Tables deltaplan created whose spec has gone, in a schema that is
     #: additive — so they stay. In a strict schema they would be dropped.
     orphaned_tables: tuple[str, ...] = ()
+    #: What this project hands to another tool (`manage:` in deltaplan.yml).
+    #: Said out loud, so a reviewer knows what this plan could not have changed.
+    not_managed: tuple[str, ...] = ()
+    #: What this project hands to another tool (`manage:` in deltaplan.yml).
+    #: Said out loud, so a reviewer knows what this plan could not have changed.
+    not_managed: tuple[str, ...] = ()
 
     @property
     def changes(self) -> tuple[Change, ...]:

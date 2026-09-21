@@ -140,6 +140,27 @@ allowed to change the table.
 [Column tags →](spec.md#column-tags) · [Removing a tag →](spec.md#removing-a-tag-or-a-property) ·
 [Grants →](spec.md#grants) · [Owners →](spec.md#owners)
 
+## Handing something to another tool
+
+Plenty of teams already have something that owns part of a table: a policy framework
+that sets grants, a catalogue that writes the tags an ABAC rule reads. Two tools writing
+the same thing is how a Monday starts with a table nobody recognises — so `manage:` draws
+the line, and deltaplan stays on its side of it.
+
+```yaml title="deltaplan.yml"
+--8<-- "assets/screens/feature-manage.yml"
+```
+
+A key that isn't deltaplan's is refused where you write it, not ignored later:
+
+![A spec using a key another tool owns](assets/screens/feature-manage.svg)
+
+And the plan says what it could not have touched, so a reviewer doesn't have to guess:
+
+![A plan that leaves grants and tags alone](assets/screens/feature-manage-plan.svg)
+
+[What can be handed over →](spec.md#what-deltaplan-manages)
+
 ## Masks and row filters
 
 A column mask or row filter points at a SQL function, which can be a

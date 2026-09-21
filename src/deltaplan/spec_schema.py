@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from deltaplan import loader
+from deltaplan.manage import EVERYTHING, MANAGEABLE, Manage
 from deltaplan.sql import (
     FUNCTION_PRIVILEGES,
     SCHEMA_PRIVILEGES,
@@ -46,9 +47,15 @@ def _object(
     *,
     required: Iterable[str] = (),
     description: str | None = None,
+    manage: Manage = EVERYTHING,
 ) -> Schema:
-    """A closed object, as strict as the loader: unknown keys are errors."""
-    keys = set(keys)
+    """A closed object, as strict as the loader: unknown keys are errors.
+
+    `manage` drops what this project hands to another tool, exactly as the
+    loader drops it from the keys it accepts.
+    """
+    keys = manage.keys(set(keys))
+    properties = {key: value for key, value in properties.items() if key in keys}
     missing = keys - set(properties)
     extra = set(properties) - keys
     if missing or extra:  # pragma: no cover - a programming error, caught by tests
@@ -126,8 +133,12 @@ SETTABLE_MAP: Schema = {
 NAMES: Schema = {"type": "array", "items": {"type": "string"}}
 
 
-def spec_schema() -> Schema:
-    """The schema for a YAML table, view or function spec."""
+def spec_schema(manage: Manage = EVERYTHING) -> Schema:
+    """The schema for a YAML table, view or function spec.
+
+    `manage` leaves out what this project hands to another tool, so an editor
+    stops offering a key that `validate` would refuse.
+    """
     defs: dict[str, Schema] = {}
     defs["type"] = {
         "description": (
@@ -217,6 +228,7 @@ def spec_schema() -> Schema:
             ),
         },
         required={"name", "type"},
+        manage=manage,
     )
     constraint = {
         "oneOf": [
@@ -307,6 +319,7 @@ def spec_schema() -> Schema:
         },
         required={"table", "columns"},
         description="A Delta table.",
+        manage=manage,
     )
     view = _object(
         loader.VIEW_KEYS,
@@ -321,6 +334,7 @@ def spec_schema() -> Schema:
         },
         required={"view", "query"},
         description="A view.",
+        manage=manage,
     )
     function = _object(
         loader.FUNCTION_KEYS,
@@ -342,6 +356,7 @@ def spec_schema() -> Schema:
         },
         required={"function", "returns", "body"},
         description="A SQL function.",
+        manage=manage,
     )
     schema = _object(
         loader.SCHEMA_KEYS,
@@ -354,6 +369,7 @@ def spec_schema() -> Schema:
         },
         required={"schema"},
         description="A schema: its comment, tags and grants. Never dropped.",
+        manage=manage,
     )
     volume = _object(
         loader.VOLUME_KEYS,
@@ -366,6 +382,7 @@ def spec_schema() -> Schema:
         },
         required={"volume"},
         description="A managed volume: its comment, tags and grants. Never dropped.",
+        manage=manage,
     )
     return {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -411,6 +428,18 @@ def project_schema() -> Schema:
                     "additionalProperties": mode,
                 },
                 "bundle": _text("A databricks.yml whose targets to use."),
+                "manage": {
+                    "type": "object",
+                    "description": (
+                        "What deltaplan looks after here. Everything is managed "
+                        "unless it says otherwise; false hands it to another tool, "
+                        "and the key is then refused in a spec."
+                    ),
+                    "properties": {
+                        aspect: {"type": "boolean"} for aspect in sorted(MANAGEABLE)
+                    },
+                    "additionalProperties": False,
+                },
             },
         ),
     }

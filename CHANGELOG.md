@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`manage:` — what deltaplan looks after here, and what belongs to another
+  tool.** Teams often already have something that owns part of a table: a policy
+  framework that sets grants, a catalogue that writes the tags an ABAC rule
+  reads. `manage: {grants: false, tags: false}` in `deltaplan.yml` hands those
+  over: the key is refused in a spec where you write it, left out of the
+  editors' JSON Schema, never written by `import`, and never in a plan — and for
+  grants the workspace isn't even asked. `grants`, `tags`, `owner`,
+  `properties`, `masks` and `row_filters` can be handed over; a table's shape
+  can't. What is handed over is still *read* where not reading it would destroy
+  it: a masked table still refuses a rewrite, and a renamed column's tags are
+  still put back after one. A plan says what it could not have changed, in the
+  terminal and in the pull-request comment.
+
 ## [0.1.0a9] - 2026-09-20
 
 A bundle resolves the way a deploy does, and rebuilding a table costs one pass

@@ -54,6 +54,7 @@ def plan_to_dict(plan: Plan) -> dict[str, Any]:
             "highest_risk": plan.highest_risk,
         },
         "unmanaged_tables": list(plan.unmanaged_tables),
+        "not_managed": list(plan.not_managed),
         "orphaned_tables": list(plan.orphaned_tables),
         "tables": [_diff_to_dict(diff) for diff in plan.diffs],
         "steps": [_step_to_dict(step) for step in plan.steps],
@@ -339,6 +340,7 @@ def plan_from_dict(document: dict[str, Any]) -> Plan:
             diffs=tuple(_diff_from_dict(entry) for entry in document["tables"]),
             steps=tuple(_step_from_dict(entry) for entry in document["steps"]),
             unmanaged_tables=tuple(document.get("unmanaged_tables", ())),
+            not_managed=tuple(document.get("not_managed", ())),
             orphaned_tables=tuple(document.get("orphaned_tables", ())),
         )
     except (KeyError, TypeError, ValueError) as error:

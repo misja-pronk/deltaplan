@@ -38,6 +38,7 @@ from deltaplan.differ import (
 )
 from deltaplan.introspect import Introspector, LiveSchema, LiveTable
 from deltaplan.loader import Mode
+from deltaplan.manage import EVERYTHING, Manage
 from deltaplan.model.change import Change
 from deltaplan.model.function import Function
 from deltaplan.model.plan import Plan, TableDiff, TableFacts, fingerprint
@@ -63,6 +64,7 @@ def plan_tables(
     clone: bool = False,
     select: Callable[[str], bool] | None = None,
     owned_elsewhere: Mapping[str, str] | None = None,
+    manage: Manage = EVERYTHING,
 ) -> Plan:
     """Plan every function, table and view against live state.
 
@@ -273,6 +275,7 @@ def plan_tables(
         built,
         unmanaged_tables=tuple(sorted(unmanaged_tables)),
         orphaned_tables=tuple(sorted(orphaned_tables)),
+        not_managed=manage.elsewhere,
     )
 
 
