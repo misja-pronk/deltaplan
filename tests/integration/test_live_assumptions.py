@@ -279,8 +279,15 @@ def test_liquid_clustering_takes_four_keys(runner: WarehouseRunner, schema: str)
 # ---------------------------------------------------------------------------
 
 
-def test_undrop_brings_back_a_managed_table(runner: WarehouseRunner, schema: str) -> None:
-    """The undo hint on DROP TABLE."""
+def test_undrop_brings_back_a_managed_table(
+    runner: WarehouseRunner, recoverable_schema: str
+) -> None:
+    """The undo hint on DROP TABLE.
+
+    In a schema that keeps what it drops: the suite's usual schemas don't, so
+    they don't hold the metastore's table quota for a week.
+    """
+    schema = recoverable_schema
     name = quote_qualified(f"{schema}.u")
     runner.query(create_table_sql(table(col("id", "int"), name=f"{schema}.u")))
     runner.query(f"INSERT INTO {name} VALUES (1)")

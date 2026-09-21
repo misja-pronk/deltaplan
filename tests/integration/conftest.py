@@ -164,5 +164,23 @@ def schema(runner: WarehouseRunner, catalog: str) -> Iterator[str]:
 
 
 @pytest.fixture
+def recoverable_schema(runner: WarehouseRunner, catalog: str) -> Iterator[str]:
+    """A schema that keeps what it drops — for the one test about `UNDROP`.
+
+    The ordinary `schema` fixture turns the recovery period off, so the suite
+    stops filling the metastore's table quota with tables nobody can see.
+    `UNDROP` is the one thing that needs that period, so this schema keeps the
+    default seven days: it makes one table, once a night.
+    """
+    name = f"deltaplan_it_{uuid.uuid4().hex[:8]}"
+    full = f"{catalog}.{name}"
+    runner.query(f"CREATE SCHEMA {quote_qualified(full)}")
+    try:
+        yield full
+    finally:
+        runner.query(f"DROP SCHEMA {quote_qualified(full)} CASCADE")
+
+
+@pytest.fixture
 def introspector(runner: WarehouseRunner) -> Introspector:
     return Introspector(runner)
