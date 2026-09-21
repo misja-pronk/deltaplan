@@ -24,9 +24,12 @@ on:
         default: ""
 
 concurrency:
-  # A new push to a pull request makes its running suite moot.
-  group: integration-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # One suite at a time, across every pull request and the nightly run: the
+  # workspace allows a single active DBSQL pipeline, so two suites racing means
+  # the materialized-view test fails on the other one's pipeline. A second run
+  # waits instead, and a third replaces the one that is waiting.
+  group: integration
+  cancel-in-progress: false
 
 jobs:
   integration:
