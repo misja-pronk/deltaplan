@@ -26,7 +26,7 @@ from deltaplan.render.markdown import render_markdown
 from deltaplan.render.rich import plan_text
 from deltaplan.spec_schema import spec_schema
 from fake_warehouse import FakeWarehouse
-from helpers import col, table
+from helpers import col, run, table
 
 NAME = "main.sales.orders"
 MANAGED = ((MANAGED_PROPERTY, "true"),)
@@ -180,3 +180,39 @@ def test_handing_something_over_does_not_make_deltaplan_blind() -> None:
     fake = FakeWarehouse.of(masked)
     live = Introspector(fake, Manage(("masks",))).schema("main", "sales")
     assert live.tables[0].table.protected, "a live masked table is still masked"
+
+
+def test_handing_properties_over_keeps_the_ownership_marker() -> None:
+    """The marker that says a table is deltaplan's is a property itself.
+
+    Handing `properties` to another tool must not hand that over too, or
+    deltaplan would lose track of which tables are its to manage.
+    """
+    manage = Manage(("properties",))
+    fake = FakeWarehouse()
+    fake.schemas.add("main.sales")
+    desired = table(col("id", "bigint"), name=NAME)
+    plan = plan_tables(
+        [desired],
+        Introspector(fake, manage),
+        target="dev",
+        tool_version="0",
+        manage=manage,
+    )
+    [step] = plan.steps
+    assert MANAGED_PROPERTY in (step.sql or ""), "a new table still says it is ours"
+    run(plan, fake)
+    assert fake.tables[NAME].properties_map()[MANAGED_PROPERTY] == "true"
+    # And a table made by someone else is still claimed, not silently adopted.
+    fake.tables["main.sales.theirs"] = replace(
+        fake.tables[NAME], name="main.sales.theirs", properties=()
+    )
+    theirs = table(col("id", "bigint"), name="main.sales.theirs")
+    claim = plan_tables(
+        [theirs],
+        Introspector(fake, manage),
+        target="dev",
+        tool_version="0",
+        manage=manage,
+    )
+    assert [change.kind for change in claim.changes] == ["claim_table"]
