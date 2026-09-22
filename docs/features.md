@@ -143,7 +143,8 @@ allowed to change the table.
 ## Handing something to another tool
 
 Plenty of teams already have something that owns part of a table: a policy framework
-that sets grants, a catalogue that writes the tags an ABAC rule reads. Two tools writing
+that sets grants, a catalogue that writes the tags an ABAC rule reads, a data contract
+that owns every description. Two tools writing
 the same thing is how a Monday starts with a table nobody recognises — so `manage:` draws
 the line, and deltaplan stays on its side of it.
 

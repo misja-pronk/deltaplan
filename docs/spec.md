@@ -79,13 +79,17 @@ manage:
   tags: false        # and the tags its ABAC rules read
 ```
 
-What can be handed over: `grants`, `tags`, `owner`, `properties`, `masks` and
-`row_filters`. The shape of a table — its columns, types, constraints, partitioning —
-can't: that is what deltaplan is for.
+What can be handed over: `grants`, `tags`, `owner`, `properties`, `comments`, `masks`
+and `row_filters`. The shape of a table — its columns, types, constraints,
+partitioning — can't: that is what deltaplan is for.
 
 Handing one over means the key is refused in a spec (where you write it, with the line
 number), left out of the editors' JSON Schema, never written by `import`, and never in a
 plan. For grants it also means the workspace isn't asked about them at all.
+
+`comments` is worth a word: a spec that says nothing about a comment normally means
+*remove it*, so handing comments over also stops deltaplan comparing them — a
+description its owner wrote stays exactly as written.
 
 It does **not** mean deltaplan forgets they exist. It still reads what it must not
 destroy: a table with a column mask still refuses a rewrite, and a renamed column's tags
