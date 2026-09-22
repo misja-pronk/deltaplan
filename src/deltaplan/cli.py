@@ -19,6 +19,7 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
+from deltaplan.bundle import BundleError
 from deltaplan.executor import (
     DestructiveRefused,
     ExecutionError,
@@ -915,16 +916,18 @@ def _from_here(path: Path) -> Path:
 
 
 def _target(project: Project, name: str | None) -> Target:
-    if name is None:
-        if project.default_target is not None:
-            return _named(project, project.default_target)
+    if name is None and project.default_target is None:
         known = ", ".join(t.name for t in project.targets) or "none defined"
         err.print(f"[red]Pick a target with -t (known: {known}).[/]")
         raise typer.Exit(1)
     try:
-        return _named(project, name)
+        return _named(project, name or str(project.default_target))
     except KeyError as error:
         err.print(f"[red]{escape(str(error.args[0]))}[/]")
+        raise typer.Exit(1) from error
+    except BundleError as error:
+        # The Databricks CLI answered with an error; it is the error.
+        err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
 
 
