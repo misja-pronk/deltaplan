@@ -31,7 +31,9 @@ making one: `render_plan` for a terminal, `render_markdown` for a pull request,
 
 from __future__ import annotations
 
+from deltaplan.api import NoHistory, apply, drift, is_stale, plan, validate
 from deltaplan.bundle import Bundle, BundleError, BundleTarget
+from deltaplan.connect import Connection, NotConnected
 from deltaplan.errors import DeltaplanError
 from deltaplan.executor import (
     DestructiveRefused,
@@ -81,15 +83,18 @@ from deltaplan.render.rich import plan_text, render_plan
 
 __all__ = [
     "__version__",
+    "apply",
     "Bundle",
     "BundleError",
     "BundleTarget",
     "Check",
     "Column",
+    "Connection",
     "DeltaHistory",
     "DeltaplanError",
     "DestructiveRefused",
     "Diagnostic",
+    "drift",
     "dump_spec",
     "ExecutionError",
     "ExecutionResult",
@@ -101,6 +106,7 @@ __all__ = [
     "HistoryStore",
     "IntrospectionError",
     "Introspector",
+    "is_stale",
     "load_project",
     "load_spec",
     "load_specs",
@@ -109,6 +115,9 @@ __all__ = [
     "MANAGEABLE",
     "Mask",
     "MemoryHistory",
+    "NoHistory",
+    "NotConnected",
+    "plan",
     "Plan",
     "plan_from_json",
     "plan_tables",
@@ -135,6 +144,7 @@ __all__ = [
     "TableDiff",
     "TableFacts",
     "Target",
+    "validate",
     "validate_spec",
     "View",
     "Volume",

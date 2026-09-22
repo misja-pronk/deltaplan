@@ -21,7 +21,7 @@ It makes narrower ones, and they are what the design asks for:
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from deltaplan.differ import is_applied
@@ -292,14 +292,7 @@ class Executor:
         current = fingerprint(self._live.get(name) for name in _read_from(plan))
         if current == plan.state_fingerprint:
             return
-        # Which ones moved: the plan carries the live state it was built from,
-        # so a name is better than a pair of hashes nobody can act on.
-        moved = tuple(
-            diff.table
-            for diff in plan.diffs
-            if fingerprint([diff.live])
-            != fingerprint([self._live.get(diff.live.name if diff.live else diff.table)])
-        )
+        moved = _moved(plan, self._live)
         named = f" ({', '.join(moved)})" if moved else ""
         raise StalePlan(
             f"the live tables have changed since this plan was made{named}. "
@@ -322,6 +315,30 @@ def _is_true(value: object) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() == "true"
+
+
+def stale_tables(plan: Plan, introspector: Introspector) -> tuple[str, ...]:
+    """The tables that have moved since this plan was made, read fresh.
+
+    Empty means the plan still describes the world it was made in, which is
+    what `apply` insists on. Asking first lets a host plan again rather than
+    put a stale plan to a person.
+    """
+    return _moved(plan, introspector.tables(_read_from(plan)))
+
+
+def _moved(plan: Plan, live: Mapping[str, Relation | None]) -> tuple[str, ...]:
+    """Which tables differ from the live state the plan was built against.
+
+    The plan carries that state, so a name is better than a pair of hashes
+    nobody can act on.
+    """
+    return tuple(
+        diff.table
+        for diff in plan.diffs
+        if fingerprint([diff.live])
+        != fingerprint([live.get(diff.live.name if diff.live else diff.table)])
+    )
 
 
 def _read_from(plan: Plan) -> list[str]:

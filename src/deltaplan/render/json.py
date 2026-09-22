@@ -12,6 +12,7 @@ the same order, and a missing entry would make a valid plan look stale.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any, Literal
 
 from deltaplan.errors import DeltaplanError
@@ -345,7 +346,10 @@ def plan_from_dict(document: dict[str, Any]) -> Plan:
             target=str(document["target"]),
             spec_hash=str(document["spec_hash"]),
             state_fingerprint=str(document["state_fingerprint"]),
-            diffs=tuple(_diff_from_dict(entry) for entry in document["tables"]),
+            diffs=_diffs_with_steps(
+                tuple(_diff_from_dict(entry) for entry in document["tables"]),
+                tuple(_step_from_dict(entry) for entry in document["steps"]),
+            ),
             steps=tuple(_step_from_dict(entry) for entry in document["steps"]),
             unmanaged_tables=tuple(document.get("unmanaged_tables", ())),
             not_managed=tuple(document.get("not_managed", ())),
@@ -353,6 +357,20 @@ def plan_from_dict(document: dict[str, Any]) -> Plan:
         )
     except (KeyError, TypeError, ValueError) as error:
         raise PlanFileError(f"malformed plan file: {error}") from error
+
+
+def _diffs_with_steps(
+    diffs: tuple[TableDiff, ...], steps: tuple[Step, ...]
+) -> tuple[TableDiff, ...]:
+    """Each table's steps back on its diff.
+
+    The file keeps one list of steps, each naming its table; a plan read back
+    should be the plan that was written, down to `diff.steps`.
+    """
+    return tuple(
+        replace(diff, steps=tuple(s for s in steps if s.table == diff.table))
+        for diff in diffs
+    )
 
 
 def _diff_from_dict(entry: dict[str, Any]) -> TableDiff:

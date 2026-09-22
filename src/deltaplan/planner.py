@@ -142,13 +142,19 @@ def build_plan(
     for diff in diffs:
         planner.plan_table(diff)
     planner.finish()
+    steps = tuple(planner.steps)
     return Plan(
         tool_version=tool_version,
         target=target,
         spec_hash=spec_hash,
         state_fingerprint=state_fingerprint,
-        diffs=tuple(diffs),
-        steps=tuple(planner.steps),
+        # Each table keeps the steps that were made for it, so a caller can ask
+        # a diff what it will cost without matching names against a flat list.
+        diffs=tuple(
+            replace(diff, steps=tuple(s for s in steps if s.table == diff.table))
+            for diff in diffs
+        ),
+        steps=steps,
     )
 
 
