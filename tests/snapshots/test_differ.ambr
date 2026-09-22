@@ -43,6 +43,7 @@
         ),
         renamed_from=None,
         row_filter=None,
+        seed=None,
         tags=tuple(
         ),
       ),

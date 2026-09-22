@@ -11,7 +11,7 @@ from typing import Literal, TypeAlias
 
 from deltaplan.model.function import Function
 from deltaplan.model.schema import Schema
-from deltaplan.model.table import Constraint, RowFilter, Table
+from deltaplan.model.table import Constraint, RowFilter, Seed, Table
 from deltaplan.model.types import DataType, Field, Identity, Mask
 from deltaplan.model.view import View
 from deltaplan.model.volume import Volume
@@ -32,6 +32,7 @@ ChangeKind: TypeAlias = Literal[
     "set_table_comment",
     "set_cluster_by",
     "set_partitioning",
+    "load_seed",
     "set_property",
     "unset_property",
     "set_tag",
@@ -95,6 +96,7 @@ ChangeValue: TypeAlias = (
     | Volume
     | Mask
     | RowFilter
+    | Seed
     | Identity
 )
 

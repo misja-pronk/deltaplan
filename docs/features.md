@@ -97,6 +97,24 @@ single statement: [the data is written once](safety.md#a-rewrite-that-converts-n
 A spec that leaves `partitioned_by` out keeps the table's partitions, so nothing is
 rewritten by surprise. [Partitioning →](spec.md#partitioning)
 
+## Seeds
+
+The other half of the setup notebook: the table, and the handful of rows that belong in
+it. A CSV beside the spec, or a few rows written out in it — either way the file is the
+truth, and applying it replaces what the table holds.
+
+```yaml title="tables/countries.yml"
+table: ${catalog}.reference.countries
+columns:
+  - {name: code, type: string, nullable: false}
+  - {name: name, type: string}
+seed: countries.csv
+```
+
+The plan compares a hash the loaded table carries, so it costs nothing to ask and says
+*seed 2 rows from countries.csv* instead of printing them.
+[Seeds →](spec.md#seeds)
+
 ## Constraints
 
 Primary keys, foreign keys and CHECKs. Keys are informational in Unity Catalog; a CHECK

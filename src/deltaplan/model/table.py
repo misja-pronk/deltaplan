@@ -6,6 +6,7 @@ never needs to know which came from where.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import TypeAlias
 
@@ -14,6 +15,11 @@ from deltaplan.model.types import Array, Column, DataType, Field, Map, Struct
 #: Set on every table deltaplan creates. Only tables carrying it can ever become
 #: drop candidates; everything else is reported as unmanaged and left alone.
 MANAGED_PROPERTY = "deltaplan.managed"
+
+#: The digest of the rows a seeded table was last loaded with. Comparing this
+#: with the spec's is how deltaplan knows a seed changed without reading a
+#: single row back.
+SEED_PROPERTY = "deltaplan.seed"
 
 #: Delta table features deltaplan turns on itself, as prerequisites for a change
 #: that needs them. A spec doesn't list them, and reporting them as unmanaged
@@ -82,7 +88,7 @@ def is_bookkeeping(key: str) -> bool:
         or key.startswith(INTERNAL_PROPERTY_PREFIXES)
         or key.endswith(".internal")
         or key.startswith(FEATURE_FLAG_PREFIX)
-        or key == MANAGED_PROPERTY
+        or key in (MANAGED_PROPERTY, SEED_PROPERTY)
         or key in PREREQUISITE_PROPERTIES
         or key.startswith(CHECK_PROPERTY_PREFIX)
     )
@@ -151,6 +157,42 @@ class RowFilter:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "function", self.function.lower())
+
+
+@dataclass(frozen=True, slots=True)
+class Seed:
+    """The rows a table's spec declares — reference data, kept in the repo.
+
+    A seed is the table's whole content, not an addition to it: applying one
+    replaces what is there. That is what makes it comparable at all. Rows are
+    held as text and rendered as literals of each column's declared type when
+    the statement is built, so a spec can't smuggle SQL in through a value.
+
+    `digest` is what the plan compares — the rows themselves never go near a
+    diff, because a plan that printed five hundred of them would tell nobody
+    anything.
+    """
+
+    columns: tuple[str, ...] = ()
+    rows: tuple[tuple[str | None, ...], ...] = ()
+    #: Where it came from, for the message when something in it is wrong.
+    source: str | None = field(default=None, compare=False)
+
+    @property
+    def digest(self) -> str:
+        """A short hash of the rows, as they will be loaded.
+
+        Over the values, not the file: reformatting a CSV, or moving the same
+        rows into the spec, is not a change to the table.
+        """
+        canonical = "\n".join(
+            "\x1f".join("\x00" if value is None else value for value in row)
+            for row in (self.columns, *self.rows)
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+    def __len__(self) -> int:
+        return len(self.rows)
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,6 +312,9 @@ class Table(Securable):
     constraints: tuple[Constraint, ...] = ()
     grants: tuple[Grant, ...] = ()
     row_filter: RowFilter | None = None
+    #: Reference data this table is loaded with. Compared through its digest,
+    #: which a loaded table carries as a property — never row by row.
+    seed: Seed | None = field(default=None, compare=False)
     #: Not state: nothing in the catalog records them, so they take no part in
     #: comparing a spec with a live table.
     hooks: Hooks | None = field(default=None, compare=False)

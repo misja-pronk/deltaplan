@@ -34,12 +34,14 @@ from deltaplan.model.table import (
     COLUMN_MAPPING_PROPERTY,
     DEFAULTS_FEATURE,
     MANAGED_PROPERTY,
+    SEED_PROPERTY,
     TYPE_WIDENING_PROPERTY,
     Check,
     ForeignKey,
     PrimaryKey,
     RowFilter,
     Securable,
+    Seed,
     Table,
     default_foreign_key_name,
     default_primary_key_name,
@@ -58,6 +60,7 @@ from deltaplan.model.types import (
     as_data_type,
     contains_timestamp_ntz,
     render_type,
+    seed_literal,
     type_kind,
     walk,
 )
@@ -170,6 +173,8 @@ class _Planner:
 
     def __init__(self, *, clone_suffix: str | None = None) -> None:
         self._kind: str = "table"
+        #: The table being planned, for a step that needs its column types.
+        self._desired: Table | None = None
         self._clone_suffix = clone_suffix
         self._cloned: set[str] = set()
         self._existing: set[str] = set()
@@ -365,6 +370,9 @@ class _Planner:
         if table_diff.facts.exists and table_diff.live is not None:
             self._existing.add(table_diff.table)
         self._kind = table_diff.facts.kind
+        self._desired = (
+            table_diff.desired if isinstance(table_diff.desired, Table) else None
+        )
         hooks = (
             table_diff.desired.hooks if isinstance(table_diff.desired, Table) else None
         )
@@ -797,10 +805,53 @@ class _Planner:
                 self._create_volume(change, facts)
             case "set_volume_comment":
                 self._securable_comment(change, "VOLUME")
+            case "load_seed":
+                self._load_seed(change, facts)
             case "drop_table":
                 self._drop_table(change, facts)
             case _:
                 assert_never(change.kind)
+
+    def _load_seed(self, change: Change, facts: TableFacts) -> None:
+        """Load a table's reference data, then record what it was loaded with.
+
+        `INSERT OVERWRITE` because a seed is the table's whole content: rows
+        that are there and not in the file have to go, or the file stops being
+        the truth. On a table that already holds rows that destroys some, so
+        the step says so and a restore point is recorded before it runs.
+
+        The digest is written in a second step, after the load: a table that
+        failed to load must not claim to hold rows it never got.
+        TODO(verify): that `INSERT OVERWRITE t (cols) VALUES …` is accepted with
+        a column list — `tests/integration/test_live_seeds.py` settles it.
+        https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-dml-insert-into
+        """
+        seed = change.after
+        if not isinstance(seed, Seed) or self._desired is None:
+            return  # pragma: no cover - the differ only makes these with both
+        self.emit(
+            change.table,
+            "LOAD SEED",
+            "destructive" if facts.exists else "rewrite",
+            sql=seed_sql(change.table, seed, self._desired),
+            est_bytes=facts.size_bytes if facts.exists else None,
+            undo_hint=_restore_hint(facts),
+            note=count_rows(seed),
+            warnings=(
+                ("replaces every row in the table: a seed is its whole content",)
+                if facts.exists
+                else ()
+            ),
+        )
+        self.emit(
+            change.table,
+            "RECORD SEED",
+            "meta",
+            sql=(
+                f"ALTER TABLE {quote_qualified(change.table)} SET TBLPROPERTIES (\n"
+                f"  {quote_literal(SEED_PROPERTY)} = {quote_literal(seed.digest)}\n)"
+            ),
+        )
 
     # -- table level -------------------------------------------------------
     def need_column_defaults(self, facts: TableFacts, path: str) -> None:
@@ -1890,6 +1941,33 @@ def _rewrites(table_diff: TableDiff) -> bool:
 def backup_name(table: str, suffix: str) -> str:
     parts = table.split(".")
     return ".".join([*parts[:-1], f"{parts[-1]}{BACKUP_SUFFIX}_{suffix}"])
+
+
+def count_rows(seed: Seed) -> str:
+    """`3 rows from data/countries.csv`, for the line under the step."""
+    rows = f"{len(seed)} row{'' if len(seed) == 1 else 's'}"
+    return f"{rows} from {seed.source}" if seed.source else rows
+
+
+def seed_sql(table: str, seed: Seed, desired: Table) -> str:
+    """`INSERT OVERWRITE … VALUES …`, with every value a literal of its type.
+
+    The values are written by `seed_literal`, which quotes text and refuses
+    anything that isn't a number where a number is declared — a seed can't
+    reach SQL through a value.
+    """
+    types = {column.name: column.type for column in desired.columns}
+    columns = ", ".join(quote_ident(name) for name in seed.columns)
+    rows = ",\n  ".join(
+        "("
+        + ", ".join(
+            seed_literal(value, types[name])
+            for name, value in zip(seed.columns, row, strict=True)
+        )
+        + ")"
+        for row in seed.rows
+    )
+    return f"INSERT OVERWRITE {quote_qualified(table)} ({columns})\nVALUES\n  {rows}"
 
 
 def staging_name(table: str) -> str:

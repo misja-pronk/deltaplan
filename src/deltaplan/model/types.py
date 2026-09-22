@@ -315,3 +315,59 @@ def contains_timestamp_ntz(data_type: DataType) -> bool:
             return any(contains_timestamp_ntz(f.type) for f in fields)
         case _:
             return False
+
+
+#: What a seed may write into: types with a literal spelling everyone agrees on.
+_QUOTED = ("string", "date", "timestamp", "timestamp_ntz", "interval")
+_NUMERIC = (
+    "tinyint",
+    "smallint",
+    "int",
+    "bigint",
+    "float",
+    "double",
+)
+
+
+def seed_literal(value: str | None, data_type: DataType) -> str:
+    """One seed value, written as a literal of its column's type.
+
+    Raises `ValueError` when the text isn't one — `abc` where a `bigint` is
+    declared — so a caller can say where in the file it was.
+
+    Nothing here interpolates the value unescaped: strings and temporal values
+    go through `quote_literal`, and a number has to parse as one before it is
+    written bare.
+    """
+    if value is None:
+        return "NULL"
+    match data_type:
+        case Primitive(name) if name in _NUMERIC:
+            return _number(value, name)
+        case Decimal():
+            return _number(value, "decimal")
+        case Primitive("boolean"):
+            if value.strip().lower() in {"true", "1", "yes"}:
+                return "TRUE"
+            if value.strip().lower() in {"false", "0", "no"}:
+                return "FALSE"
+            raise ValueError(f"{value!r} is not a boolean")
+        case Primitive("date"):
+            return f"DATE {quote_literal(value)}"
+        case Primitive("timestamp" | "timestamp_ntz"):
+            return f"TIMESTAMP {quote_literal(value)}"
+        case Primitive(name) if name in _QUOTED:
+            return quote_literal(value)
+        case Char() | Varchar():
+            return quote_literal(value)
+        case _:
+            raise ValueError(f"a seed can't write a {render_type(data_type)} value")
+
+
+def _number(value: str, kind: str) -> str:
+    text = value.strip()
+    try:
+        float(text)
+    except ValueError:
+        raise ValueError(f"{value!r} is not a {kind}") from None
+    return text
