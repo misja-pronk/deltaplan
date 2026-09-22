@@ -30,6 +30,7 @@ from sqlglot import exp
 from sqlglot.errors import ParseError, TokenError
 from sqlglot.tokens import TokenType
 
+from deltaplan.errors import DeltaplanError
 from deltaplan.model.types import DataType, Identity
 from deltaplan.typeparser import TypeParseError, parse_type
 
@@ -37,7 +38,7 @@ DIALECT = "databricks"
 DEFAULT_COLLATION = "UTF8_BINARY"
 
 
-class DdlError(Exception):
+class DdlError(DeltaplanError):
     """sqlglot couldn't read a `SHOW CREATE TABLE` statement."""
 
 

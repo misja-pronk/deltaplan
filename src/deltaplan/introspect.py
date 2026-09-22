@@ -24,6 +24,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from deltaplan.ddl import DdlError, read_columns
+from deltaplan.errors import DeltaplanError
 from deltaplan.manage import EVERYTHING, Manage
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.schema import Schema
@@ -67,7 +68,7 @@ _MATERIALIZATION_PREFIX = "__materialization_"
 T = TypeVar("T")
 
 
-class IntrospectionError(Exception):
+class IntrospectionError(DeltaplanError):
     """A query failed, or came back in a shape we don't understand."""
 
 

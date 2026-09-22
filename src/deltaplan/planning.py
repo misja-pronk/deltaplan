@@ -36,6 +36,7 @@ from deltaplan.differ import (
     unmanaged_schema,
     unmanaged_view,
 )
+from deltaplan.errors import DeltaplanError
 from deltaplan.introspect import Introspector, LiveSchema, LiveTable
 from deltaplan.loader import Mode
 from deltaplan.manage import EVERYTHING, Manage
@@ -49,7 +50,7 @@ from deltaplan.model.volume import Volume
 from deltaplan.planner import build_plan
 
 
-class PlanningError(Exception):
+class PlanningError(DeltaplanError):
     """A spec that can't be planned, for a reason the loader couldn't see."""
 
 
