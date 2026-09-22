@@ -185,3 +185,48 @@ def test_a_plan_survives_being_written_and_read(
     again = deltaplan.plan_from_json(deltaplan.plan_to_json(plan))
     assert [d.table for d in again.diffs] == [d.table for d in plan.diffs]
     assert [s.title for s in again.diffs[0].steps] == ["CREATE TABLE orders"]
+
+
+def test_a_host_can_import_a_schema_without_writing_anything(
+    fake: FakeWarehouse,
+) -> None:
+    """`import_schema` hands back specs as text; where they go is the host's."""
+    fake.schemas.add("main.sales")
+    fake.query(
+        "CREATE TABLE IF NOT EXISTS `main`.`sales`.`orders` (\n"
+        "  `order_id` BIGINT NOT NULL,\n  `amount` DECIMAL(18,2)\n)\nUSING DELTA"
+    )
+    specs = deltaplan.import_schema(Connection(runner=fake), "main.sales")
+    assert [spec.filename for spec in specs] == ["orders.yml"]
+    assert "table: main.sales.orders" in specs[0].text
+    assert specs[0].relation.name == "main.sales.orders"
+    # And what it wrote is a spec deltaplan reads back as the same table.
+    assert "owner:" not in specs[0].text, "an owner is a person, not a shape"
+
+
+def test_import_leaves_out_what_another_tool_manages(fake: FakeWarehouse) -> None:
+    fake.schemas.add("main.sales")
+    fake.query(
+        "CREATE TABLE IF NOT EXISTS `main`.`sales`.`orders` (\n"
+        "  `id` BIGINT\n)\nUSING DELTA"
+    )
+    fake.query("ALTER TABLE `main`.`sales`.`orders` SET TAGS ('domain' = 'sales')")
+    handed_over = deltaplan.Manage(("tags",))
+    [spec] = deltaplan.import_schema(
+        Connection(runner=fake), "main.sales", manage=handed_over
+    )
+    assert "tags:" not in spec.text
+
+
+def test_a_schema_is_named_catalog_dot_schema(fake: FakeWarehouse) -> None:
+    with pytest.raises(deltaplan.PlanningError, match="catalog.schema"):
+        deltaplan.import_schema(Connection(runner=fake), "sales")
+
+
+def test_the_databricks_cli_is_found_where_the_sdk_looks(tmp_path: Path) -> None:
+    """`DATABRICKS_CLI_PATH` first, then `PATH` — a mise shim is why."""
+    real = tmp_path / "databricks"
+    real.write_text("#!/bin/bash\nexit 0\n")
+    real.chmod(0o755)
+    assert deltaplan.find_cli(environ={"DATABRICKS_CLI_PATH": str(real)}) == str(real)
+    assert deltaplan.find_cli(environ={"PATH": ""}) is None

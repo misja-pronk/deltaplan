@@ -19,15 +19,19 @@ here raises `DeltaplanError` and nothing else on purpose.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 
 from deltaplan.connect import Connection
 from deltaplan.errors import DeltaplanError
 from deltaplan.executor import ExecutionResult, Executor, Status
 from deltaplan.history import DeltaHistory, HistoryStore
 from deltaplan.loader import Diagnostic, Project, Target
+from deltaplan.manage import EVERYTHING, Manage
 from deltaplan.model.plan import Plan, Step
-from deltaplan.planning import plan_tables
+from deltaplan.model.view import Relation
+from deltaplan.model.volume import Volume
+from deltaplan.planning import PlanningError, plan_tables
 
 
 class NoHistory(DeltaplanError):
@@ -175,3 +179,92 @@ def _version() -> str:
         return version("deltaplan")
     except PackageNotFoundError:  # pragma: no cover - running from a checkout
         return "0.0.0"
+
+
+@dataclass(frozen=True, slots=True)
+class ImportedSpec:
+    """One spec `import` would write, and what it is about.
+
+    `filename` is what the CLI calls the file; a host that keeps specs
+    somewhere else can ignore it and use `relation.name`.
+    """
+
+    filename: str
+    text: str
+    relation: Relation
+
+
+def import_schema(
+    connection: Connection,
+    schema: str,
+    *,
+    manage: Manage = EVERYTHING,
+    catalog_variable: str | None = None,
+    owned_elsewhere: Mapping[str, str] | None = None,
+    spec_format: str = "yaml",
+    parallel: int = 8,
+) -> tuple[ImportedSpec, ...]:
+    """Specs for what already exists in `catalog.schema`, as text.
+
+    Nothing is written: a host decides where these go, whether that is a
+    directory, a pull request or a review screen. The schema's own spec comes
+    first when it has anything to say, then tables, views, functions and
+    volumes.
+
+    Owners are left out — an owner is usually a person's email, and rarely the
+    same in two workspaces — as is anything `manage` hands to another tool, and
+    anything an Asset Bundle declares (`owned_elsewhere`, which
+    `target.owned_by_the_bundle()` gives you). `catalog_variable` writes the
+    catalog as `${name}`, so one spec serves every target.
+
+    Raises `IntrospectionError` if the schema can't be read.
+    """
+    from deltaplan.loader import dump_spec
+    from deltaplan.sqlspec import dump_sql_spec, sql_cannot_say
+
+    catalog, _, name = schema.partition(".")
+    if not name or "." in name:
+        raise PlanningError(f"a schema is named catalog.schema, not {schema!r}")
+    live = connection.introspector(manage, parallel).schema(catalog, name)
+    owned = {key.lower(): value for key, value in (owned_elsewhere or {}).items()}
+
+    def written(relation: Relation, stem: str) -> ImportedSpec:
+        reason = sql_cannot_say(relation) if spec_format == "sql" else None
+        if spec_format == "sql" and reason is None:
+            return ImportedSpec(
+                f"{stem}.sql",
+                dump_sql_spec(relation, catalog_variable=catalog_variable),
+                relation,
+            )
+        return ImportedSpec(
+            f"{stem}.yml",
+            dump_spec(relation, catalog_variable=catalog_variable, manage=manage),
+            relation,
+        )
+
+    specs: list[ImportedSpec] = []
+    definition = replace(live.definition, owner=None) if live.definition else None
+    if (
+        definition is not None
+        and definition.name.lower() not in owned
+        and (definition.comment or definition.tags or definition.grants)
+    ):
+        specs.append(written(definition, "_schema"))
+
+    seen: set[str] = set()
+    for relation in (
+        *(entry.table for entry in live.tables),
+        *live.views,
+        *live.functions,
+        *live.volumes,
+    ):
+        if relation.name.lower() in owned:
+            continue
+        stem = relation.short_name
+        if stem in seen:
+            # Functions and volumes don't share a namespace with tables, so one
+            # may have a table's name; its file then says what it is.
+            stem = f"{stem}.{'volume' if isinstance(relation, Volume) else 'function'}"
+        seen.add(stem)
+        specs.append(written(replace(relation, owner=None), stem))
+    return tuple(specs)

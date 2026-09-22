@@ -31,8 +31,17 @@ making one: `render_plan` for a terminal, `render_markdown` for a pull request,
 
 from __future__ import annotations
 
-from deltaplan.api import NoHistory, apply, drift, is_stale, plan, validate
-from deltaplan.bundle import Bundle, BundleError, BundleTarget
+from deltaplan.api import (
+    ImportedSpec,
+    NoHistory,
+    apply,
+    drift,
+    import_schema,
+    is_stale,
+    plan,
+    validate,
+)
+from deltaplan.bundle import Bundle, BundleError, BundleTarget, find_cli
 from deltaplan.connect import Connection, NotConnected
 from deltaplan.errors import DeltaplanError
 from deltaplan.executor import (
@@ -100,10 +109,13 @@ __all__ = [
     "ExecutionResult",
     "Executor",
     "Field",
+    "find_cli",
     "ForeignKey",
     "Function",
     "Grant",
     "HistoryStore",
+    "import_schema",
+    "ImportedSpec",
     "IntrospectionError",
     "Introspector",
     "is_stale",
