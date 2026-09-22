@@ -26,17 +26,17 @@ Every host does these, in this order.
 import deltaplan
 
 # 1. the project
-project = deltaplan.Project.find()                 # or .load("deltaplan.yml")
+project = deltaplan.Project.find()  # or .load("deltaplan.yml")
 
 # 2. a target, resolved
-target = project.resolve(project.default)          # asks the Databricks CLI
-                                                   # about a bundle, if there is one
+target = project.resolve(project.default)  # asks the Databricks CLI
+# about a bundle, if there is one
 
 # 3. the specs, with every diagnostic
 specs = project.load_specs(target)
 if specs.errors:
     for problem in specs.errors:
-        print(problem)                             # file:line:column, and what
+        print(problem)  # file:line:column, and what
     raise SystemExit(1)
 
 # 4. a connection
@@ -44,7 +44,7 @@ conn = deltaplan.Connection.from_target(target)
 
 # 5. a plan
 plan = deltaplan.plan(project, target, conn, specs=specs)
-print(plan.summary)                                # Plan: 1 add, 2 change, …
+print(plan.summary)  # Plan: 1 add, 2 change, …
 
 # 6. apply it
 if not plan.empty:
@@ -81,10 +81,10 @@ what only the CLI could have settled stays unknown, with the reason.
 ## Connecting
 
 ```python
-conn = deltaplan.Connection.from_target(target)            # the usual way
+conn = deltaplan.Connection.from_target(target)  # the usual way
 conn = deltaplan.Connection(client=my_client, warehouse_id="abc123")
 conn = deltaplan.Connection(profile="dev", warehouse_id="abc123")
-conn = deltaplan.Connection(runner=my_runner)              # already runs SQL
+conn = deltaplan.Connection(runner=my_runner)  # already runs SQL
 ```
 
 A client you pass is the client deltaplan uses; it never makes a second one.
@@ -99,12 +99,12 @@ A `Plan` is a frozen object, not a string to parse:
 ```python
 plan.empty, plan.is_destructive, plan.highest_risk
 plan.summary.add, plan.summary.change, plan.summary.destroy, plan.summary.steps
-plan.unmanaged            # live objects no spec describes
-plan.orphaned             # deltaplan's own, whose spec is gone
-plan.not_managed          # what `manage:` hands to another tool
+plan.unmanaged  # live objects no spec describes
+plan.orphaned  # deltaplan's own, whose spec is gone
+plan.not_managed  # what `manage:` hands to another tool
 
 for diff in plan.diffs:
-    diff.table, diff.kind, diff.action      # "table" / "view" / … , "create" / …
+    diff.table, diff.kind, diff.action  # "table" / "view" / … , "create" / …
     for step in diff.steps:
         step.id, step.title, step.risk, step.sql, step.est_bytes, step.warnings
 ```
@@ -118,8 +118,10 @@ a plan made here can be applied somewhere else.
 
 ```python
 run = deltaplan.apply(
-    plan, conn,
-    project=project, target=target,        # for where the run is recorded
+    plan,
+    conn,
+    project=project,
+    target=target,  # for where the run is recorded
     allow_destructive=False,
     observer=lambda step, status, note: print(step.id, status),
 )
