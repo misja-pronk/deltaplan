@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol, TypeVar
@@ -147,16 +147,31 @@ class LiveSchema:
                 return function
         return None
 
-    def relation(self, name: str) -> Relation | None:
+    def relation(self, name: str, kind: str | None = None) -> Relation | None:
+        """What lives under this name — of `kind`, when the caller knows it.
+
+        Tables, views, functions and volumes don't all share a namespace, so a
+        volume may be called what a table is called. A caller that planned a
+        table has to be answered about a table, or it would compare one thing
+        against another and decide the world had moved.
+        """
         if len(name.split(".")) == 2:
             return self.definition if name == f"{self.catalog}.{self.schema}" else None
-        return self._object(name)
+        return self._object(name, kind)
 
-    def _object(self, name: str) -> Relation | None:
-        """A table, a view or a function, whichever lives under that name."""
+    def _object(self, name: str, kind: str | None = None) -> Relation | None:
+        """A table, a view, a function or a volume — whichever was asked for."""
+        if kind == "volume":
+            return self.get_volume(name)
+        if kind == "function":
+            return self.get_function(name)
+        if kind == "view":
+            return self.get_view(name)
         live = self.get(name)
         if live is not None:
             return live.table
+        if kind == "table":
+            return None
         return self.get_view(name) or self.get_function(name) or self.get_volume(name)
 
     @property
@@ -329,9 +344,16 @@ class Introspector:
         catalog, schema, short = _split(name)
         return self.schema(catalog, schema).get(f"{catalog}.{schema}.{short}")
 
-    def tables(self, names: Sequence[str]) -> dict[str, Relation | None]:
+    def tables(
+        self, names: Sequence[str], kinds: Mapping[str, str] | None = None
+    ) -> dict[str, Relation | None]:
         """Look up several tables or views — one schema scan per schema, not per
-        name, reading only the named tables in full."""
+        name, reading only the named tables in full.
+
+        `kinds` says what each name was planned as, where the caller knows: a
+        volume and a table may share a name, and answering with the wrong one
+        would make a plan look stale when nothing had changed.
+        """
         found: dict[str, Relation | None] = {}
         scanned: dict[tuple[str, str], LiveSchema] = {}
         for name in names:
@@ -340,7 +362,7 @@ class Introspector:
             if key not in scanned:
                 wanted = [n for n in names if tuple(n.split(".")[:2]) == key]
                 scanned[key] = self.schema(*key, full=wanted)
-            found[name] = scanned[key].relation(name)
+            found[name] = scanned[key].relation(name, (kinds or {}).get(name))
         return found
 
     def complete(self, live: LiveTable) -> LiveTable:

@@ -116,7 +116,7 @@ class Executor:
         resumed = self.history.resumable_run(plan_hash, plan.target)
         run_id = resumed or self.new_run_id()
 
-        self._live = self.introspector.tables(_read_from(plan))
+        self._live = self.introspector.tables(_read_from(plan), _kinds(plan))
         if resumed is None:
             self._refuse_stale(plan)
 
@@ -330,7 +330,7 @@ def stale_tables(plan: Plan, introspector: Introspector) -> tuple[str, ...]:
     what `apply` insists on. Asking first lets a host plan again rather than
     put a stale plan to a person.
     """
-    return _moved(plan, introspector.tables(_read_from(plan)))
+    return _moved(plan, introspector.tables(_read_from(plan), _kinds(plan)))
 
 
 def _moved(plan: Plan, live: Mapping[str, Relation | None]) -> tuple[str, ...]:
@@ -345,6 +345,14 @@ def _moved(plan: Plan, live: Mapping[str, Relation | None]) -> tuple[str, ...]:
         if fingerprint([diff.live])
         != fingerprint([live.get(diff.live.name if diff.live else diff.table)])
     )
+
+
+def _kinds(plan: Plan) -> dict[str, str]:
+    """What each name in the plan was planned as, by the name it was read from."""
+    return {
+        (diff.live.name if diff.live is not None else diff.table): diff.kind
+        for diff in plan.diffs
+    }
 
 
 def _read_from(plan: Plan) -> list[str]:
