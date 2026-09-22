@@ -12,8 +12,8 @@ are caught where they were written.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, TypeAlias
 
@@ -22,9 +22,11 @@ from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 from deltaplan.bundle import (
     WAREHOUSE_VARIABLE,
+    Bundle,
     BundleError,
     BundleResource,
     BundleTarget,
+    ask_cli,
     read_bundle,
     resolve_target,
 )
@@ -102,6 +104,45 @@ class SpecError(DeltaplanError):
         self.message = message
         self.loc = loc
         super().__init__(f"{loc}: {message}")
+
+
+class SpecErrors(DeltaplanError):
+    """Every spec that couldn't be read, not just the first one.
+
+    A host shows them all at once, with `file:line:column` on each, so one run
+    tells someone everything they have to fix.
+    """
+
+    def __init__(self, errors: Sequence[SpecError]) -> None:
+        self.errors = tuple(errors)
+        super().__init__("\n".join(str(error) for error in self.errors))
+
+
+@dataclass(frozen=True, slots=True)
+class Specs:
+    """The specs of a project, read for one target.
+
+    `relations` are the objects to plan with, in the order the files were
+    found. `diagnostics` is what linting them said — every severity — and
+    `errors` the ones that stop a plan.
+    """
+
+    files: tuple[LoadedSpec, ...] = ()
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+    @property
+    def relations(self) -> tuple[Relation, ...]:
+        return tuple(spec.table for spec in self.files)
+
+    @property
+    def errors(self) -> tuple[Diagnostic, ...]:
+        return tuple(d for d in self.diagnostics if d.severity == "error")
+
+    def __iter__(self) -> Iterator[LoadedSpec]:
+        return iter(self.files)
+
+    def __len__(self) -> int:
+        return len(self.files)
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,12 +226,104 @@ class Project:
     #: target can be merged again when the Databricks CLI answers for it.
     own_targets: tuple[Target, ...] = ()
 
+    @classmethod
+    def load(cls, path: Path | str, environ: Mapping[str, str] | None = None) -> Project:
+        """Read a `deltaplan.yml`. Raises `SpecError` if it can't be read.
+
+        `environ` supplies a bundle's `BUNDLE_VAR_<name>` overrides; without it
+        nothing is read from the environment, so loading stays a function of
+        its arguments.
+        """
+        return load_project(Path(path), environ)
+
+    @classmethod
+    def find(
+        cls, start: Path | str | None = None, environ: Mapping[str, str] | None = None
+    ) -> Project:
+        """The project this directory is in, looking upwards for the file.
+
+        Raises `FileNotFoundError` when there is none above `start` (the
+        working directory by default).
+        """
+        return cls.load(find_project_file(Path(start) if start else Path.cwd()), environ)
+
     def target(self, name: str) -> Target:
+        """The target as the files declare it. Raises `KeyError` if there is no
+        such target; `resolve` turns it into one you can connect with."""
         for candidate in self.targets:
             if candidate.name == name:
                 return candidate
         known = ", ".join(t.name for t in self.targets) or "none defined"
         raise KeyError(f"unknown target {name!r} (known targets: {known})")
+
+    @property
+    def default(self) -> Target:
+        """The target to use when none is named. Raises `KeyError` if the
+        project has more than one and marks none of them `default: true`."""
+        if self.default_target is None:
+            known = ", ".join(t.name for t in self.targets) or "none defined"
+            raise KeyError(f"no default target (known targets: {known})")
+        return self.target(self.default_target)
+
+    def resolve(
+        self,
+        target: Target,
+        *,
+        profile: str | None = None,
+        bundle_config: Mapping[str, object] | None = None,
+        executable: str = "databricks",
+    ) -> Target:
+        """`target` with its bundle resolved: variables, lookups, real names.
+
+        With `bundle_config` — the mapping
+        `databricks bundle validate -o json -t <target>` prints, which a host
+        that just deployed already holds — nothing is run. Without it the
+        Databricks CLI is asked, with `profile` if given. When the CLI can't
+        answer, what deltaplan read from the bundle file stands in, and the
+        CLI's own words are attached to whatever stayed unknown.
+
+        A project without a bundle gets its target back unchanged.
+        """
+        if self.bundle is None:
+            return target
+        own = next((t for t in self.own_targets if t.name == target.name), None)
+        if bundle_config is not None:
+            entry = Bundle.from_resolved(bundle_config, self.bundle).targets[0]
+            return _from_bundle(replace(entry, name=target.name), own)
+        answer = ask_cli(
+            self.bundle,
+            target.name,
+            profile=profile or target.profile,
+            executable=executable,
+        )
+        if answer.target is None:
+            return _because(target, answer.error)
+        return _from_bundle(answer.target, own)
+
+    def load_specs(self, target: Target) -> Specs:
+        """Every spec in the project, read for one target.
+
+        Raises `SpecErrors` if any of them can't be read — all of them at once,
+        so one run says everything that has to be fixed. What parses but is
+        wrong comes back as `diagnostics` instead, because that is a judgement
+        about a spec rather than a refusal to read it.
+        """
+        variables = target.variables_map()
+        unresolved = target.unresolved_map()
+        files: list[LoadedSpec] = []
+        failures: list[SpecError] = []
+        diagnostics: list[Diagnostic] = []
+        for path in spec_files(self):
+            try:
+                relation = load_spec(path, variables, unresolved, self.manage)
+            except SpecError as error:
+                failures.append(error)
+                continue
+            files.append(LoadedSpec(path, relation))
+            diagnostics.extend(validate_spec(relation, str(path)))
+        if failures:
+            raise SpecErrors(failures)
+        return Specs(tuple(files), tuple(diagnostics))
 
     def history_schema_for(self, target: Target) -> str | None:
         if self.history_schema is None:
@@ -243,15 +376,19 @@ def substitute(
         if name in variables:
             return variables[name]
         if unresolved and name in unresolved:
-            advice = (
-                "install the Databricks CLI so deltaplan can ask what it deploys "
-                "under, or write the name out here"
-                if name.startswith("resources.")
-                else "set it under this target's vars in deltaplan.yml"
-            )
+            reason = unresolved[name]
+            if not name.startswith("resources."):
+                advice = "set it under this target's vars in deltaplan.yml"
+            elif "Databricks CLI" in reason:
+                # The CLI already said what went wrong; don't talk over it.
+                advice = "fix that, or write the name out here"
+            else:
+                advice = (
+                    "install the Databricks CLI so deltaplan can ask what it "
+                    "deploys under, or write the name out here"
+                )
             raise KeyError(
-                f"variable ${{{name}}} comes from the bundle but "
-                f"{unresolved[name]}; {advice}"
+                f"variable ${{{name}}} comes from the bundle but {reason}; {advice}"
             )
         known = ", ".join(sorted(variables)) or "none defined"
         raise KeyError(f"undefined variable ${{{name}}} (known: {known})")
@@ -1210,6 +1347,24 @@ def as_deployed(
         return target
     own = next((t for t in project.own_targets if t.name == target.name), None)
     return _from_bundle(answer, own)
+
+
+def _because(target: Target, reason: str | None) -> Target:
+    """`target`, with the reason the CLI gave attached to what stayed unknown.
+
+    Whatever only the bundle's CLI could have settled is unknown here, and the
+    message a spec gets should say what actually happened — "two profiles match
+    this host", not "install the Databricks CLI" when it is installed.
+    """
+    if reason is None:
+        return target
+    return replace(
+        target,
+        unresolved=tuple(
+            (name, f"{was}; {reason}" if name.startswith("resources.") else was)
+            for name, was in target.unresolved
+        ),
+    )
 
 
 def _from_bundle(entry: BundleTarget, own: Target | None) -> Target:

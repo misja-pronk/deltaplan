@@ -146,6 +146,83 @@ class Bundle:
                 return target
         return None
 
+    @classmethod
+    def from_resolved(
+        cls, document: Mapping[str, object], path: Path | None = None
+    ) -> Bundle:
+        """A bundle from `databricks bundle validate -o json`, already run.
+
+        A host that has just deployed a bundle holds this mapping; handing it
+        over means deltaplan reads the same answer without running the CLI
+        again. It is the configuration for one target, so the bundle it makes
+        has that one target in it.
+        """
+        bundle = _mapping(document.get("bundle"), "bundle")
+        name = bundle.get("name")
+        target = bundle.get("target")
+        variables: dict[str, str] = {}
+        unresolved: dict[str, str] = {}
+        for variable, spec in _mapping(document.get("variables"), "variables").items():
+            body = spec if isinstance(spec, Mapping) else {}
+            value = body.get("value", body.get("default"))
+            if isinstance(value, str | int | float | bool):
+                variables[str(variable)] = str(value)
+            else:
+                unresolved[str(variable)] = (
+                    "the bundle leaves it a complex value, which a name can't be "
+                    "built from — give it under this target's `vars`"
+                )
+        workspace = _mapping(document.get("workspace"), "workspace")
+        host, profile = workspace.get("host"), workspace.get("profile")
+        return cls(
+            path if path is not None else Path("databricks.yml"),
+            name if isinstance(name, str) else "",
+            (
+                BundleTarget(
+                    name=str(target) if isinstance(target, str) else "",
+                    default=True,
+                    variables=tuple(sorted(variables.items())),
+                    unresolved=tuple(sorted(unresolved.items())),
+                    profile=profile if isinstance(profile, str) else None,
+                    host=host if isinstance(host, str) else None,
+                    # Nothing left to look up or rename: these are deployed names.
+                    resources=_from_mapping(
+                        _mapping(document.get("resources"), "resources")
+                    ),
+                ),
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CliAnswer:
+    """What the Databricks CLI said about a target, or why it said nothing.
+
+    `error` is the CLI's own words, kept whole: "two profiles match this host"
+    is something a person can act on, and deltaplan has nothing to add to it.
+    """
+
+    target: BundleTarget | None = None
+    error: str | None = None
+
+
+def ask_cli(
+    path: Path,
+    target: str,
+    *,
+    profile: str | None = None,
+    executable: str = "databricks",
+) -> CliAnswer:
+    """Ask the Databricks CLI what this target resolves to.
+
+    An answer, or the reason there isn't one — the CLI missing from `PATH`,
+    or the CLI's own error when it is there and fails. Never raises.
+    """
+    document, error = _run_cli(path, target, profile=profile, executable=executable)
+    if document is None:
+        return CliAnswer(None, error)
+    return CliAnswer(Bundle.from_resolved(document, path).targets[0], None)
+
 
 def resolve_target(
     path: Path,
@@ -165,49 +242,29 @@ def resolve_target(
 
     None when the CLI isn't installed, or answers with an error — it needs
     credentials for anything it looks up, and refuses to resolve without them.
-    The caller then falls back to reading the file, which says *unknown* for
-    what only the CLI can settle.
+    `ask_cli` says which of the two it was; the caller then falls back to
+    reading the file, which says *unknown* for what only the CLI can settle.
     https://docs.databricks.com/aws/en/dev-tools/cli/bundle-commands
     """
-    document = _ask_cli(path, target, profile=profile, executable=executable)
-    if document is None:
-        return None
-    variables: dict[str, str] = {}
-    unresolved: dict[str, str] = {}
-    for name, spec in _mapping(document.get("variables"), "variables").items():
-        body = spec if isinstance(spec, Mapping) else {}
-        value = body.get("value", body.get("default"))
-        if isinstance(value, str | int | float | bool):
-            variables[str(name)] = str(value)
-        else:
-            unresolved[str(name)] = (
-                "the bundle leaves it a complex value, which a name can't be "
-                "built from — give it under this target's `vars`"
-            )
-    workspace = _mapping(document.get("workspace"), "workspace")
-    host, workspace_profile = workspace.get("host"), workspace.get("profile")
-    return BundleTarget(
-        name=target,
-        variables=tuple(sorted(variables.items())),
-        unresolved=tuple(sorted(unresolved.items())),
-        profile=workspace_profile if isinstance(workspace_profile, str) else None,
-        host=host if isinstance(host, str) else None,
-        # Nothing is left to look up or rename: these are the deployed names.
-        resources=_from_mapping(_mapping(document.get("resources"), "resources")),
-    )
+    return ask_cli(path, target, profile=profile, executable=executable).target
 
 
-def _ask_cli(
+def _run_cli(
     path: Path,
     target: str,
     *,
     profile: str | None,
     executable: str,
-) -> Mapping[str, object] | None:
-    """`databricks bundle validate -o json`, parsed — or None if it didn't answer."""
+) -> tuple[Mapping[str, object] | None, str | None]:
+    """`databricks bundle validate -o json`, parsed — or why there is nothing.
+
+    The reason is the CLI's own, word for word. "Two profiles match this host"
+    is something a person can fix; "install the Databricks CLI" when it is
+    installed is not, so deltaplan never says that over the top of it.
+    """
     found = shutil.which(executable)
     if found is None:
-        return None
+        return None, f"no {executable!r} on PATH"
     command = [found, "bundle", "validate", "-o", "json", "-t", target]
     if profile:
         command += ["-p", profile]
@@ -222,17 +279,25 @@ def _ask_cli(
             timeout=60,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except (OSError, subprocess.SubprocessError) as error:
+        return None, f"{executable} could not be run: {error}"
     if result.returncode != 0:
         # It prints the unresolved configuration along with the error; taking
-        # that would be worse than reading the file ourselves.
-        return None
+        # that would be worse than reading the file ourselves. Its words, though,
+        # are worth every bit of what they say.
+        said = (result.stderr or result.stdout or "").strip().splitlines()
+        reason = next((line for line in said if line.strip()), "it gave no reason")
+        return None, f"the Databricks CLI could not resolve the bundle: {reason}"
     try:
         document = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-    return document if isinstance(document, dict) else None
+    except json.JSONDecodeError as error:
+        return (
+            None,
+            f"the Databricks CLI answered with something that isn't JSON: {error}",
+        )
+    if not isinstance(document, dict):
+        return None, "the Databricks CLI answered with something that isn't a bundle"
+    return document, None
 
 
 def _from_mapping(resources: Mapping[str, object]) -> tuple[BundleResource, ...]:
