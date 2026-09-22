@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0a10] - 2026-09-22
+
+Say what deltaplan looks after, and what belongs to the tool that already owns
+it.
+
 ### Added
 
 - **`manage:` — what deltaplan looks after here, and what belongs to another
