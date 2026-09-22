@@ -19,14 +19,14 @@ here raises `DeltaplanError` and nothing else on purpose.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from deltaplan.connect import Connection
 from deltaplan.errors import DeltaplanError
 from deltaplan.executor import ExecutionResult, Executor, Status
 from deltaplan.history import DeltaHistory, HistoryStore
-from deltaplan.loader import Diagnostic, Project, Target
+from deltaplan.loader import Diagnostic, Project, Specs, Target
 from deltaplan.manage import EVERYTHING, Manage
 from deltaplan.model.plan import Plan, Step
 from deltaplan.model.view import Relation
@@ -47,6 +47,7 @@ def plan(
     check_order: bool = False,
     clone: bool = False,
     parallel: int = 8,
+    specs: Specs | None = None,
 ) -> Plan:
     """What deltaplan would do to make the live objects match the specs.
 
@@ -54,17 +55,20 @@ def plan(
     `check_order` also compares column order; `clone` takes a zero-copy backup
     of every table a risky step is about to touch.
 
+    `specs` is for a caller that has already read them — to lint them first,
+    say — so they aren't read twice.
+
     Raises `SpecErrors` if a spec can't be read, `PlanningError` if the specs
     can't be planned together, and `IntrospectionError` if the workspace can't
     be read.
     """
-    specs = project.load_specs(target)
+    specs = specs if specs is not None else project.load_specs(target)
     chosen = _selector(select)
     return plan_tables(
         specs.relations,
         connection.introspector(project.manage, parallel),
         target=target.name,
-        tool_version=_version(),
+        tool_version=package_version(),
         mode_for=lambda schema: project.mode_for(target, schema),
         check_order=check_order,
         clone=clone,
@@ -119,7 +123,7 @@ def apply(
     fails once it is running doesn't raise: the result says which one, so the
     rest of the run is on record.
     """
-    store = history if history is not None else _history(project, target, connection)
+    store = history if history is not None else history_for(project, target, connection)
     executor = Executor(
         runner=connection.runner,
         introspector=connection.introspector(),
@@ -140,9 +144,14 @@ def is_stale(plan: Plan, connection: Connection) -> bool:
     return bool(stale_tables(plan, connection.introspector()))
 
 
-def _history(
+def history_for(
     project: Project | None, target: Target | None, connection: Connection
 ) -> HistoryStore:
+    """Where this project records what `apply` did.
+
+    Raises `NoHistory` when the project says nowhere — `apply` keeps a record
+    of every run, and won't run without somewhere to keep it.
+    """
     if project is None or target is None:
         raise NoHistory(
             "apply records every run: pass `project` and `target` so deltaplan "
@@ -172,13 +181,34 @@ def _selector(
     return select
 
 
-def _version() -> str:
-    from importlib.metadata import PackageNotFoundError, version
+def package_version() -> str:
+    """The installed version of deltaplan, recorded in every plan it makes."""
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as installed
 
     try:
-        return version("deltaplan")
-    except PackageNotFoundError:  # pragma: no cover - running from a checkout
-        return "0.0.0"
+        return installed("deltaplan")
+    except PackageNotFoundError:  # pragma: no cover - only outside an install
+        return "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class ImportedSchema:
+    """What `import_schema` found: specs to write, and what it left alone.
+
+    Iterating gives the specs, which is what most callers want; `skipped` says
+    what in the schema deltaplan doesn't manage and why, so a host can tell
+    someone rather than leave them wondering.
+    """
+
+    specs: tuple[ImportedSpec, ...] = ()
+    skipped: tuple[tuple[str, str], ...] = ()
+
+    def __iter__(self) -> Iterator[ImportedSpec]:
+        return iter(self.specs)
+
+    def __len__(self) -> int:
+        return len(self.specs)
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,7 +233,7 @@ def import_schema(
     owned_elsewhere: Mapping[str, str] | None = None,
     spec_format: str = "yaml",
     parallel: int = 8,
-) -> tuple[ImportedSpec, ...]:
+) -> ImportedSchema:
     """Specs for what already exists in `catalog.schema`, as text.
 
     Nothing is written: a host decides where these go, whether that is a
@@ -267,4 +297,4 @@ def import_schema(
             stem = f"{stem}.{'volume' if isinstance(relation, Volume) else 'function'}"
         seen.add(stem)
         specs.append(written(replace(relation, owner=None), stem))
-    return tuple(specs)
+    return ImportedSchema(tuple(specs), tuple(live.skipped))

@@ -14,6 +14,7 @@ import yaml
 from typer.testing import CliRunner
 
 from deltaplan import cli
+from deltaplan.connect import Connection
 from deltaplan.executor import Executor
 from deltaplan.history import MemoryHistory
 from deltaplan.introspect import Introspector
@@ -159,7 +160,9 @@ def test_import_writes_volumes_as_yaml(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = FakeWarehouse.of(Schema("main.sales"), LANDING)
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake)
+    )
     result = CliRunner().invoke(
         cli.app, ["import", "main.sales", "-o", str(tmp_path), "-f", "sql"]
     )

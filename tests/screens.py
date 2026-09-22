@@ -33,7 +33,8 @@ from rich.console import Console
 from rich.text import Text
 from typer.testing import CliRunner
 
-from deltaplan import cli
+from deltaplan import api, cli
+from deltaplan.connect import Connection
 from deltaplan.executor import Executor
 from deltaplan.history import MemoryHistory
 from fake_warehouse import FakeWarehouse
@@ -159,14 +160,21 @@ def _patched(studio: Studio, console: Console) -> Iterator[None]:
     replacements: dict[str, object] = {
         "out": console,
         "err": console,
-        "_warehouse": lambda *_args, **_kwargs: studio.fake,
+        "_connect": lambda *_args, **_kwargs: Connection(runner=studio.fake),
         "_history": lambda *_args, **_kwargs: studio.history,
+    }
+    # The library's side of the same scene: a fixed run id and version, so a
+    # picture is the same one tomorrow.
+    library: dict[str, object] = {
         "Executor": functools.partial(Executor, new_run_id=lambda: RUN_ID),
         "package_version": lambda: VERSION,
     }
     saved = {name: getattr(cli, name) for name in replacements}
+    saved_library = {name: getattr(api, name) for name in library}
     for name, value in replacements.items():
         setattr(cli, name, value)
+    for name, value in library.items():
+        setattr(api, name, value)
     path = os.environ.get("PATH", "")
     os.environ["PATH"] = path_without("databricks")
     try:
@@ -175,6 +183,8 @@ def _patched(studio: Studio, console: Console) -> Iterator[None]:
         os.environ["PATH"] = path
         for name, value in saved.items():
             setattr(cli, name, value)
+        for name, value in saved_library.items():
+            setattr(api, name, value)
 
 
 Scene = Callable[[Studio], None]

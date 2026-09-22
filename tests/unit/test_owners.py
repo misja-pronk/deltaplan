@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from deltaplan.connect import Connection
 from deltaplan.differ import diff, is_applied
 from deltaplan.introspect import Introspector
 from deltaplan.loader import SpecError, dump_spec, load_spec
@@ -202,7 +203,7 @@ def test_import_leaves_owners_out(
     from deltaplan import cli
 
     fake = FakeWarehouse.of(LIVE)
-    monkeypatch.setattr(cli, "_warehouse", lambda *_a, **_k: fake)
+    monkeypatch.setattr(cli, "_connect", lambda *_a, **_k: Connection(runner=fake))
     result = CliRunner().invoke(
         cli.app, ["import", "main.sales", "-o", str(tmp_path / "out")]
     )

@@ -14,6 +14,7 @@ from typer.testing import CliRunner, Result
 
 from deltaplan import cli
 from deltaplan.cli import app
+from deltaplan.connect import Connection
 from deltaplan.history import MemoryHistory
 from deltaplan.introspect import Introspector
 from fake_warehouse import FakeWarehouse
@@ -67,7 +68,7 @@ def history() -> MemoryHistory:
 @pytest.fixture
 def warehouse(monkeypatch: pytest.MonkeyPatch, history: MemoryHistory) -> FakeWarehouse:
     fake = FakeWarehouse.of(LIVE)
-    monkeypatch.setattr(cli, "_warehouse", lambda *_a, **_k: fake)
+    monkeypatch.setattr(cli, "_connect", lambda *_a, **_k: Connection(runner=fake))
     monkeypatch.setattr(cli, "_history", lambda *_a, **_k: history)
     return fake
 
@@ -239,7 +240,7 @@ def test_apply_needs_a_history_schema(
     project: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     fake = FakeWarehouse.of(LIVE)
-    monkeypatch.setattr(cli, "_warehouse", lambda *_a, **_k: fake)
+    monkeypatch.setattr(cli, "_connect", lambda *_a, **_k: Connection(runner=fake))
     plan_file = tmp_path / "plan.json"
     write_plan(project, plan_file)
     (project / "deltaplan.yml").write_text(
@@ -286,7 +287,9 @@ def test_a_warehouse_error_is_a_message_not_a_traceback(
     plan_file = tmp_path / "plan.json"
     write_plan(project, plan_file)
     del warehouse  # planned against the fixture; applied against a stopped one
-    monkeypatch.setattr(cli, "_warehouse", lambda *_a, **_k: StoppedWarehouse())
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_a, **_k: Connection(runner=StoppedWarehouse())
+    )
     result = runner.invoke(
         app, ["apply", str(plan_file), "--config", str(project / "deltaplan.yml")]
     )
