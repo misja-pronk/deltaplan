@@ -48,6 +48,8 @@ from pathlib import Path
 
 import yaml
 
+from deltaplan.errors import DeltaplanError
+
 #: The file names the Databricks CLI accepts for a bundle, in its order.
 BUNDLE_FILES = ("databricks.yml", "databricks.yaml", "bundle.yml", "bundle.yaml")
 
@@ -58,7 +60,7 @@ WAREHOUSE_VARIABLE = "warehouse_id"
 _REFERENCE = re.compile(r"\$\{([^}]+)\}")
 
 
-class BundleError(Exception):
+class BundleError(DeltaplanError):
     """A bundle deltaplan can't read targets from."""
 
 

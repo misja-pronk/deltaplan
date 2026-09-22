@@ -2,7 +2,7 @@
 
 1. It copies only the columns the spec lists. A column the spec removed goes with
    it — so the step that replaces the table is destructive, and `apply` refuses
-   it without `--allow-destructive`, like any other drop.
+   it unless the caller allows it, like any other drop.
 2. It converts values with CAST. A value that doesn't convert errors under ANSI
    mode but becomes NULL without it. The staging step checks, before the original
    table is touched, that no row went missing and no converted column gained
@@ -11,7 +11,7 @@
 
 import pytest
 
-from deltaplan.executor import ExecutionError, ExecutionResult, Executor
+from deltaplan.executor import DestructiveRefused, ExecutionResult, Executor
 from deltaplan.history import MemoryHistory
 from deltaplan.introspect import Introspector
 from deltaplan.model.plan import Plan, fingerprint
@@ -51,7 +51,7 @@ def test_a_rewrite_that_drops_a_column_is_destructive() -> None:
     assert replace_step.risk == "destructive"
     assert replace_step.warnings == ("drops notes along with the rewrite",)
 
-    with pytest.raises(ExecutionError, match="--allow-destructive"):
+    with pytest.raises(DestructiveRefused, match="destroys something"):
         apply(fake, plan)
     assert fake.ddl == [], "nothing ran — not even the staging copy"
 

@@ -19,7 +19,12 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from deltaplan.executor import ExecutionError, ExecutionResult, Executor
+from deltaplan.executor import (
+    DestructiveRefused,
+    ExecutionError,
+    ExecutionResult,
+    Executor,
+)
 from deltaplan.history import DeltaHistory, HistoryStore, Status
 from deltaplan.introspect import (
     IntrospectionError,
@@ -747,6 +752,10 @@ def apply(
     )
     try:
         result = executor.apply(built, allow_destructive=allow_destructive)
+    except DestructiveRefused as error:
+        # The refusal is the library's; the flag that lifts it is this CLI's.
+        err.print(f"[red]{escape(str(error))} Re-run with --allow-destructive.[/]")
+        raise typer.Exit(1) from error
     except (ExecutionError, IntrospectionError) as error:
         err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error

@@ -25,6 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from deltaplan.differ import is_applied
+from deltaplan.errors import DeltaplanError
 from deltaplan.history import (
     DEFAULT_LOCK_MINUTES,
     HistoryStore,
@@ -40,8 +41,32 @@ from deltaplan.model.view import Relation
 RECORD_VERSION_FOR = frozenset({"destructive", "rewrite"})
 
 
-class ExecutionError(Exception):
+class ExecutionError(DeltaplanError):
     """A refusal: nothing ran, and the reason is in the message."""
+
+
+class DestructiveRefused(ExecutionError):
+    """The plan destroys something, and nobody said that was alright.
+
+    `tables` names them, so a host can ask a person about those tables rather
+    than about a plan. Pass `allow_destructive=True` to go ahead.
+    """
+
+    def __init__(self, message: str, tables: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.tables = tables
+
+
+class StalePlan(ExecutionError):
+    """The world moved between the plan and the apply.
+
+    `tables` names the ones that changed. A host's answer is almost always to
+    plan again and show the new plan, not to retry this one.
+    """
+
+    def __init__(self, message: str, tables: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.tables = tables
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,19 +282,30 @@ class Executor:
             titles = ", ".join(
                 f"{step.id}. {step.title} on {step.table}" for step in destructive
             )
-            raise ExecutionError(
-                f"this plan destroys something ({titles}). Re-run with "
-                "--allow-destructive if that is what you want."
+            raise DestructiveRefused(
+                f"this plan destroys something ({titles}). Allow it explicitly if "
+                "that is what you want.",
+                tuple(dict.fromkeys(step.table for step in destructive)),
             )
 
     def _refuse_stale(self, plan: Plan) -> None:
         current = fingerprint(self._live.get(name) for name in _read_from(plan))
-        if current != plan.state_fingerprint:
-            raise ExecutionError(
-                "the live tables have changed since this plan was made "
-                f"(fingerprint {current}, plan says {plan.state_fingerprint}). "
-                "Run `deltaplan plan` again and review the new plan."
-            )
+        if current == plan.state_fingerprint:
+            return
+        # Which ones moved: the plan carries the live state it was built from,
+        # so a name is better than a pair of hashes nobody can act on.
+        moved = tuple(
+            diff.table
+            for diff in plan.diffs
+            if fingerprint([diff.live])
+            != fingerprint([self._live.get(diff.live.name if diff.live else diff.table)])
+        )
+        named = f" ({', '.join(moved)})" if moved else ""
+        raise StalePlan(
+            f"the live tables have changed since this plan was made{named}. "
+            "Plan again and review the new plan.",
+            moved,
+        )
 
 
 def plan_identity(plan: Plan) -> str:

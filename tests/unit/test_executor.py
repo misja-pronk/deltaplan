@@ -8,7 +8,7 @@ suite is for.
 
 import pytest
 
-from deltaplan.executor import ExecutionError, Executor, plan_identity
+from deltaplan.executor import DestructiveRefused, ExecutionError, Executor, plan_identity
 from deltaplan.history import MemoryHistory, StepOutcome
 from deltaplan.introspect import Introspector
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
@@ -120,8 +120,9 @@ def test_a_destructive_plan_needs_the_flag() -> None:
         comment=LIVE.comment,
     )
     fake, plan = planned(desired)
-    with pytest.raises(ExecutionError, match="--allow-destructive"):
+    with pytest.raises(DestructiveRefused, match="destroys something") as refused:
         executor(fake).apply(plan)
+    assert refused.value.tables == (NAME,), "the refusal names what it would destroy"
     assert fake.ddl == [], "nothing may run before the refusal"
 
     result = executor(fake).apply(plan, allow_destructive=True)

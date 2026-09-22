@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
+from deltaplan.errors import DeltaplanError
 from deltaplan.model.change import Change
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.plan import Plan, Step, TableDiff, TableFacts
@@ -62,6 +63,12 @@ def plan_to_dict(plan: Plan) -> dict[str, Any]:
 
 
 def dumps(plan: Plan, *, indent: int = 2) -> str:
+    """A plan as JSON: what `plan -o` writes, and what `apply` reads back.
+
+    Everything `apply` needs is in it, including the fingerprints that make a
+    stale plan refuse to run, so a host may write it, queue it, and run it
+    somewhere else.
+    """
     return json.dumps(plan_to_dict(plan), indent=indent) + "\n"
 
 
@@ -310,11 +317,12 @@ def _table_to_dict(table: Table) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-class PlanFileError(Exception):
+class PlanFileError(DeltaplanError):
     """A plan file deltaplan can't read."""
 
 
 def loads(text: str) -> Plan:
+    """The plan a `dumps` wrote. Raises `PlanFileError` if the text isn't one."""
     try:
         document = json.loads(text)
     except json.JSONDecodeError as error:

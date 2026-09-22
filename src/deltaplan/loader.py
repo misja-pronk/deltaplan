@@ -28,6 +28,7 @@ from deltaplan.bundle import (
     read_bundle,
     resolve_target,
 )
+from deltaplan.errors import DeltaplanError
 from deltaplan.manage import ASPECT_OF, EVERYTHING, MANAGEABLE, Manage, strip
 from deltaplan.model.function import Function, Parameter
 from deltaplan.model.schema import Schema
@@ -94,7 +95,7 @@ class Loc:
         return f"{self.file}:{self.line}:{self.column}"
 
 
-class SpecError(Exception):
+class SpecError(DeltaplanError):
     """A spec that doesn't hold up. Always carries a location."""
 
     def __init__(self, message: str, loc: Loc) -> None:
