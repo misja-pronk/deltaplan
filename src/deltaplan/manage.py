@@ -28,13 +28,17 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
     from deltaplan.model.view import Relation
 
+#: Any relation, kept as itself: a stripped table is a table.
+_R = TypeVar("_R", bound="Relation")
+
 #: What can be handed over, and the spec keys each one covers.
 MANAGEABLE: dict[str, tuple[str, ...]] = {
+    "comments": ("comment",),
     "grants": ("grants",),
     "masks": ("mask",),
     "owner": ("owner",),
@@ -79,8 +83,14 @@ class Manage:
 EVERYTHING = Manage()
 
 
-def strip(relation: Relation, manage: Manage) -> Relation:
+def strip(relation: _R, manage: Manage) -> _R:
     """`relation` without what this project leaves to another tool.
+
+    Used on both sides. On a spec it is what `import` writes; on the live
+    object it is what the differ compares against, so a comment another tool
+    owns is never diffed away merely because no spec mentions it. What the
+    *rewrite* reads is the untouched live object, so it still puts back what a
+    replace would lose.
 
     What deltaplan reads from a live table is one thing; what it writes into a
     spec is another. `import` reads a masked, tagged, granted table just as it
@@ -90,6 +100,8 @@ def strip(relation: Relation, manage: Manage) -> Relation:
     if not manage.elsewhere:
         return relation
     blank: dict[str, object] = {}
+    if not manage.manages("comments"):
+        blank["comment"] = None
     if not manage.manages("tags"):
         blank["tags"] = ()
     if not manage.manages("grants"):
@@ -108,7 +120,8 @@ def strip(relation: Relation, manage: Manage) -> Relation:
     if columns is None:
         return stripped
     keep_tags, keep_masks = manage.manages("tags"), manage.manages("masks")
-    if keep_tags and keep_masks:
+    keep_comments = manage.manages("comments")
+    if keep_tags and keep_masks and keep_comments:
         return stripped
     return dataclasses.replace(
         stripped,
@@ -117,6 +130,7 @@ def strip(relation: Relation, manage: Manage) -> Relation:
                 column,
                 **({} if keep_tags else {"tags": ()}),
                 **({} if keep_masks else {"mask": None}),
+                **({} if keep_comments else {"comment": None}),
             )
             for column in columns
         ),

@@ -39,7 +39,7 @@ from deltaplan.differ import (
 from deltaplan.errors import DeltaplanError
 from deltaplan.introspect import Introspector, LiveSchema, LiveTable
 from deltaplan.loader import Mode
-from deltaplan.manage import EVERYTHING, Manage
+from deltaplan.manage import EVERYTHING, Manage, strip
 from deltaplan.model.change import Change
 from deltaplan.model.function import Function
 from deltaplan.model.plan import Plan, TableDiff, TableFacts, fingerprint
@@ -177,7 +177,11 @@ def plan_tables(
                 else ()
             ),
             *ownership(table, live_table),
-            *diff(table, live_table, compare_order=check_order),
+            *diff(
+                table,
+                strip(live_table, manage) if live_table else None,
+                compare_order=check_order,
+            ),
         )
         facts = _facts(
             introspector,
@@ -206,7 +210,10 @@ def plan_tables(
 
     for view in views:
         live_view = _schema_of(schemas, view.name).get_view(view.name)
-        changes = (*ownership(view, live_view), *diff_view(view, live_view))
+        changes = (
+            *ownership(view, live_view),
+            *diff_view(view, strip(live_view, manage) if live_view else None),
+        )
         diffs.append(
             TableDiff(
                 view.name,

@@ -216,3 +216,41 @@ def test_handing_properties_over_keeps_the_ownership_marker() -> None:
         manage=manage,
     )
     assert [change.kind for change in claim.changes] == ["claim_table"]
+
+
+def test_a_comment_another_tool_owns_is_not_diffed_away(tmp_path: Path) -> None:
+    """The one aspect where silence used to mean removal.
+
+    A spec without a comment on a table that has one means "clear it" — unless
+    comments aren't deltaplan's, in which case it means nothing at all.
+    """
+    live = replace(
+        table(col("id", "bigint", comment="the key"), name=NAME, properties=MANAGED),
+        comment="owned by the data contract",
+    )
+    fake = FakeWarehouse.of(live)
+    desired = table(col("id", "bigint"), name=NAME)
+    manage = Manage(("comments",))
+    plan = plan_tables(
+        [desired],
+        Introspector(fake, manage),
+        target="dev",
+        tool_version="0",
+        manage=manage,
+    )
+    assert plan.empty, plan_text(plan)
+    # And with comments managed, the same spec does clear them.
+    ordinary = plan_tables([desired], Introspector(fake), target="dev", tool_version="0")
+    assert {change.kind for change in ordinary.changes} == {
+        "set_table_comment",
+        "set_comment",
+    }
+
+
+def test_a_comment_in_a_spec_is_refused_when_comments_are_elsewhere(
+    tmp_path: Path,
+) -> None:
+    spec(tmp_path, f"table: main.sales.orders\ncomment: Order facts\n{COLUMNS}")
+    loaded = load_project(project(tmp_path, "manage:\n  comments: false\n"))
+    with pytest.raises(SpecError, match="isn't deltaplan's in this project"):
+        load_specs(loaded, loaded.target("dev"))

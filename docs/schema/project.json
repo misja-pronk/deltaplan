@@ -17,6 +17,9 @@
       "type": "object",
       "description": "What deltaplan looks after here. Everything is managed unless it says otherwise; false hands it to another tool, and the key is then refused in a spec.",
       "properties": {
+        "comments": {
+          "type": "boolean"
+        },
         "grants": {
           "type": "boolean"
         },
