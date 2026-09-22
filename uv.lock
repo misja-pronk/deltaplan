@@ -391,7 +391,7 @@ wheels = [
 
 [[package]]
 name = "deltaplan"
-version = "0.1.0a10"
+version = "0.2.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "databricks-sdk" },
