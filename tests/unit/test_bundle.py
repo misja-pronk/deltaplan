@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from deltaplan.bundle import BundleTarget
     from deltaplan.model.view import Relation
     from fake_warehouse import FakeWarehouse
+from deltaplan.connect import Connection, NotConnected
 from deltaplan.loader import SpecError, as_deployed, load_project, load_specs
 from deltaplan.model.table import Table
 
@@ -363,7 +364,8 @@ def client(*warehouses: _Warehouse) -> "WorkspaceClient":
 
 def test_a_warehouse_lookup_is_resolved_by_name() -> None:
     found = client(_Warehouse("w1", "Other"), _Warehouse("w2", "Starter Warehouse"))
-    assert cli._find_warehouse(found, "Starter Warehouse") == "w2"
+    connection = Connection(client=found, warehouse_name="Starter Warehouse")
+    assert connection.warehouse_id == "w2"
 
 
 @pytest.mark.parametrize(
@@ -382,13 +384,9 @@ def test_a_warehouse_lookup_is_resolved_by_name() -> None:
 def test_a_warehouse_lookup_that_does_not_find_one_warehouse(
     warehouses: tuple[_Warehouse, ...],
     message: str,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    import typer
-
-    with pytest.raises(typer.Exit):
-        cli._find_warehouse(client(*warehouses), "Starter Warehouse")
-    assert message in capsys.readouterr().err
+    with pytest.raises(NotConnected, match=message):
+        Connection(client=client(*warehouses), warehouse_name="Starter Warehouse")
 
 
 def test_a_bundle_host_is_used_when_there_is_no_profile(
@@ -404,9 +402,10 @@ def test_a_bundle_host_is_used_when_there_is_no_profile(
 
     monkeypatch.setattr(databricks.sdk, "WorkspaceClient", FakeWorkspaceClient)
     project = load_project(bundle_project(tmp_path))
-    cli._client(project.target("dev"), None)
-    cli._client(project.target("prod"), None)
-    cli._client(project.target("dev"), "mine")
+    for target, profile in (("dev", None), ("prod", None), ("dev", "mine")):
+        Connection.from_target(
+            project.target(target), profile=profile, warehouse_id="abc"
+        )
     assert made == [
         {"host": "https://adb-1.azuredatabricks.net"},
         {"profile": "prod"},

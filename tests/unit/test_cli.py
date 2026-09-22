@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 
 from deltaplan import cli
 from deltaplan.cli import app, package_version
+from deltaplan.connect import Connection
 from deltaplan.loader import load_table
 from deltaplan.model.table import Table
 from helpers import FakeRunner, Row, col, fake_runner, table
@@ -98,7 +99,9 @@ def live(monkeypatch: pytest.MonkeyPatch) -> FakeRunner:
         detail=LIVE_DETAIL,
         history=({"version": "17"},),
     )
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake)
+    )
     return fake
 
 
@@ -232,7 +235,9 @@ def test_plan_with_no_changes(project: Path, monkeypatch: pytest.MonkeyPatch) ->
         "  - {name: cust_id, type: string}\n"
     )
     fake = fake_runner(tables=LIVE_TABLE, columns=LIVE_COLUMNS, detail=LIVE_DETAIL)
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake)
+    )
     result = runner.invoke(
         app, ["plan", "-t", "dev", "--config", str(project / "deltaplan.yml")]
     )
@@ -269,7 +274,9 @@ def test_plan_reports_live_tables_no_spec_describes(
     from fake_warehouse import FakeWarehouse
 
     fake = FakeWarehouse.of(_live_orders(managed=True), _stranger(managed=False))
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake)
+    )
     result = runner.invoke(
         app, ["plan", "-t", "dev", "--config", str(project / "deltaplan.yml")]
     )
@@ -286,7 +293,9 @@ def test_an_orphaned_table_stays_in_an_additive_schema(
 
     # deltaplan created it, but its spec is gone.
     fake = FakeWarehouse.of(_live_orders(managed=True), _stranger(managed=True))
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake)
+    )
     result = runner.invoke(
         app, ["plan", "-t", "dev", "--config", str(project / "deltaplan.yml")]
     )
@@ -308,7 +317,9 @@ def test_an_orphaned_table_is_dropped_in_a_strict_schema(
     fake = FakeWarehouse.of(
         _live_orders(managed=True), _stranger(managed=True), _stranger_unmanaged()
     )
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake)
+    )
     result = runner.invoke(
         app, ["plan", "-t", "dev", "--config", str(project / "deltaplan.yml")]
     )
@@ -385,7 +396,7 @@ def test_show_renders_a_saved_plan_without_a_warehouse(
     def no_warehouse(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("show asked for a warehouse")
 
-    monkeypatch.setattr(cli, "_warehouse", no_warehouse)
+    monkeypatch.setattr(cli, "_connect", no_warehouse)
     shown = runner.invoke(app, ["show", str(plan_file)])
     assert shown.exit_code == 0, shown.output
     assert "sales.orders   ~ update  (412 GB)" in shown.output
@@ -432,7 +443,9 @@ def test_drift_exits_0_when_in_sync(
         "  - {name: cust_id, type: string}\n"
     )
     fake = FakeWarehouse.of(_live_orders(managed=True))
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake)
+    )
     result = runner.invoke(
         app, ["drift", "-t", "dev", "--config", str(project / "deltaplan.yml")]
     )
@@ -455,7 +468,9 @@ def test_drift_ignores_what_deltaplan_never_claimed(
     )
     # An unmanaged table beside it is not drift: nobody asked deltaplan to keep it.
     fake = FakeWarehouse.of(_live_orders(managed=True), _stranger(managed=False))
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake)
+    )
     result = runner.invoke(
         app, ["drift", "-t", "dev", "--config", str(project / "deltaplan.yml")]
     )
@@ -538,7 +553,9 @@ def test_import_writes_views_and_reports_what_it_skipped(
     fake.responses["information_schema.views"] = (
         {"table_name": "v_orders", "view_definition": "SELECT * FROM main.sales.orders"},
     )
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake)
+    )
     result = runner.invoke(app, ["import", "main.sales", "-o", str(tmp_path / "out")])
     assert result.exit_code == 0, result.output
     written = (tmp_path / "out" / "v_orders.yml").read_text()
@@ -551,7 +568,9 @@ def test_import_writes_views_and_reports_what_it_skipped(
 def test_import_with_nothing_to_import(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake_runner())
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake_runner())
+    )
     result = runner.invoke(app, ["import", "main.sales", "-o", str(tmp_path / "out")])
     assert "No Delta tables, views or functions found" in result.output
 
@@ -571,7 +590,9 @@ def test_import_as_sql_falls_back_to_yaml_for_what_sql_cannot_say(
         columns=(Field("email", Primitive("string"), mask=Mask("main.sales.m")),),
     )
     fake = FakeWarehouse.of(plain, masked)
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake)
+    )
     destination = tmp_path / "imported"
     result = runner.invoke(
         app,
@@ -623,7 +644,9 @@ def test_apply_shows_each_steps_risk(
     from deltaplan.history import MemoryHistory
     from fake_warehouse import FakeWarehouse
 
-    monkeypatch.setattr(cli, "_warehouse", lambda *_a, **_k: FakeWarehouse())
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_a, **_k: Connection(runner=FakeWarehouse())
+    )
     monkeypatch.setattr(cli, "_history", lambda *_a, **_k: MemoryHistory())
     config, plan_file = str(project / "deltaplan.yml"), str(tmp_path / "plan.json")
     assert runner.invoke(app, ["plan", "-t", "dev", "-c", config, "-o", plan_file])

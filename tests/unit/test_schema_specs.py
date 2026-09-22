@@ -15,6 +15,7 @@ import yaml
 from typer.testing import CliRunner
 
 from deltaplan import cli
+from deltaplan.connect import Connection
 from deltaplan.executor import Executor
 from deltaplan.history import MemoryHistory
 from deltaplan.introspect import Introspector
@@ -182,7 +183,9 @@ def test_import_writes_the_schema_spec(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = FakeWarehouse.of(SALES, ORDERS)
-    monkeypatch.setattr(cli, "_warehouse", lambda *_args, **_kwargs: fake)
+    monkeypatch.setattr(
+        cli, "_connect", lambda *_args, **_kwargs: Connection(runner=fake)
+    )
     for spec_format, name in (("yaml", "_schema.yml"), ("sql", "_schema.yml")):
         destination = tmp_path / spec_format
         result = CliRunner().invoke(

@@ -8,51 +8,40 @@ that write to a workspace.
 import json
 import os
 from collections.abc import Callable
-from dataclasses import replace
 from enum import StrEnum
 from fnmatch import fnmatch
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
 from rich.console import Console
 from rich.markup import escape
 
+from deltaplan import api
+from deltaplan.api import NoHistory
 from deltaplan.bundle import BundleError
-from deltaplan.executor import (
-    DestructiveRefused,
-    ExecutionError,
-    ExecutionResult,
-    Executor,
-)
-from deltaplan.history import DeltaHistory, HistoryStore, Status
-from deltaplan.introspect import (
-    IntrospectionError,
-    Introspector,
-    LiveSchema,
-    WarehouseRunner,
-)
+from deltaplan.connect import Connection, NotConnected
+from deltaplan.errors import DeltaplanError
+from deltaplan.executor import DestructiveRefused, ExecutionError, ExecutionResult
+from deltaplan.history import HistoryStore, Status
+from deltaplan.introspect import IntrospectionError
 from deltaplan.loader import (
     Diagnostic,
-    LoadedSpec,
     Project,
     SpecError,
+    SpecErrors,
+    Specs,
     Target,
     as_deployed,
-    dump_spec,
     find_project_file,
     load_project,
     load_spec,
-    load_specs,
     spec_files,
     validate_spec,
 )
-from deltaplan.manage import EVERYTHING, Manage
+from deltaplan.manage import EVERYTHING
 from deltaplan.model.plan import Plan, Step
-from deltaplan.model.view import Relation
-from deltaplan.model.volume import Volume
-from deltaplan.planning import PlanningError, plan_tables
 from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_json
 from deltaplan.render.json import loads as plan_loads
@@ -60,10 +49,7 @@ from deltaplan.render.labels import count
 from deltaplan.render.markdown import render_markdown
 from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, number_width, render_plan
 from deltaplan.spec_schema import MODELINE, project_schema, spec_schema
-from deltaplan.sqlspec import dump_sql_spec, sql_cannot_say
-
-if TYPE_CHECKING:
-    from databricks.sdk import WorkspaceClient
+from deltaplan.sqlspec import sql_cannot_say
 
 app = typer.Typer(
     name="deltaplan",
@@ -156,14 +142,8 @@ def cli(
 
 
 def package_version() -> str:
-    """The installed distribution version, or a marker in a source tree."""
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as installed_version
-
-    try:
-        return installed_version("deltaplan")
-    except PackageNotFoundError:  # pragma: no cover - only outside an install
-        return "unknown"
+    """The installed distribution version. The library decides what that is."""
+    return api.package_version()
 
 
 @app.command()
@@ -299,9 +279,7 @@ def import_schema(
     project = _optional_project(config)
     chosen = _target(project, target) if project else None
     manage = project.manage if project else EVERYTHING
-    live = _introspect(
-        _warehouse(warehouse_id, chosen, profile), parts[0], parts[1], parallel, manage
-    )
+    connection = _connect(warehouse_id, chosen, profile)
 
     if project is None and config is None and output is None:
         # A first import is a first project: write the file that makes
@@ -327,76 +305,37 @@ def import_schema(
     directory.mkdir(parents=True, exist_ok=True)
 
     variable = _catalog_variable(chosen, parts[0])
-    # Owners stay out of imported specs: often a person's email, and not the
-    # same across workspaces. A spec that names one has it enforced.
-    definition = replace(live.definition, owner=None) if live.definition else None
-    owned = chosen.owned_by_the_bundle() if chosen else {}
-    if definition is not None and definition.name.lower() in owned:
-        out.print(
-            f"[dim]· {escape(definition.name)} is the bundle's "
-            f"{escape(owned[definition.name.lower()])} — no spec written for it[/]"
+    try:
+        found = api.import_schema(
+            connection,
+            schema,
+            manage=manage,
+            catalog_variable=variable,
+            owned_elsewhere=chosen.owned_by_the_bundle() if chosen else None,
+            spec_format=spec_format.value,
+            parallel=parallel,
         )
-        definition = None
-    if definition is not None and (
-        definition.comment or definition.tags or definition.grants
-    ):
-        # The schema's own comment, tags and grants, when it has any.
-        reason = sql_cannot_say(definition) if spec_format is SpecFormat.sql else None
-        if spec_format is SpecFormat.sql and reason is None:
-            path = directory / "_schema.sql"
-            text = dump_sql_spec(definition, catalog_variable=variable)
-        else:
-            path = directory / "_schema.yml"
-            text = (
-                MODELINE
-                + "\n"
-                + dump_spec(definition, catalog_variable=variable, manage=manage)
-            )
-        path.write_text(text, encoding="utf-8")
+    except DeltaplanError as error:
+        err.print(f"[red]{escape(str(error))}[/]")
+        raise typer.Exit(1) from error
+
+    for spec in found:
+        path = directory / spec.filename
+        # The first line points an editor at the schema: completion and inline
+        # errors from the moment the file is opened.
+        head = MODELINE + "\n" if path.suffix == ".yml" else ""
+        path.write_text(head + spec.text, encoding="utf-8")
+        reason = sql_cannot_say(spec.relation) if spec_format is SpecFormat.sql else None
         note = f" [dim](YAML: SQL can't say {reason})[/]" if reason else ""
         out.print(f"[green]+[/] {escape(str(path))}{note}")
 
-    relations: list[Relation] = [
-        replace(relation, owner=None)
-        for relation in (
-            *(entry.table for entry in live.tables),
-            *live.views,
-            *live.functions,
-            *live.volumes,
-        )
-    ]
-    written: set[str] = set()
-    for relation in relations:
-        # Functions and volumes don't share a namespace with tables and views,
-        # so one may have a table's name; its file then says what it is.
-        stem = relation.short_name
-        if stem in written:
-            stem = f"{stem}.{'volume' if isinstance(relation, Volume) else 'function'}"
-        written.add(stem)
-        reason = sql_cannot_say(relation) if spec_format is SpecFormat.sql else None
-        if spec_format is SpecFormat.sql and reason is None:
-            path = directory / f"{stem}.sql"
-            text = dump_sql_spec(relation, catalog_variable=variable)
-        else:
-            path = directory / f"{stem}.yml"
-            # The first line points an editor at the schema: completion and
-            # inline errors from the moment the file is opened.
-            text = (
-                MODELINE
-                + "\n"
-                + dump_spec(relation, catalog_variable=variable, manage=manage)
-            )
-        path.write_text(text, encoding="utf-8")
-        note = f" [dim](YAML: SQL can't say {reason})[/]" if reason else ""
-        out.print(f"[green]+[/] {escape(str(path))}{note}")
-
-    for name, reason in live.skipped:
+    for name, reason in found.skipped:
         out.print(
             f"[dim]· skipped {name} ({reason}) — deltaplan manages Delta tables, "
             "views and SQL functions[/]"
         )
 
-    if not relations:
+    if not found.specs:
         err.print(
             f"[yellow]No Delta tables, views or functions found in {escape(schema)}.[/]"
         )
@@ -575,12 +514,11 @@ def _plan_for(
     chosen = _target(project, target)
     specs = _load(project, chosen)
     _abort_on_lint_errors(specs)
-    runner = _warehouse(warehouse_id, chosen, profile)
     return _plan(
         project,
         chosen,
         specs,
-        runner,
+        _connect(warehouse_id, chosen, profile),
         check_order=check_order,
         clone=clone,
         parallel=parallel,
@@ -616,30 +554,27 @@ def _output(
 def _plan(
     project: Project,
     target: Target,
-    specs: tuple[LoadedSpec, ...],
-    runner: WarehouseRunner,
+    specs: Specs,
+    connection: Connection,
     *,
     check_order: bool = False,
     clone: bool = False,
     parallel: int = 8,
     select: list[str] | None = None,
 ) -> Plan:
-    relations = [spec.table for spec in specs]
-    chosen = _selection(select, [relation.name for relation in relations])
+    """`deltaplan.plan`, with this command line's reading of `--select`."""
     try:
-        return plan_tables(
-            relations,
-            Introspector(runner, project.manage, parallel=parallel),
-            target=target.name,
-            tool_version=package_version(),
-            mode_for=lambda schema: project.mode_for(target, schema),
+        return api.plan(
+            project,
+            target,
+            connection,
+            select=_selection(select, [r.name for r in specs.relations]),
             check_order=check_order,
             clone=clone,
-            select=chosen,
-            owned_elsewhere=target.owned_by_the_bundle(),
-            manage=project.manage,
+            parallel=parallel,
+            specs=specs,
         )
-    except (PlanningError, IntrospectionError) as error:
+    except DeltaplanError as error:
         err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
 
@@ -718,13 +653,15 @@ def apply(
             raise typer.Exit(1)
         built = _read_plan(plan_file)
         chosen = _target(project, built.target)
-        runner = _warehouse(warehouse_id, chosen, profile)
+        connection = _connect(warehouse_id, chosen, profile)
     else:
         chosen = _target(project, target)
         specs = _load(project, chosen)
         _abort_on_lint_errors(specs)
-        runner = _warehouse(warehouse_id, chosen, profile)
-        built = _plan(project, chosen, specs, runner, parallel=parallel, select=select)
+        connection = _connect(warehouse_id, chosen, profile)
+        built = _plan(
+            project, chosen, specs, connection, parallel=parallel, select=select
+        )
         render_plan(built, out)
         if built.empty:
             return
@@ -738,21 +675,21 @@ def apply(
             out.print("Nothing applied.")
             raise typer.Exit(1)
         out.print()
-    history = _history(project, chosen, runner)
+    history = _history(project, chosen, connection)
 
     out.print(
         f"[bold]{built.target}[/] · {count(len(built.steps), 'step')} · "
         f"highest risk [{RISK_STYLE[built.highest_risk]}]{built.highest_risk}[/]"
     )
 
-    executor = Executor(
-        runner=runner,
-        introspector=Introspector(runner),
-        history=history,
-        observer=partial(_show_step, width=number_width(built)),
-    )
     try:
-        result = executor.apply(built, allow_destructive=allow_destructive)
+        result = api.apply(
+            built,
+            connection,
+            history=history,
+            allow_destructive=allow_destructive,
+            observer=partial(_show_step, width=number_width(built)),
+        )
     except DestructiveRefused as error:
         # The refusal is the library's; the flag that lifts it is this CLI's.
         err.print(f"[red]{escape(str(error))} Re-run with --allow-destructive.[/]")
@@ -839,9 +776,9 @@ def force_unlock(
     """Release the apply lock after a run died holding it."""
     project = _project(config)
     chosen = _target(project, target)
-    runner = _warehouse(warehouse_id, chosen, profile)
+    connection = _connect(warehouse_id, chosen, profile)
     try:
-        holder = _history(project, chosen, runner).force_unlock(chosen.name)
+        holder = _history(project, chosen, connection).force_unlock(chosen.name)
     except IntrospectionError as error:
         err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
@@ -862,20 +799,17 @@ def _read_plan(path: Path) -> Plan:
         raise typer.Exit(1) from error
 
 
-def _history(project: Project, target: Target, runner: WarehouseRunner) -> HistoryStore:
+def _history(project: Project, target: Target, connection: Connection) -> HistoryStore:
     try:
-        schema = project.history_schema_for(target)
+        return api.history_for(project, target, connection)
     except KeyError as error:
         err.print(f"[red]history_schema: {escape(str(error.args[0]))}[/]")
         raise typer.Exit(1) from error
-    if not schema:
+    except NoHistory as error:
         err.print(
-            "[red]No history_schema in deltaplan.yml. `apply` records every run "
-            "in Delta tables; tell it which schema to keep them in, e.g.\n"
-            "  history_schema: ${catalog}.deltaplan[/]"
+            f"[red]{escape(str(error))}\n  history_schema: ${{catalog}}.deltaplan[/]"
         )
-        raise typer.Exit(1)
-    return DeltaHistory(runner, schema)
+        raise typer.Exit(1) from error
 
 
 # ---------------------------------------------------------------------------
@@ -942,10 +876,10 @@ def _named(project: Project, name: str) -> Target:
     return as_deployed(project, project.target(name))
 
 
-def _load(project: Project, target: Target) -> tuple[LoadedSpec, ...]:
+def _load(project: Project, target: Target) -> Specs:
     try:
-        specs = load_specs(project, target)
-    except (SpecError, FileNotFoundError) as error:
+        specs = project.load_specs(target)
+    except (SpecErrors, SpecError, FileNotFoundError) as error:
         err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
     if not specs:
@@ -954,98 +888,34 @@ def _load(project: Project, target: Target) -> tuple[LoadedSpec, ...]:
     return specs
 
 
-def _abort_on_lint_errors(specs: tuple[LoadedSpec, ...]) -> None:
-    errors = 0
-    for spec in specs:
-        for diagnostic in validate_spec(spec.table, str(spec.path)):
-            _print_diagnostic(diagnostic)
-            errors += diagnostic.severity == "error"
-    if errors:
-        err.print(f"[red]Refusing to plan: {count(errors, 'spec error')}.[/]")
+def _abort_on_lint_errors(specs: Specs) -> None:
+    for diagnostic in specs.diagnostics:
+        _print_diagnostic(diagnostic)
+    if specs.errors:
+        err.print(f"[red]Refusing to plan: {count(len(specs.errors), 'spec error')}.[/]")
         raise typer.Exit(1)
 
 
-def _warehouse(
+def _connect(
     warehouse_id: str | None, target: Target | None, profile: str | None = None
-) -> WarehouseRunner:
-    chosen = (
-        warehouse_id
-        or (target.warehouse_id if target else None)
-        or os.environ.get("DATABRICKS_WAREHOUSE_ID")
-    )
-    lookup = target.warehouse_lookup if target else None
-    if not chosen and not lookup:
-        err.print(
-            "[red]No SQL warehouse. Pass --warehouse-id, set warehouse_id on the "
-            "target, or export DATABRICKS_WAREHOUSE_ID.[/]"
-        )
-        raise typer.Exit(1)
-    client = _client(target, profile)
-    if not chosen:
-        assert lookup is not None
-        chosen = _find_warehouse(client, lookup)
-    return WarehouseRunner(client, chosen)
-
-
-def _client(target: Target | None, profile: str | None) -> "WorkspaceClient":
-    """A workspace client: the --profile, else the target's profile, else the
-    target's host (from a bundle), else the SDK's own defaults.
-
-    TODO(verify): that a host alone authenticates the way the Databricks CLI
-    does after `databricks auth login --host` — the SDK's `databricks-cli`
-    credentials provider is meant to cover it.
-    https://docs.databricks.com/aws/en/dev-tools/auth/unified-auth
-    """
-    from databricks.sdk import WorkspaceClient
-
-    use = profile or (target.profile if target else None)
-    host = None if use else (target.host if target else None)
+) -> Connection:
+    """A workspace and a warehouse, or a red line and exit 1."""
     try:
-        if use:
-            return WorkspaceClient(profile=use)
-        if host:
-            return WorkspaceClient(host=host)
-        return WorkspaceClient()
-    except Exception as error:  # the SDK raises ValueError for most config problems
-        where = (
-            f"profile {use!r}"
-            if use
-            else f"host {host}"
-            if host
-            else "the environment or the DEFAULT profile"
-        )
-        err.print(
-            f"[red]Can't connect to a Databricks workspace using {where}: {error}[/]\n"
-            "Set `profile:` on the target, pass --profile, or export DATABRICKS_HOST "
-            "and a token."
-        )
-        raise typer.Exit(1) from error
-
-
-def _find_warehouse(client: "WorkspaceClient", name: str) -> str:
-    """The id of the SQL warehouse a bundle's `warehouse_id` lookup names."""
-    found = [w.id for w in client.warehouses.list() if w.name == name and w.id]
-    if len(found) != 1:
-        problem = "no SQL warehouse" if not found else "more than one SQL warehouse"
-        err.print(
-            f"[red]The bundle looks up the warehouse by name, and there is {problem} "
-            f"called {name!r}. Set warehouse_id on the target in deltaplan.yml.[/]"
-        )
-        raise typer.Exit(1)
-    return found[0]
-
-
-def _introspect(
-    runner: WarehouseRunner,
-    catalog: str,
-    schema: str,
-    parallel: int = 8,
-    manage: Manage = EVERYTHING,
-) -> LiveSchema:
-    try:
-        return Introspector(runner, manage, parallel=parallel).schema(catalog, schema)
-    except IntrospectionError as error:
+        if target is None:
+            return Connection(profile=profile, warehouse_id=warehouse_id)
+        return Connection.from_target(target, profile=profile, warehouse_id=warehouse_id)
+    except NotConnected as error:
         err.print(f"[red]{escape(str(error))}[/]")
+        if "no SQL warehouse" in str(error):
+            err.print(
+                "Pass --warehouse-id, set warehouse_id on the target, or export "
+                "DATABRICKS_WAREHOUSE_ID."
+            )
+        else:
+            err.print(
+                "Set `profile:` on the target, pass --profile, or export "
+                "DATABRICKS_HOST and a token."
+            )
         raise typer.Exit(1) from error
 
 

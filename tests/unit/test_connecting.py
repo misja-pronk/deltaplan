@@ -9,9 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import typer
 
-from deltaplan import cli
+from deltaplan.connect import Connection, NotConnected
 from deltaplan.loader import Target, load_project
 
 
@@ -43,19 +42,19 @@ def test_a_target_can_name_its_profile(tmp_path: Path) -> None:
 
 
 def test_the_targets_profile_is_used(client: type[RecordingClient]) -> None:
-    cli._warehouse(None, Target("dev", warehouse_id="abc", profile="dev-workspace"))
+    Connection.from_target(Target("dev", warehouse_id="abc", profile="dev-workspace"))
     assert client.made == [{"profile": "dev-workspace"}]
 
 
 def test_profile_on_the_command_line_wins(client: type[RecordingClient]) -> None:
-    cli._warehouse(
-        None, Target("dev", warehouse_id="abc", profile="dev-workspace"), "other"
+    Connection.from_target(
+        Target("dev", warehouse_id="abc", profile="dev-workspace"), profile="other"
     )
     assert client.made == [{"profile": "other"}]
 
 
 def test_without_a_profile_the_sdk_decides(client: type[RecordingClient]) -> None:
-    cli._warehouse("abc", Target("dev"))
+    Connection.from_target(Target("dev"), warehouse_id="abc")
     assert client.made == [{}], "no profile argument at all, so env vars still work"
 
 
@@ -68,8 +67,8 @@ def test_a_workspace_that_cant_be_reached_is_a_message(
         raise ValueError("default auth: cannot configure default credentials")
 
     monkeypatch.setattr(databricks.sdk, "WorkspaceClient", unconfigured)
-    with pytest.raises(typer.Exit):
-        cli._warehouse("abc", Target("dev", profile="missing"))
-    printed = capsys.readouterr().err
-    assert "Can't connect to a Databricks workspace using profile 'missing'" in printed
-    assert "cannot configure default credentials" in printed
+    with pytest.raises(NotConnected) as raised:
+        Connection.from_target(Target("dev", profile="missing"), warehouse_id="abc")
+    said = str(raised.value)
+    assert "can't connect to a Databricks workspace using profile 'missing'" in said
+    assert "cannot configure default credentials" in said

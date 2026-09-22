@@ -12,6 +12,7 @@ import pytest
 from typer.testing import CliRunner
 
 from deltaplan import cli
+from deltaplan.connect import Connection
 from deltaplan.history import MemoryHistory
 from deltaplan.model.table import Grant
 from fake_warehouse import FakeWarehouse
@@ -33,7 +34,7 @@ def workspace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeWarehouse:
         table(col("event_id", "bigint"), name="main.crm.events"),
     )
     history = MemoryHistory()
-    monkeypatch.setattr(cli, "_warehouse", lambda *_a, **_k: fake)
+    monkeypatch.setattr(cli, "_connect", lambda *_a, **_k: Connection(runner=fake))
     monkeypatch.setattr(cli, "_history", lambda *_a, **_k: history)
     monkeypatch.chdir(tmp_path)
     return fake

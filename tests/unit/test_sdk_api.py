@@ -196,12 +196,13 @@ def test_a_host_can_import_a_schema_without_writing_anything(
         "CREATE TABLE IF NOT EXISTS `main`.`sales`.`orders` (\n"
         "  `order_id` BIGINT NOT NULL,\n  `amount` DECIMAL(18,2)\n)\nUSING DELTA"
     )
-    specs = deltaplan.import_schema(Connection(runner=fake), "main.sales")
-    assert [spec.filename for spec in specs] == ["orders.yml"]
-    assert "table: main.sales.orders" in specs[0].text
-    assert specs[0].relation.name == "main.sales.orders"
-    # And what it wrote is a spec deltaplan reads back as the same table.
-    assert "owner:" not in specs[0].text, "an owner is a person, not a shape"
+    found = deltaplan.import_schema(Connection(runner=fake), "main.sales")
+    assert [spec.filename for spec in found] == ["orders.yml"]
+    [spec] = found.specs
+    assert "table: main.sales.orders" in spec.text
+    assert spec.relation.name == "main.sales.orders"
+    # An owner is a person, not a shape: imported specs leave it out.
+    assert "owner:" not in spec.text
 
 
 def test_import_leaves_out_what_another_tool_manages(fake: FakeWarehouse) -> None:
@@ -214,7 +215,7 @@ def test_import_leaves_out_what_another_tool_manages(fake: FakeWarehouse) -> Non
     handed_over = deltaplan.Manage(("tags",))
     [spec] = deltaplan.import_schema(
         Connection(runner=fake), "main.sales", manage=handed_over
-    )
+    ).specs
     assert "tags:" not in spec.text
 
 

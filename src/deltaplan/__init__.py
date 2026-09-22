@@ -32,10 +32,12 @@ making one: `render_plan` for a terminal, `render_markdown` for a pull request,
 from __future__ import annotations
 
 from deltaplan.api import (
+    ImportedSchema,
     ImportedSpec,
     NoHistory,
     apply,
     drift,
+    history_for,
     import_schema,
     is_stale,
     plan,
@@ -113,8 +115,10 @@ __all__ = [
     "ForeignKey",
     "Function",
     "Grant",
+    "history_for",
     "HistoryStore",
     "import_schema",
+    "ImportedSchema",
     "ImportedSpec",
     "IntrospectionError",
     "Introspector",
