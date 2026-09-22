@@ -6,6 +6,60 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0a1] - 2026-09-22
+
+deltaplan is a library as well as a command, and the command is the library's
+first customer.
+
+### Added
+
+- **A public SDK: `import deltaplan`.** A program that runs deltaplan as part
+  of something larger — a deployment task, a notebook, a policy check — now has
+  names it can rely on, `__all__`, and a page of its own
+  (**[As a library](https://misja-pronk.github.io/deltaplan/sdk/)**). The seven
+  steps every host takes: `Project.find()` / `Project.load()`,
+  `project.resolve(target, bundle_config=…)`, `project.load_specs(target)`,
+  `Connection.from_target(target)`, `deltaplan.plan(…)`,
+  `deltaplan.apply(…)`, and `deltaplan.drift(…)`. With
+  `deltaplan.validate(…)`, `deltaplan.import_schema(…)`,
+  `deltaplan.is_stale(plan, conn)` and `deltaplan.find_cli()` beside them.
+- **Errors with one root.** Everything deltaplan raises on purpose is a
+  `DeltaplanError`, so one `except` reports a failure and a subclass reacts to
+  a particular one. Two are new because they are the two a host acts on:
+  `StalePlan` and `DestructiveRefused`, each naming the tables it is about.
+  `SpecErrors` carries *every* unreadable spec, not the first.
+- **A plan can be talked about without walking it.** `plan.is_destructive`,
+  `plan.unmanaged`, `plan.orphaned`, and per table `diff.kind`, `diff.action`,
+  `diff.steps`, `diff.risk`, `diff.warnings` — so nothing has to read a class
+  name to learn that a diff is about a view. A plan written to JSON and read
+  back keeps all of it.
+- **A bundle the caller already resolved.** `project.resolve(target,
+  bundle_config=…)` takes what `databricks bundle validate -o json` printed and
+  runs no subprocess. `Bundle.from_resolved(mapping)` is the entry.
+- **`manage: comments`.** Descriptions can be handed to the tool that owns
+  them, like grants and tags. A comment a spec doesn't mention normally means
+  *remove it*, so handing them over also stops deltaplan comparing them.
+
+### Changed
+
+- **A bundle that doesn't resolve is an error.** When the Databricks CLI is
+  installed and fails, deltaplan stops and shows what it said — "two profiles
+  match this host" — instead of falling back to the bundle file and planning
+  against names a deploy would never use. With no CLI at all, the file stands
+  in as before. The CLI is looked for the way the Databricks SDK looks for it:
+  `DATABRICKS_CLI_PATH` first, then `PATH`.
+- **The command line is the SDK's first customer.** `cli.py` is argument
+  parsing, rendering and exit codes around the same public functions; it holds
+  no logic the library lacks, and imports nothing private. What it prints is
+  unchanged, down to the pictures in the documentation.
+
+### Fixed
+
+- **A volume no longer stands in for a table that shares its name.** Asked
+  about a table it didn't have, a live schema handed back the volume of that
+  name, so a plan to create the table refused itself as stale with nothing
+  having changed.
+
 ## [0.1.0a10] - 2026-09-22
 
 Say what deltaplan looks after, and what belongs to the tool that already owns
