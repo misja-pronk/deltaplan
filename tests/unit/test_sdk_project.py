@@ -100,8 +100,9 @@ def test_the_cli_is_asked_when_the_host_has_nothing(tmp_path: Path, monkeypatch)
     assert resolved.variables_map()["resources.schemas.sales.name"] == "dev_jane_sales"
 
 
-def test_a_failing_cli_says_what_it_said(tmp_path: Path, monkeypatch) -> None:
-    """Its words, not ours: 'install the Databricks CLI' helps nobody who has."""
+def test_a_failing_cli_is_the_error(tmp_path: Path, monkeypatch) -> None:
+    """Its words, not ours: a bundle that doesn't resolve has no names to plan
+    against, so deltaplan stops rather than guessing from the file."""
     binary = write(
         tmp_path,
         "bin/databricks",
@@ -109,6 +110,20 @@ def test_a_failing_cli_says_what_it_said(tmp_path: Path, monkeypatch) -> None:
     )
     binary.chmod(0o755)
     monkeypatch.setenv("PATH", f"{binary.parent}:{os.environ['PATH']}")
+    write(tmp_path, "databricks.yml", BUNDLE)
+    write(tmp_path, "deltaplan.yml", PROJECT)
+    project = Project.load(tmp_path / "deltaplan.yml")
+    with pytest.raises(deltaplan.BundleError) as raised:
+        project.resolve(project.target("dev"))
+    message = str(raised.value)
+    assert "two profiles match this host" in message
+    assert "install the Databricks CLI" not in message
+
+
+def test_without_a_cli_at_all_the_file_stands_in(tmp_path: Path, monkeypatch) -> None:
+    """A machine with no CLI was never going to answer; that is not an error,
+    and what only the CLI could have settled stays unknown."""
+    monkeypatch.setenv("PATH", str(tmp_path / "nothing-here"))
     write(tmp_path, "databricks.yml", BUNDLE)
     write(tmp_path, "deltaplan.yml", PROJECT)
     write(
@@ -119,11 +134,9 @@ def test_a_failing_cli_says_what_it_said(tmp_path: Path, monkeypatch) -> None:
     )
     project = Project.load(tmp_path / "deltaplan.yml")
     resolved = project.resolve(project.target("dev"))
-    with pytest.raises(SpecErrors) as raised:
+    assert resolved.name == "dev", "the target is still usable"
+    with pytest.raises(SpecErrors, match="development"):
         project.load_specs(resolved)
-    message = str(raised.value)
-    assert "two profiles match this host" in message
-    assert "install the Databricks CLI" not in message
 
 
 def test_every_unreadable_spec_is_reported_at_once(tmp_path: Path) -> None:

@@ -85,17 +85,29 @@ deltaplan reimplements none of that, which is the reason it asks rather than rea
 same call settles the other things a file can't: a `lookup:` variable becomes the id it
 looked up, and `${workspace.current_user.short_name}` becomes a user.
 
-## Without the CLI
+## When the CLI can't answer
 
-The [Databricks CLI](https://docs.databricks.com/aws/en/dev-tools/cli/) has to be on
-your `PATH`, and logged in — it resolves nothing at all without credentials. When it
-can't answer, deltaplan reads the bundle file itself and resolves what a file can:
+There are two of those, and they mean different things.
+
+**No CLI on your `PATH`** is a machine that was never going to answer — a laptop, a CI
+job that only lints. deltaplan reads the bundle file itself and resolves what a file can:
 variable defaults, target overrides, `BUNDLE_VAR_<name>` from the environment, and
-`${var.…}`, `${bundle.name}` and `${bundle.target}` references.
+`${var.…}`, `${bundle.name}` and `${bundle.target}` references. What it won't do is guess
+the rest: a lookup, a complex variable, a current user, and every name a renaming target
+deploys under stay **unknown**, with the reason attached, so a spec that uses one fails
+saying why instead of planning against the wrong schema.
 
-What it won't do is guess the rest. A lookup, a complex variable, a current user, and
-every name a renaming target deploys under stay **unknown**, with the reason attached —
-so a spec that uses one fails saying why, instead of planning against the wrong schema.
+**A CLI that is there and fails** is a bundle that doesn't resolve, and deltaplan stops:
+
+```
+the bundle shop doesn't resolve for target 'dev': the Databricks CLI could not
+resolve the bundle: Error: two profiles match this host
+```
+
+Its words, not deltaplan's. Carrying on from the file would mean planning against names
+a deploy would never use — and being told to install something you already have helps
+nobody. The [Databricks CLI](https://docs.databricks.com/aws/en/dev-tools/cli/) needs to
+be logged in for this: it resolves nothing at all without credentials.
 
 ## deltaplan.yml has the last word
 

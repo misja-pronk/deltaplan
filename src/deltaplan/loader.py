@@ -278,9 +278,13 @@ class Project:
         With `bundle_config` — the mapping
         `databricks bundle validate -o json -t <target>` prints, which a host
         that just deployed already holds — nothing is run. Without it the
-        Databricks CLI is asked, with `profile` if given. When the CLI can't
-        answer, what deltaplan read from the bundle file stands in, and the
-        CLI's own words are attached to whatever stayed unknown.
+        Databricks CLI is asked, with `profile` if given.
+
+        Raises `BundleError` when the CLI is there and fails, carrying what it
+        said: a bundle that doesn't resolve has no names to plan against, and
+        guessing from the file would mean planning against names a deploy would
+        never use. On a machine with no CLI at all, the file stands in as it
+        always has, and what only the CLI could have settled stays unknown.
 
         A project without a bundle gets its target back unchanged.
         """
@@ -297,6 +301,11 @@ class Project:
             executable=executable,
         )
         if answer.target is None:
+            if answer.installed:
+                raise BundleError(
+                    f"the bundle {self.bundle.name} doesn't resolve for target "
+                    f"{target.name!r}: {answer.error}"
+                )
             return _because(target, answer.error)
         return _from_bundle(answer.target, own)
 

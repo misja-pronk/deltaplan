@@ -200,10 +200,17 @@ class CliAnswer:
 
     `error` is the CLI's own words, kept whole: "two profiles match this host"
     is something a person can act on, and deltaplan has nothing to add to it.
+
+    `installed` tells the two silences apart, because they mean different
+    things. No CLI on `PATH` is a machine that was never going to answer, and
+    deltaplan reads the bundle file instead. A CLI that is there and fails is a
+    bundle that doesn't resolve — carrying on from the file would plan against
+    names a deploy would never use.
     """
 
     target: BundleTarget | None = None
     error: str | None = None
+    installed: bool = True
 
 
 def ask_cli(
@@ -218,6 +225,9 @@ def ask_cli(
     An answer, or the reason there isn't one — the CLI missing from `PATH`,
     or the CLI's own error when it is there and fails. Never raises.
     """
+    found = shutil.which(executable)
+    if found is None:
+        return CliAnswer(None, f"no {executable!r} on PATH", installed=False)
     document, error = _run_cli(path, target, profile=profile, executable=executable)
     if document is None:
         return CliAnswer(None, error)
