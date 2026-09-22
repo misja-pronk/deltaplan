@@ -39,6 +39,7 @@ https://docs.databricks.com/aws/en/dev-tools/bundles/settings
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -194,6 +195,28 @@ class Bundle:
         )
 
 
+def find_cli(
+    executable: str = "databricks", environ: Mapping[str, str] | None = None
+) -> str | None:
+    """The Databricks CLI, looked for the way the Databricks SDK looks for it.
+
+    `DATABRICKS_CLI_PATH` first, then `PATH`. The variable matters on a machine
+    that manages tools with shims: a `databricks` on `PATH` that is really
+    `mise` resolves to the shim, which the SDK's own `databricks-cli`
+    authentication then can't use. Pointing `DATABRICKS_CLI_PATH` at the real
+    binary fixes both at once, and deltaplan doesn't try to be clever about it.
+    https://docs.databricks.com/aws/en/dev-tools/auth/unified-auth
+    """
+    env = environ if environ is not None else os.environ
+    named = env.get("DATABRICKS_CLI_PATH")
+    if named:
+        direct = Path(named)
+        if direct.is_file() and os.access(direct, os.X_OK):
+            return str(direct)
+        return shutil.which(named)
+    return shutil.which(executable)
+
+
 @dataclass(frozen=True, slots=True)
 class CliAnswer:
     """What the Databricks CLI said about a target, or why it said nothing.
@@ -225,9 +248,13 @@ def ask_cli(
     An answer, or the reason there isn't one — the CLI missing from `PATH`,
     or the CLI's own error when it is there and fails. Never raises.
     """
-    found = shutil.which(executable)
+    found = find_cli(executable)
     if found is None:
-        return CliAnswer(None, f"no {executable!r} on PATH", installed=False)
+        return CliAnswer(
+            None,
+            f"no {executable!r} on PATH or in DATABRICKS_CLI_PATH",
+            installed=False,
+        )
     document, error = _run_cli(path, target, profile=profile, executable=executable)
     if document is None:
         return CliAnswer(None, error)
@@ -272,9 +299,9 @@ def _run_cli(
     is something a person can fix; "install the Databricks CLI" when it is
     installed is not, so deltaplan never says that over the top of it.
     """
-    found = shutil.which(executable)
+    found = find_cli(executable)
     if found is None:
-        return None, f"no {executable!r} on PATH"
+        return None, f"no {executable!r} on PATH or in DATABRICKS_CLI_PATH"
     command = [found, "bundle", "validate", "-o", "json", "-t", target]
     if profile:
         command += ["-p", profile]

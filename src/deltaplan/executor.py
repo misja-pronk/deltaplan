@@ -83,7 +83,13 @@ class ExecutionResult:
 
     @property
     def ok(self) -> bool:
+        """Whether every step ran, or was already true of the live table."""
         return self.status == "succeeded"
+
+    @property
+    def failed_step(self) -> int | None:
+        """The number of the step that stopped the run, if one did."""
+        return self.failed
 
 
 @dataclass(slots=True)
