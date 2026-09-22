@@ -70,3 +70,20 @@ def test_importing_deltaplan_does_not_import_the_cli() -> None:
 
 def test_the_version_is_the_installed_one() -> None:
     assert deltaplan.__version__ == importlib.metadata.version("deltaplan")
+
+
+def test_the_library_page_only_names_things_that_exist() -> None:
+    """`docs/sdk.md` is the contract as a reader meets it.
+
+    Every `deltaplan.X` it mentions has to be exported, or the page promises
+    something the package doesn't have.
+    """
+    import re
+    from pathlib import Path
+
+    page = Path(__file__).resolve().parents[2] / "docs" / "sdk.md"
+    # `deltaplan.yml` is the project file, not an attribute.
+    text = page.read_text().replace("deltaplan.yml", "the project file")
+    named = set(re.findall(r"\bdeltaplan\.([A-Za-z_][A-Za-z0-9_]*)", text))
+    missing = sorted(name for name in named if name not in deltaplan.__all__)
+    assert missing == [], f"docs/sdk.md names what deltaplan doesn't export: {missing}"

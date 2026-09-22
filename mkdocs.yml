@@ -91,6 +91,7 @@ nav:
       - Feature gallery: features.md
       - With an Asset Bundle: bundles.md
       - Writing a spec: spec.md
+      - As a library: sdk.md
       - YAML and SQL specs: formats.md
       - Editor support: editors.md
       - Commands: cli.md
