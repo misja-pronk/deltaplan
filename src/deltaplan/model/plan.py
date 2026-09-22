@@ -117,6 +117,44 @@ class TableDiff:
     live: Relation | None = None
     #: Things worth knowing that aren't changes — a spent rename hint, say.
     notes: tuple[str, ...] = ()
+    #: The steps the planner made for this table. Empty until it has planned.
+    steps: tuple[Step, ...] = ()
+
+    @property
+    def kind(self) -> str:
+        """`table`, `view`, `function`, `schema` or `volume`.
+
+        What the object is, said plainly, so a host doesn't read it off a
+        class name.
+        """
+        subject = self.desired if self.desired is not None else self.live
+        return type(subject).__name__.lower() if subject is not None else "table"
+
+    @property
+    def action(self) -> str:
+        """`create`, `update`, `destroy` or `unchanged`."""
+        kinds = {change.kind for change in self.changes}
+        if not kinds:
+            return "unchanged"
+        if kinds & CREATE_KINDS:
+            return "create"
+        if "drop_table" in kinds:
+            return "destroy"
+        return "update"
+
+    @property
+    def risk(self) -> Risk:
+        """The highest risk among this table's steps."""
+        return max(
+            (step.risk for step in self.steps),
+            key=lambda risk: RISK_ORDER[risk],
+            default="meta",
+        )
+
+    @property
+    def warnings(self) -> tuple[str, ...]:
+        """Everything this table's steps want said before they run."""
+        return tuple(warning for step in self.steps for warning in step.warnings)
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +209,24 @@ class Plan:
 
     @property
     def empty(self) -> bool:
+        """Nothing to do: the live objects already match the specs."""
         return not self.steps
+
+    @property
+    def is_destructive(self) -> bool:
+        """Whether running this plan destroys anything — `apply` refuses it
+        unless the caller allows it explicitly."""
+        return any(step.risk == "destructive" for step in self.steps)
+
+    @property
+    def unmanaged(self) -> tuple[str, ...]:
+        """Live objects no spec describes. Reported, never touched."""
+        return self.unmanaged_tables
+
+    @property
+    def orphaned(self) -> tuple[str, ...]:
+        """Objects deltaplan made whose spec has gone, in an additive schema."""
+        return self.orphaned_tables
 
     @property
     def tables(self) -> tuple[str, ...]:

@@ -1,0 +1,187 @@
+"""The seven steps of issue #17, run the way a host program runs them.
+
+Load, resolve, read, connect, plan, apply, ask about drift — with nothing
+private, nothing copied out of the CLI, and no subprocess. If any of this needs
+an underscore, the SDK is missing something.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+import deltaplan
+from deltaplan.connect import Connection
+from deltaplan.history import MemoryHistory
+from fake_warehouse import FakeWarehouse
+
+PROJECT = """\
+specs: [tables]
+history_schema: main.deltaplan
+targets:
+  dev:
+    default: true
+    vars: {catalog: main}
+"""
+
+ORDERS = """\
+table: ${catalog}.sales.orders
+comment: Order facts
+columns:
+  - {name: order_id, type: bigint, nullable: false}
+  - {name: amount, type: "decimal(18,2)"}
+"""
+
+
+@pytest.fixture
+def project_dir(tmp_path: Path) -> Path:
+    (tmp_path / "tables").mkdir()
+    (tmp_path / "deltaplan.yml").write_text(PROJECT)
+    (tmp_path / "tables" / "orders.yml").write_text(ORDERS)
+    return tmp_path
+
+
+@pytest.fixture
+def fake() -> FakeWarehouse:
+    warehouse = FakeWarehouse()
+    warehouse.schemas.add("main.sales")
+    return warehouse
+
+
+def test_a_host_plans_and_applies_with_public_names_only(
+    project_dir: Path, fake: FakeWarehouse
+) -> None:
+    project = deltaplan.Project.find(project_dir / "tables")
+    target = project.resolve(project.default)
+    connection = Connection(runner=fake)
+
+    plan = deltaplan.plan(project, target, connection)
+    assert not plan.empty
+    assert plan.summary.add == 1
+    assert plan.highest_risk == "meta"
+    assert not plan.is_destructive
+
+    [diff] = plan.diffs
+    assert (diff.kind, diff.action) == ("table", "create")
+    assert [step.title for step in diff.steps] == ["CREATE TABLE orders"]
+    assert diff.risk == "meta"
+
+    run = deltaplan.apply(
+        plan, connection, project=project, target=target, history=MemoryHistory()
+    )
+    assert run.ok
+    assert deltaplan.plan(project, target, connection).empty, "and it converged"
+
+
+def test_a_host_can_ask_whether_its_plan_still_holds(
+    project_dir: Path, fake: FakeWarehouse
+) -> None:
+    project = deltaplan.Project.find(project_dir)
+    target = project.resolve(project.default)
+    connection = Connection(runner=fake)
+    plan = deltaplan.plan(project, target, connection)
+    assert deltaplan.is_stale(plan, connection) is False
+
+    # Someone else gets there first.
+    deltaplan.apply(
+        plan, connection, project=project, target=target, history=MemoryHistory()
+    )
+    assert deltaplan.is_stale(plan, connection) is True
+    with pytest.raises(deltaplan.StalePlan) as raised:
+        deltaplan.apply(
+            plan, connection, project=project, target=target, history=MemoryHistory()
+        )
+    assert raised.value.tables == ("main.sales.orders",)
+
+
+def test_a_destructive_plan_says_what_it_would_destroy(
+    project_dir: Path, fake: FakeWarehouse
+) -> None:
+    project = deltaplan.Project.find(project_dir)
+    target = project.resolve(project.default)
+    connection = Connection(runner=fake)
+    deltaplan.apply(
+        deltaplan.plan(project, target, connection),
+        connection,
+        project=project,
+        target=target,
+        history=MemoryHistory(),
+    )
+    # The column goes; the plan that drops it needs saying so out loud.
+    (project_dir / "tables" / "orders.yml").write_text(
+        "table: ${catalog}.sales.orders\ncomment: Order facts\n"
+        "columns:\n  - {name: order_id, type: bigint, nullable: false}\n"
+    )
+    plan = deltaplan.plan(project, target, connection)
+    assert plan.is_destructive
+    with pytest.raises(deltaplan.DestructiveRefused) as raised:
+        deltaplan.apply(
+            plan, connection, project=project, target=target, history=MemoryHistory()
+        )
+    assert raised.value.tables == ("main.sales.orders",)
+
+
+def test_select_takes_names_as_well_as_a_predicate(
+    project_dir: Path, fake: FakeWarehouse
+) -> None:
+    (project_dir / "tables" / "customers.yml").write_text(
+        "table: ${catalog}.sales.customers\ncolumns:\n  - {name: id, type: bigint}\n"
+    )
+    project = deltaplan.Project.find(project_dir)
+    target = project.resolve(project.default)
+    connection = Connection(runner=fake)
+    only = deltaplan.plan(project, target, connection, select="main.sales.orders")
+    assert [diff.table for diff in only.diffs] == ["main.sales.orders"]
+    by_predicate = deltaplan.plan(
+        project, target, connection, select=lambda name: name.endswith("customers")
+    )
+    assert [diff.table for diff in by_predicate.diffs] == ["main.sales.customers"]
+
+
+def test_drift_is_the_same_question_asked_differently(
+    project_dir: Path, fake: FakeWarehouse
+) -> None:
+    project = deltaplan.Project.find(project_dir)
+    target = project.resolve(project.default)
+    connection = Connection(runner=fake)
+    assert not deltaplan.drift(project, target, connection).empty
+    deltaplan.apply(
+        deltaplan.plan(project, target, connection),
+        connection,
+        project=project,
+        target=target,
+        history=MemoryHistory(),
+    )
+    assert deltaplan.drift(project, target, connection).empty
+
+
+def test_validate_needs_no_workspace(project_dir: Path) -> None:
+    project = deltaplan.Project.find(project_dir)
+    assert deltaplan.validate(project, project.default) == ()
+
+
+def test_apply_without_anywhere_to_record_says_so(
+    project_dir: Path, fake: FakeWarehouse
+) -> None:
+    (project_dir / "deltaplan.yml").write_text(
+        PROJECT.replace("history_schema: main.deltaplan\n", "")
+    )
+    project = deltaplan.Project.find(project_dir)
+    target = project.resolve(project.default)
+    connection = Connection(runner=fake)
+    plan = deltaplan.plan(project, target, connection)
+    with pytest.raises(deltaplan.NoHistory, match="history_schema"):
+        deltaplan.apply(plan, connection, project=project, target=target)
+
+
+def test_a_plan_survives_being_written_and_read(
+    project_dir: Path, fake: FakeWarehouse
+) -> None:
+    """A host may plan here and apply there; `diff.steps` must survive it."""
+    project = deltaplan.Project.find(project_dir)
+    target = project.resolve(project.default)
+    plan = deltaplan.plan(project, target, Connection(runner=fake))
+    again = deltaplan.plan_from_json(deltaplan.plan_to_json(plan))
+    assert [d.table for d in again.diffs] == [d.table for d in plan.diffs]
+    assert [s.title for s in again.diffs[0].steps] == ["CREATE TABLE orders"]
