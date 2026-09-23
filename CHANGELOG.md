@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0a3] - 2026-09-23
+
+Every apply on a project with a `manage:` handoff was refusing itself. It
+doesn't any more — and a project can now keep no history schema at all.
+
+### Fixed
+
+- **`apply` read live state differently from `plan`.** A project that handed
+  anything to another tool could plan but never apply: `plan` read the
+  workspace through the project's `manage` and `apply` read it through the
+  default, so the two readings differed by exactly what had been handed over,
+  and every run was refused as stale with nothing having moved. The plan now
+  carries what it was made under — `plan.manage`, from the `not_managed` it
+  already recorded — and both `apply` and `is_stale` read live state with it.
+  A plan written by an earlier version still applies: no record means it
+  managed everything.
+- **A `specs:` entry that isn't there** said so with a traceback; it now reads
+  like every other bad input, naming the entry and the project file.
+
 ### Changed
 
 - **A history schema is optional.** `apply` records every run in three Delta
