@@ -822,8 +822,11 @@ class _Planner:
 
         The digest is written in a second step, after the load: a table that
         failed to load must not claim to hold rows it never got.
-        TODO(verify): that `INSERT OVERWRITE t (cols) VALUES …` is accepted with
-        a column list — `tests/integration/test_live_seeds.py` settles it.
+        TODO(verify): the statement is the documented grammar —
+        `INSERT OVERWRITE [TABLE] name [ ( columns ) | BY NAME ] query`, with
+        `VALUES` as the query — and a Databricks parser reads it, but no
+        workspace has taken one yet. `tests/integration/test_live_seeds.py`
+        settles it the moment the live suite can run again.
         https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-dml-insert-into
         """
         seed = change.after

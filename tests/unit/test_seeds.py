@@ -185,3 +185,31 @@ def test_a_spec_without_a_seed_leaves_the_rows_alone(tmp_path: Path) -> None:
     run(planned(seeded(tmp_path), fake), fake)
     without = replace(seeded(tmp_path), seed=None)
     assert planned(without, fake).empty
+
+
+def test_the_statement_matches_the_documented_grammar(tmp_path: Path) -> None:
+    """`INSERT OVERWRITE [TABLE] name [ ( columns ) | BY NAME ] query`.
+
+    A live workspace is what settles whether Databricks takes a statement, and
+    the seed one waits on a suite that can't run today. Two things can be said
+    without one: that the shape is the documented grammar, with `VALUES` as the
+    query, and that a Databricks parser reads it.
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-dml-insert-into
+    """
+    import sqlglot
+
+    fake = FakeWarehouse()
+    fake.schemas.add("main.reference")
+    plan = planned(seeded(tmp_path), fake)
+    [load] = [step for step in plan.steps if step.title == "LOAD SEED"]
+    statement = load.sql or ""
+    assert statement.startswith(
+        "INSERT OVERWRITE `main`.`reference`.`countries` "
+        "(`code`, `name`, `population`, `eu`)\nVALUES\n"
+    )
+    parsed = sqlglot.parse_one(statement, dialect="databricks")
+    assert parsed.key == "insert"
+    assert parsed.args.get("overwrite") is True
+    # And round-tripping it through the parser doesn't change what it says.
+    again = sqlglot.parse_one(parsed.sql(dialect="databricks"), dialect="databricks")
+    assert again.sql(dialect="databricks") == parsed.sql(dialect="databricks")
