@@ -11,6 +11,8 @@ are caught where they were written.
 
 from __future__ import annotations
 
+import csv
+import io
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -45,21 +47,26 @@ from deltaplan.model.table import (
     Hooks,
     PrimaryKey,
     RowFilter,
+    Seed,
     Table,
     is_bookkeeping,
     is_platform_default,
 )
 from deltaplan.model.types import (
     Array,
+    Char,
     Column,
     DataType,
+    Decimal,
     Field,
     Identity,
     Map,
     Mask,
     Primitive,
     Struct,
+    Varchar,
     render_type,
+    seed_literal,
 )
 from deltaplan.model.view import Relation, View
 from deltaplan.model.volume import Volume
@@ -822,6 +829,7 @@ TABLE_KEYS = {
     "grants",
     "row_filter",
     "hooks",
+    "seed",
     "renamed_from",
     "owner",
     "partitioned_by",
@@ -1152,6 +1160,8 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
             # Just the old table name: it was in the same schema.
             renamed_from = f"{name.rsplit('.', 1)[0]}.{renamed_from}"
 
+    seed = _read_seed(ctx, items["seed"][0], columns) if "seed" in items else None
+
     return Table(
         name=name,
         columns=columns,
@@ -1164,12 +1174,157 @@ def _read_table(ctx: _Ctx, node: Node, items: dict[str, tuple[Node, Loc]]) -> Ta
         constraints=constraints,
         grants=grants,
         row_filter=row_filter,
+        seed=seed,
         hooks=hooks,
         renamed_from=renamed_from,
         removed_properties=removed_properties,
         removed_tags=removed_tags,
         owner=_owner(ctx, items),
     )
+
+
+#: A seed is reference data. Past this it is a dataset, and belongs in a
+#: pipeline — `COPY INTO` from a volume, not a literal in a statement.
+SEED_LIMIT = 1000
+
+
+def _read_seed(ctx: _Ctx, node: Node, columns: tuple[Column, ...]) -> Seed:
+    """`seed:` — a CSV beside the spec, or the rows written out here.
+
+    Read now rather than at apply time, so a missing file, an unknown column or
+    a value of the wrong shape is a spec error with a line number, like
+    everything else.
+    """
+    if isinstance(node, ScalarNode):
+        return _seed_from_file(ctx, node, columns)
+    rows = _sequence(ctx, node, "seed")
+    if not rows:
+        raise SpecError("a seed with no rows says nothing; leave it out", ctx.loc(node))
+    names: list[str] = []
+    for item in rows:
+        for key in _mapping(ctx, item, "a seed row"):
+            if key not in names:
+                names.append(key)
+    _seed_columns(ctx, node, names, columns)
+    values: list[tuple[str | None, ...]] = []
+    for item in rows:
+        entry = _mapping(ctx, item, "a seed row")
+        values.append(
+            tuple(
+                _seed_value(ctx, entry[name][0]) if name in entry else None
+                for name in names
+            )
+        )
+    return _seed(ctx, node, tuple(names), tuple(values), columns, source=None)
+
+
+def _seed_from_file(ctx: _Ctx, node: Node, columns: tuple[Column, ...]) -> Seed:
+    """The CSV a spec points at, read relative to the spec itself."""
+    where = _string(ctx, node, "seed")
+    path = (ctx.file.parent / where).resolve()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise SpecError(
+            f"cannot read the seed {where}: {error}", ctx.loc(node)
+        ) from error
+    reader = csv.reader(io.StringIO(text))
+    try:
+        header = next(reader)
+    except StopIteration:
+        raise SpecError(f"the seed {where} is empty", ctx.loc(node)) from None
+    names = [name.strip() for name in header]
+    _seed_columns(ctx, node, names, columns)
+    rows: list[tuple[str | None, ...]] = []
+    for line in reader:
+        if not any(cell.strip() for cell in line):
+            continue
+        if len(line) != len(names):
+            raise SpecError(
+                f"the seed {where} has a row with {len(line)} values where its "
+                f"header has {len(names)}",
+                ctx.loc(node),
+            )
+        # An empty cell is NULL; a quoted empty string stays a string, which csv
+        # can't tell us — so a seed says NULL by leaving the cell out entirely.
+        rows.append(tuple(cell if cell != "" else None for cell in line))
+    if not rows:
+        raise SpecError(f"the seed {where} has no rows", ctx.loc(node))
+    return _seed(ctx, node, tuple(names), tuple(rows), columns, source=where)
+
+
+def _seed_columns(
+    ctx: _Ctx, node: Node, names: Sequence[str], columns: tuple[Column, ...]
+) -> None:
+    """Every name a seed sets has to be a column of the table, and a plain one.
+
+    A struct, array or map would have to be built from a literal, and a literal
+    deltaplan wrote from text is exactly the wrong place to be clever.
+    """
+    declared = {column.name: column for column in columns}
+    for name in names:
+        column = declared.get(name)
+        if column is None:
+            known = ", ".join(declared) or "none"
+            raise SpecError(
+                f"the seed sets {name!r}, which this table has no column for "
+                f"(it has: {known})",
+                ctx.loc(node),
+            )
+        if not isinstance(column.type, Primitive | Decimal | Char | Varchar):
+            raise SpecError(
+                f"the seed sets {name!r}, which is "
+                f"{render_type(column.type)} — a seed only writes plain values",
+                ctx.loc(node),
+            )
+
+
+def _seed(
+    ctx: _Ctx,
+    node: Node,
+    names: tuple[str, ...],
+    rows: tuple[tuple[str | None, ...], ...],
+    columns: tuple[Column, ...],
+    *,
+    source: str | None,
+) -> Seed:
+    if len(rows) > SEED_LIMIT:
+        raise SpecError(
+            f"a seed loads at most {SEED_LIMIT} rows, and this one has "
+            f"{len(rows)}. Past that it is a dataset: load it with a pipeline, "
+            "and let deltaplan keep the table's shape",
+            ctx.loc(node),
+        )
+    # Every value has to be writable as a literal of its column's type. Checked
+    # here rather than when the statement is built, so a bad one is a spec error
+    # with a line number instead of a surprise at apply time.
+    types = {column.name: column.type for column in columns}
+    for number, row in enumerate(rows, start=1):
+        for name, value in zip(names, row, strict=True):
+            try:
+                seed_literal(value, types[name])
+            except ValueError as error:
+                where = f" of {source}" if source else ""
+                raise SpecError(
+                    f"the seed sets {name} to something it can't hold, in row "
+                    f"{number}{where}: {error}",
+                    ctx.loc(node),
+                ) from error
+    return Seed(names, rows, source=source)
+
+
+def _seed_value(ctx: _Ctx, node: Node) -> str | None:
+    """One value from an inline row, as text.
+
+    Whatever YAML made of it — a number, a boolean, a date — is taken as it was
+    written, because the column's type decides what it means. A YAML `null` is
+    SQL NULL.
+    """
+    if not isinstance(node, ScalarNode):
+        raise SpecError("a seed value is a single value", ctx.loc(node))
+    if node.tag.endswith(":null"):
+        return None
+    return str(node.value)
 
 
 def _read_grants(

@@ -369,6 +369,50 @@ rewrites the files holding the rows it touches, so it is classed `rewrite` and a
 point is recorded first. It is safe to repeat. Without `using:`, the plan still adds the
 column, but warns that `SET NOT NULL` will fail.
 
+## Seeds
+
+Reference data — country codes, mappings, statuses — kept in the repo beside the spec
+that describes the table holding it:
+
+```yaml
+table: ${catalog}.reference.countries
+columns:
+  - {name: code, type: string, nullable: false}
+  - {name: name, type: string}
+  - {name: eu, type: boolean}
+seed: countries.csv
+```
+
+The path is relative to the spec file. Small lists can be written out instead, which
+means the same thing:
+
+```yaml
+seed:
+  - {code: NL, name: Netherlands, eu: true}
+  - {code: "NO", name: Norway, eu: false}
+```
+
+**A seed is the table's whole content**, not an addition to it. Applying one replaces
+what is there (`INSERT OVERWRITE`), so on a table that already holds rows the step is
+`destructive`, says so, and records a restore point first. That is what lets the file
+stay the truth.
+
+**The plan compares a digest, not the rows.** A loaded table carries the hash of what it
+was loaded with in a `deltaplan.seed` property, so `plan` costs nothing extra and says
+*seed 2 rows from countries.csv* rather than printing them. The hash is over the values,
+so reformatting a CSV — or moving the same rows into the spec — is not a change.
+
+Every value is written as a literal of its column's declared type, and anything that
+isn't one is a spec error with a line number before a plan is ever made. A seed writes
+plain columns only: no structs, arrays or maps. An empty CSV cell is `NULL`.
+
+!!! warning "Reference data, not a dataset"
+    A seed loads at most 1000 rows, because it becomes a `VALUES` list in one
+    statement. Past that it belongs in a pipeline — `COPY INTO` from a volume — with
+    deltaplan keeping the table's shape.
+
+Taking a seed out of a spec doesn't empty the table; it stops managing what is in it.
+
 ## Hooks
 
 ```yaml

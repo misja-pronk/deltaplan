@@ -309,6 +309,21 @@ def spec_schema(manage: Manage = EVERYTHING) -> Schema:
                 {"function": {"type": "string"}, "columns": NAMES},
                 required=loader.ROW_FILTER_KEYS,
             ),
+            "seed": {
+                "description": (
+                    "Reference data this table holds: a CSV beside this file, "
+                    "or the rows written out here. A seed is the table's whole "
+                    "content — applying one replaces what is there."
+                ),
+                "oneOf": [
+                    {"type": "string"},
+                    {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "minItems": 1,
+                    },
+                ],
+            },
             "hooks": _object(
                 loader.HOOK_KEYS,
                 {

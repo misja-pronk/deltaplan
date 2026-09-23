@@ -23,10 +23,12 @@ from deltaplan.model.schema import Schema
 from deltaplan.model.table import (
     CLUSTER_AUTO,
     MANAGED_PROPERTY,
+    SEED_PROPERTY,
     Check,
     ForeignKey,
     PrimaryKey,
     Securable,
+    Seed,
     Table,
     field_at,
     is_bookkeeping,
@@ -52,7 +54,12 @@ def diff(
     table's column layout.
     """
     if actual is None:
-        return (Change(desired.name, "create_table", after=desired),)
+        created = Change(desired.name, "create_table", after=desired)
+        if desired.seed is None:
+            return (created,)
+        # A seeded table is created and then loaded: an empty one would be a
+        # table whose spec says what is in it and whose rows say otherwise.
+        return (created, Change(desired.name, "load_seed", after=desired.seed))
 
     changes: list[Change] = []
     changes.extend(_diff_table_metadata(desired, actual))
@@ -159,6 +166,28 @@ def _diff_clustering(desired: Table, actual: Table) -> list[Change]:
             )
         ]
     return []
+
+
+def _diff_seed(desired: Table, actual: Table) -> list[Change]:
+    """Whether the rows a seeded table should hold have changed.
+
+    Not by reading them: a loaded table carries the digest of what it was
+    loaded with, so this compares two short strings. A table whose spec has no
+    seed is left alone — its rows are nobody's business here, and a seed that
+    is taken out of a spec doesn't empty the table.
+    """
+    if desired.seed is None:
+        return []
+    if actual.properties_map().get(SEED_PROPERTY) == desired.seed.digest:
+        return []
+    return [
+        Change(
+            desired.name,
+            "load_seed",
+            before=actual.properties_map().get(SEED_PROPERTY),
+            after=desired.seed,
+        )
+    ]
 
 
 def _diff_partitioning(desired: Table, actual: Table) -> list[Change]:
@@ -395,6 +424,7 @@ def _diff_table_metadata(desired: Table, actual: Table) -> list[Change]:
                 after=desired.comment,
             )
         )
+    changes.extend(_diff_seed(desired, actual))
     changes.extend(_diff_partitioning(desired, actual))
     changes.extend(_diff_clustering(desired, actual))
 
@@ -816,6 +846,12 @@ def _is_applied_to_table(change: Change, live: Table) -> bool:
         case "set_partitioning":
             wanted = change.after if isinstance(change.after, tuple) else ()
             return (live.partitioned_by or ()) == wanted
+        case "load_seed":
+            # The table says what it was last loaded with; that is the check.
+            seed = change.after
+            return isinstance(seed, Seed) and (
+                live.properties_map().get(SEED_PROPERTY) == seed.digest
+            )
         case "set_cluster_by":
             if change.after == CLUSTER_AUTO:
                 return live.cluster_auto

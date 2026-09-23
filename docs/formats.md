@@ -75,6 +75,7 @@ sqlglot learns more of Databricks SQL, this list grows.
 |  | Table renames (`renamed_from`) | ✓ | — | a deltaplan hint; SQL has no way to say it |
 |  | Conversions and backfills (`using`) | ✓ | — | a deltaplan hint; SQL has no way to say it |
 |  | Hooks | ✓ | — | deltaplan's own; SQL has no way to say it |
+|  | Seeds (reference data) | ✓ | — | a deltaplan hint; a CSV beside the spec, or rows written out in it |
 |  | Partitioning | ✓ | ✓ | or liquid clustering, not both; left out, a table's partitioning stays |
 | Schemas | Schemas: comment and grants | ✓ | ✓ | never dropped |
 |  | Schema tags | ✓ | — | sqlglot passes `ALTER SCHEMA … SET TAGS` through as unparsed text |

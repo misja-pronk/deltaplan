@@ -10,7 +10,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from deltaplan.model.change import CREATE_KINDS, Change
-from deltaplan.model.table import Check, ForeignKey, PrimaryKey, RowFilter, Table
+from deltaplan.model.table import (
+    Check,
+    ForeignKey,
+    PrimaryKey,
+    RowFilter,
+    Seed,
+    Table,
+)
 from deltaplan.model.types import Decimal, Field, Mask, as_data_type, render_type
 from deltaplan.model.view import View, normalise_query
 
@@ -159,6 +166,13 @@ def describe(change: Change) -> tuple[str, str]:
             return "~", (
                 f"{leaf}  generated as {after}" if after else f"{leaf}  not generated"
             )
+        case "load_seed":
+            seed = change.after
+            rows = len(seed.rows) if isinstance(seed, Seed) else 0
+            where = (
+                f" from {seed.source}" if isinstance(seed, Seed) and seed.source else ""
+            )
+            return "~", f"seed {_count(rows, 'row')}{where}"
         case "set_partitioning":
             before = change.before if isinstance(change.before, tuple) else ()
             after = change.after if isinstance(change.after, tuple) else ()

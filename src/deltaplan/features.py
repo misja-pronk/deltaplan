@@ -228,6 +228,14 @@ FEATURES: tuple[Feature, ...] = (
     ),
     Feature(
         "Tables",
+        "Seeds (reference data)",
+        True,
+        False,
+        None,
+        "a deltaplan hint; a CSV beside the spec, or rows written out in it",
+    ),
+    Feature(
+        "Tables",
         "Partitioning",
         True,
         True,
