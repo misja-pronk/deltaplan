@@ -71,3 +71,30 @@ def test_an_existing_project_is_left_as_it_is(
     assert result.exit_code == 0, result.output
     assert "deltaplan.yml" not in result.output
     assert (tmp_path / "specs" / "customers.yml").exists()
+
+
+def test_a_specs_entry_that_isnt_there_is_a_spec_error(tmp_path: Path) -> None:
+    """A typo in `specs:` is a mistake in a file, and reads like one.
+
+    It used to raise a bare FileNotFoundError, which the CLI turned into a Rich
+    traceback — the only bad input in the loader that didn't say where it was.
+    """
+    from deltaplan.loader import SpecError, load_project, spec_files
+
+    (tmp_path / "deltaplan.yml").write_text("specs: [tabels]\ntargets:\n  dev: {}\n")
+    project = load_project(tmp_path / "deltaplan.yml")
+    with pytest.raises(SpecError) as raised:
+        spec_files(project)
+    said = str(raised.value)
+    assert "tabels" in said and "isn't there" in said
+    assert "deltaplan.yml" in said, "and it names the file that says so"
+
+
+def test_the_cli_says_it_in_one_line(tmp_path: Path) -> None:
+    (tmp_path / "deltaplan.yml").write_text("specs: [tabels]\ntargets:\n  dev: {}\n")
+    result = CliRunner().invoke(
+        cli.app, ["validate", "--config", str(tmp_path / "deltaplan.yml")]
+    )
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "isn't there" in result.output

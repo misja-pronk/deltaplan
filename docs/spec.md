@@ -464,6 +464,11 @@ the tables that use them. deltaplan treats what they protect as security control
 See [row filters and column masks](https://docs.databricks.com/aws/en/tables/row-and-column-filters)
 for how to write the functions.
 
+!!! note "YAML only"
+    A row filter or a column mask has no spelling in a `CREATE TABLE`, so a table
+    that needs one is a YAML spec. `import -f sql` writes YAML for such a table by
+    itself and says why. [What each format can say →](formats.md)
+
 ## Grants
 
 ```yaml

@@ -183,7 +183,11 @@ def validate(
     else:
         found = _project(config)
         chosen = _target(found, target)
-        files = spec_files(found)
+        try:
+            files = spec_files(found)
+        except SpecError as error:
+            err.print(f"[red]{escape(str(error))}[/]")
+            raise typer.Exit(1) from error
     variables = chosen.variables_map() if chosen else {}
     unresolved = chosen.unresolved_map() if chosen else {}
     manage = found.manage if found else EVERYTHING
