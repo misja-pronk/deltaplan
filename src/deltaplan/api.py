@@ -126,7 +126,9 @@ def apply(
     store = history if history is not None else history_for(project, target, connection)
     executor = Executor(
         runner=connection.runner,
-        introspector=connection.introspector(),
+        # The same reading of live state the plan was made with: anything
+        # else and the two disagree by what the project handed over.
+        introspector=connection.introspector(plan.manage),
         history=store,
         observer=observer or (lambda *_: None),
     )
@@ -141,7 +143,7 @@ def is_stale(plan: Plan, connection: Connection) -> bool:
     """
     from deltaplan.executor import stale_tables
 
-    return bool(stale_tables(plan, connection.introspector()))
+    return bool(stale_tables(plan, connection.introspector(plan.manage)))
 
 
 def history_for(

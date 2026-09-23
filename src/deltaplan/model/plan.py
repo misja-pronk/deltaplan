@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Literal, TypeAlias
 
+from deltaplan.manage import Manage
 from deltaplan.model.change import CREATE_KINDS, Change
 from deltaplan.model.view import Relation
 
@@ -217,6 +218,18 @@ class Plan:
         """Whether running this plan destroys anything — `apply` refuses it
         unless the caller allows it explicitly."""
         return any(step.risk == "destructive" for step in self.steps)
+
+    @property
+    def manage(self) -> Manage:
+        """What deltaplan managed when this plan was made.
+
+        Live state has to be read the same way twice, or the two readings
+        differ by whatever the project handed to another tool and the plan
+        looks stale when nothing has moved. Reading it off the plan means a
+        check can't disagree with the plan it is checking — including a plan
+        written by another version, which simply managed everything.
+        """
+        return Manage(self.not_managed)
 
     @property
     def unmanaged(self) -> tuple[str, ...]:
