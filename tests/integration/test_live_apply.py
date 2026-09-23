@@ -448,3 +448,49 @@ def test_apply_without_a_history_schema_writes_nothing_beside_the_table(
     assert [row["table_name"] for row in tables] == ["orders"], (
         "and nothing beside the table the spec describes"
     )
+
+
+def test_a_function_that_reads_a_table_is_created_after_it(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """A fresh schema has to converge in one apply.
+
+    A row filter that consults a lookup table is the ordinary way to write
+    row-level security, and Databricks resolves a function's body when the
+    function is created — so the table has to exist first. Nothing but a real
+    workspace proves the order deltaplan chose is the order that works.
+    https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create-sql-function
+    """
+    from deltaplan import api
+    from deltaplan.connect import Connection
+    from deltaplan.history import NoHistory
+    from deltaplan.model.function import Function, Parameter
+    from deltaplan.model.types import Primitive
+    from deltaplan.planning import plan_tables
+
+    lookup = table(col("mailbox", "string"), name=f"{schema}.mailbox_access")
+    reads_it = Function(
+        name=f"{schema}.mailbox_filter",
+        parameters=(Parameter("val", Primitive("string")),),
+        returns=Primitive("boolean"),
+        body=(
+            f"EXISTS (SELECT 1 FROM {quote_qualified(lookup.name)} a "
+            "WHERE a.mailbox = val)"
+        ),
+    )
+    plan = plan_tables(
+        [reads_it, lookup],  # written the wrong way round on purpose
+        introspector,
+        target="integration",
+        tool_version="0.1.0",
+    )
+    assert [diff.table for diff in plan.diffs if diff.changes] == [
+        lookup.name,
+        reads_it.name,
+    ]
+    result = api.apply(plan, Connection(runner=runner), history=NoHistory())
+    assert result.ok, result.error
+
+    live = introspector.schema(*schema.split("."))
+    assert live.get(lookup.name) is not None
+    assert live.get_function(reads_it.name) is not None

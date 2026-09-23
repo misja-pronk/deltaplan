@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
-from typing import TypeVar
+from typing import TypeAlias, TypeVar
 
 from deltaplan.differ import (
     diff,
@@ -69,11 +69,13 @@ def plan_tables(
 ) -> Plan:
     """Plan every function, table and view against live state.
 
-    Functions come first, in the order their bodies call each other, because
-    masks, row filters and views call them. Then tables, then views in
-    dependency order: a view is planned after anything its query reads that is
-    also being planned. A function is never dropped — it carries no ownership
-    marker — so one without a spec is simply left alone.
+    Schemas and volumes first — everything else lives in one. Then functions,
+    tables and views in **one order over the objects**, so each comes after
+    whatever it names: a function after the tables its body reads, a table
+    after the functions its row filter and masks call, a view after what its
+    query reads (`order_relations`). Objects that name nothing of each other
+    keep the old order — functions, tables, views. A function is never dropped
+    — it carries no ownership marker — so one without a spec is left alone.
 
     `mode_for` answers `strict` or `additive` for a `catalog.schema` — it is a
     callable rather than a mapping because which schemas matter isn't known
@@ -92,13 +94,8 @@ def plan_tables(
     if select is not None:
         specs = [spec for spec in specs if select(spec.name)]
     schemas = _introspect(specs, introspector)
-    tables = [spec for spec in specs if isinstance(spec, Table)]
-    views = order_views([spec for spec in specs if isinstance(spec, View)])
-    functions = _order(
-        [spec for spec in specs if isinstance(spec, Function)],
-        lambda function: function.body,
-        "functions call each other",
-    )
+    relations = order_relations(specs)
+    functions = [spec for spec in relations if isinstance(spec, Function)]
     _refuse_bundle_conflicts(specs, schemas, owned_elsewhere or {})
     _refuse_kind_changes([s for s in specs if isinstance(s, Table | View)], schemas)
     _refuse_shared_names(
@@ -139,26 +136,17 @@ def plan_tables(
                 live=live_volume,
             )
         )
-    # Then functions: masks, row filters and views call them.
-    for function in functions:
-        found = _schema_of(schemas, function.name)
-        live_function = found.get_function(function.name)
-        diffs.append(
-            TableDiff(
-                function.name,
-                diff_function(function, live_function),
-                TableFacts(
-                    function.name,
-                    exists=live_function is not None,
-                    kind="function",
-                    schema_exists=found.exists,
-                ),
-                unmanaged_function(function, live_function) if live_function else (),
-                desired=function,
-                live=live_function,
-            )
-        )
-    for table in tables:
+    # Then everything that can name something else, in the order that lets it
+    # be created: a function after the tables its body reads, a table after the
+    # functions its row filter and masks call, a view after what its query reads.
+    for relation in relations:
+        if isinstance(relation, Function):
+            diffs.append(_function_diff(relation, schemas))
+            continue
+        if isinstance(relation, View):
+            diffs.append(_view_diff(relation, schemas, manage))
+            continue
+        table = relation
         found = _schema_of(schemas, table.name)
         live = found.get(table.name)
         renaming, notes = _rename(table, live, found)
@@ -205,27 +193,6 @@ def plan_tables(
                 # there to check nothing moved since the plan.
                 live=source.table if source else None,
                 notes=(*notes, *(spent_renames(table, live_table) if live_table else ())),
-            )
-        )
-
-    for view in views:
-        live_view = _schema_of(schemas, view.name).get_view(view.name)
-        changes = (
-            *ownership(view, live_view),
-            *diff_view(view, strip(live_view, manage) if live_view else None),
-        )
-        diffs.append(
-            TableDiff(
-                view.name,
-                changes,
-                _view_facts(
-                    view.name,
-                    live_view,
-                    schema_exists=_schema_of(schemas, view.name).exists,
-                ),
-                unmanaged_view(view, live_view) if live_view else (),
-                desired=view,
-                live=live_view,
             )
         )
 
@@ -287,12 +254,104 @@ def plan_tables(
     )
 
 
-_Ordered = TypeVar("_Ordered", View, Function)
+_Ordered = TypeVar("_Ordered", View, Function, "Orderable")
+
+#: What can name something else, and so has to be planned in an order.
+Orderable: TypeAlias = Table | View | Function
+
+
+def _function_diff(
+    function: Function, schemas: dict[tuple[str, str], LiveSchema]
+) -> TableDiff:
+    """One function, compared with what the workspace has."""
+    found = _schema_of(schemas, function.name)
+    live_function = found.get_function(function.name)
+    return TableDiff(
+        function.name,
+        diff_function(function, live_function),
+        TableFacts(
+            function.name,
+            exists=live_function is not None,
+            kind="function",
+            schema_exists=found.exists,
+        ),
+        unmanaged_function(function, live_function) if live_function else (),
+        desired=function,
+        live=live_function,
+    )
+
+
+def _view_diff(
+    view: View, schemas: dict[tuple[str, str], LiveSchema], manage: Manage
+) -> TableDiff:
+    """One view, compared with what the workspace has."""
+    found = _schema_of(schemas, view.name)
+    live_view = found.get_view(view.name)
+    return TableDiff(
+        view.name,
+        (
+            *ownership(view, live_view),
+            *diff_view(view, strip(live_view, manage) if live_view else None),
+        ),
+        _view_facts(view.name, live_view, schema_exists=found.exists),
+        unmanaged_view(view, live_view) if live_view else (),
+        desired=view,
+        live=live_view,
+    )
 
 
 def order_views(views: Sequence[View]) -> list[View]:
     """Views in an order where each comes after the views its query reads."""
     return _order(views, lambda view: view.query, "views read each other")
+
+
+def order_relations(specs: Sequence[Relation]) -> list[Orderable]:
+    """Functions, tables and views in an order that can actually be created.
+
+    One graph over the objects, not a sequence of kinds. Three edges matter and
+    they don't run one way between kinds:
+
+    * a view's query reads tables, views and functions;
+    * a **function's body reads tables** — a row filter that consults a lookup
+      table is the ordinary way to write row-level security, and Databricks
+      resolves a function's body when it is created;
+    * a table's row filter and column masks call functions.
+
+    Planning by kind — functions, then tables, then views — gets the last one
+    right and the middle one wrong, so a fresh schema could never converge in
+    one apply: the function was created before the table it reads.
+
+    Objects with no edge between them keep the old order, so a project without
+    such a reference plans exactly as it did.
+    """
+    ordered: list[Orderable] = [
+        *[spec for spec in specs if isinstance(spec, Function)],
+        *[spec for spec in specs if isinstance(spec, Table)],
+        *[spec for spec in specs if isinstance(spec, View)],
+    ]
+    return _order(ordered, _references, "objects depend on each other")
+
+
+def _references(spec: Orderable) -> str:
+    """The SQL of a spec that can name another object, as one piece of text.
+
+    A table has no query, but its row filter and column masks name functions;
+    treating those names as its text puts it after them, which is where it has
+    to be.
+    """
+    if isinstance(spec, View):
+        return spec.query
+    if isinstance(spec, Function):
+        return spec.body
+    if isinstance(spec, Table):
+        names = [spec.row_filter.function] if spec.row_filter else []
+        names += [
+            column.mask.function
+            for column in spec.columns
+            if getattr(column, "mask", None) is not None and column.mask
+        ]
+        return " ".join(names)
+    return ""
 
 
 def _order(
