@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0a4] - 2026-09-23
+
+A fresh schema converges in one apply.
+
 ### Fixed
 
 - **A function that reads a table was always planned before that table.**
