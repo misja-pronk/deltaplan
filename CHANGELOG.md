@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A function that reads a table was always planned before that table.**
+  Planning went by kind — functions, then tables, then views — which is right
+  for a table whose row filter calls a function, and wrong for a function whose
+  body reads a table. Databricks resolves a function's body when it is created,
+  so the first apply into a fresh schema failed at step 1 and only recovered on
+  a second apply, which is exactly what a fresh deploy doesn't get. The three
+  kinds are now ordered as one graph over the objects: each comes after
+  whatever it names. Objects that name nothing of each other keep the order
+  they had, so a project without such a reference plans exactly as before, and
+  a real cycle is a `PlanningError` naming both ends.
+
 ## [0.2.0a3] - 2026-09-23
 
 Every apply on a project with a `manage:` handoff was refusing itself. It

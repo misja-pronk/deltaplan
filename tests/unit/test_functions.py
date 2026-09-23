@@ -365,7 +365,7 @@ def test_functions_follow_the_functions_they_call() -> None:
 def test_functions_calling_each_other_in_a_cycle_are_an_error() -> None:
     a = Function("main.sales.a", (), STRING, "main.sales.b()")
     b = Function("main.sales.b", (), STRING, "main.sales.a()")
-    with pytest.raises(PlanningError, match="functions call each other in a cycle"):
+    with pytest.raises(PlanningError, match="depend on each other in a cycle"):
         planned([a, b], FakeWarehouse.of())
 
 
