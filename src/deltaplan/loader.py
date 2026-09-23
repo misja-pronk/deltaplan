@@ -1611,7 +1611,12 @@ def _read_target(ctx: _Ctx, name: str, node: Node) -> Target:
 
 
 def spec_files(project: Project) -> tuple[Path, ...]:
-    """Every spec file a project points at, in a stable order."""
+    """Every spec file a project points at, in a stable order.
+
+    Raises `SpecError` naming the project file when one of its `specs:` entries
+    isn't there — a typo in that list is a mistake in a file, like any other,
+    and deserves the same kind of message rather than a traceback.
+    """
     found: list[Path] = []
     for entry in project.spec_paths:
         if entry.is_dir():
@@ -1620,7 +1625,16 @@ def spec_files(project: Project) -> tuple[Path, ...]:
         elif entry.is_file():
             found.append(entry)
         else:
-            raise FileNotFoundError(f"spec path does not exist: {entry}")
+            where = project.root / CONFIG_NAMES[0]
+            try:
+                shown = entry.relative_to(project.root)
+            except ValueError:  # pragma: no cover - an absolute path elsewhere
+                shown = entry
+            raise SpecError(
+                f"`specs:` points at {shown}, which isn't there. Make it, or "
+                "take it out of the list",
+                Loc(where, 1, 1),
+            )
     return tuple(sorted(set(found)))
 
 
