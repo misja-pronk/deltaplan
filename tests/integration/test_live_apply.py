@@ -368,3 +368,45 @@ def test_a_rewrite_keeps_what_a_replace_keeps(
     assert dict(by_name["new_name"].tags) == {"pii": "name", "team": "crm"}
     assert by_name["amount"].comment == "Gross"
     assert runner.query(f"SELECT amount FROM {quoted}") == ({"amount": "5"},)
+
+
+def test_a_project_that_hands_grants_over_can_still_apply(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """The live half of the stale-plan bug: `plan` and `apply` must read the
+    workspace the same way, or they differ by whatever was handed over.
+
+    The table is granted something no spec mentions, which is the state a
+    handoff hides — and the state that made every apply refuse itself.
+    """
+    import os
+
+    from deltaplan import api
+    from deltaplan.connect import Connection
+    from deltaplan.history import MemoryHistory
+    from deltaplan.manage import Manage
+    from deltaplan.planning import plan_tables
+
+    principal = os.environ.get("DELTAPLAN_TEST_PRINCIPAL", "account users")
+    manage = Manage(("grants",))
+    name = f"{schema}.orders"
+    runner.query(create_table_sql(table(col("id", "bigint"), name=name)))
+    runner.query(f"GRANT SELECT ON TABLE {quote_qualified(name)} TO `{principal}`")
+
+    desired = table(col("id", "bigint"), col("region", "string"), name=name)
+    plan = plan_tables(
+        [desired],
+        Introspector(runner, manage),
+        target="integration",
+        tool_version="0.1.0",
+        manage=manage,
+    )
+    assert not plan.empty
+    assert api.is_stale(plan, Connection(runner=runner)) is False
+    assert api.apply(plan, Connection(runner=runner), history=MemoryHistory()).ok, (
+        "a plan made with a handoff has to be appliable"
+    )
+
+    live = introspector.table(name)
+    assert live is not None and "region" in live.table.column_names
+    assert live.table.grants, "and the grant nobody declared is still there"
