@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **A history schema is optional.** `apply` records every run in three Delta
+  tables — `runs`, `steps` and `lock` — in the `history_schema` a project
+  names. A project that names none now applies anyway, writing nothing outside
+  the tables its specs describe: deltaplan's own state is on the tables
+  themselves. What that gives up is said rather than dropped — no lock, so
+  whatever runs deltaplan has to be the only thing running it; no resume, so an
+  interrupted run is followed by a new plan, which skips what is already true;
+  and no audit, which belongs to whatever ran it. The restore point before a
+  risky step is still taken, and now reported: in the apply output, and on
+  `run.restore_points`. `force-unlock` says there is nothing to unlock.
+  **`NoHistory` is now that store**, not the error it used to be — a host that
+  wants to insist on a record checks `project.history_schema_for(target)`.
+
 ## [0.2.0a2] - 2026-09-23
 
 The other half of the setup notebook: the rows that belong in the table.

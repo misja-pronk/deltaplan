@@ -410,3 +410,41 @@ def test_a_project_that_hands_grants_over_can_still_apply(
     live = introspector.table(name)
     assert live is not None and "region" in live.table.column_names
     assert live.table.grants, "and the grant nobody declared is still there"
+
+
+def test_apply_without_a_history_schema_writes_nothing_beside_the_table(
+    runner: WarehouseRunner, introspector: Introspector, schema: str
+) -> None:
+    """A project that records nothing leaves nothing behind but its table.
+
+    The lock, the resume and the record are what a history schema buys; a host
+    deploying into many catalogs may not want three Delta tables of bookkeeping
+    in each of them. This checks the catalog afterwards, which is the only way
+    to know deltaplan kept that promise.
+    """
+    from deltaplan import api
+    from deltaplan.connect import Connection
+    from deltaplan.history import NoHistory
+
+    name = f"{schema}.orders"
+    desired = table(col("id", "bigint", nullable=False), col("amount", "int"), name=name)
+    result = api.apply(
+        plan_for(desired, introspector), Connection(runner=runner), history=NoHistory()
+    )
+    assert result.ok, result.error
+
+    live = introspector.table(name)
+    assert live is not None and diff(desired, live.table) == ()
+    catalog = schema.split(".")[0]
+    left = runner.query(
+        f"SELECT schema_name FROM {quote_qualified(f'{catalog}.information_schema')}"
+        ".schemata WHERE lower(schema_name) LIKE 'deltaplan%'"
+    )
+    assert left == (), "no history schema was created anywhere"
+    tables = runner.query(
+        f"SELECT table_name FROM {quote_qualified(f'{catalog}.information_schema')}"
+        f".tables WHERE table_schema = {quote_literal(schema.split('.')[1])}"
+    )
+    assert [row["table_name"] for row in tables] == ["orders"], (
+        "and nothing beside the table the spec describes"
+    )

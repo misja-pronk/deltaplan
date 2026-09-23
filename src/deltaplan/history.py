@@ -319,3 +319,60 @@ class MemoryHistory:
 
     def force_unlock(self, target: str) -> str | None:
         return self.locks.pop(target, None)
+
+
+@dataclass(slots=True)
+class NoHistory:
+    """The same contract, keeping nothing — for a project with no history schema.
+
+    deltaplan's state lives on the tables themselves: the ownership marker, the
+    seed digest, what a column's type is. The history schema adds three things
+    on top — a lock, a resume, and a record of who ran what — and a host that
+    deploys into many catalogs may not want three Delta tables of bookkeeping in
+    each of them.
+
+    Without it: **no lock**, so whoever runs `apply` has to be the only one
+    running it (a deploy pipeline usually already is); **no resume**, so an
+    interrupted run is followed by a new plan, which skips what is already true
+    of the live tables; and **no record**, so who ran what belongs to whatever
+    ran it. The restore point before a destructive step is still taken — it is
+    reported rather than stored.
+    """
+
+    def ensure(self) -> None:
+        """Nothing to create: that is the point."""
+
+    def start_run(
+        self, run_id: str, plan_hash: str, target: str, tool_version: str
+    ) -> None:
+        """Nothing is recorded."""
+
+    def finish_run(self, run_id: str, status: Status) -> None:
+        """Nothing is recorded."""
+
+    def resumable_run(self, plan_hash: str, target: str) -> str | None:
+        """Never: without a record there is nothing to resume from."""
+        return None
+
+    def finished_steps(self, run_id: str) -> frozenset[int]:
+        return frozenset()
+
+    def record_step(self, run_id: str, outcome: StepOutcome) -> None:
+        """Nothing is recorded; the observer sees every step as it happens."""
+
+    def acquire_lock(self, target: str, run_id: str, minutes: int) -> bool:
+        """Always: there is no lock to take, and none to wait for."""
+        return True
+
+    def renew_lock(self, target: str, run_id: str, minutes: int) -> bool:
+        return True
+
+    def release_lock(self, target: str, run_id: str) -> None:
+        """Nothing was held."""
+
+    def lock_holder(self, target: str) -> str | None:
+        return None
+
+    def force_unlock(self, target: str) -> str | None:
+        """Nothing was held, so nothing is released."""
+        return None

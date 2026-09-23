@@ -80,6 +80,10 @@ class ExecutionResult:
     failed: int | None = None
     error: str | None = None
     resumed: bool = False
+    #: `(table, version)` for every step that took a restore point before it
+    #: ran. With no history schema this is the only place they are kept, so a
+    #: `RESTORE TABLE … TO VERSION AS OF` is still one command away.
+    restore_points: tuple[tuple[str, int], ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -106,6 +110,8 @@ class Executor:
     #: than after the fact.
     observer: Callable[[Step, Status, str | None], None] | None = None
     _live: dict[str, Relation | None] = field(default_factory=dict)
+    #: `(table, version)` for every restore point this run took.
+    _restore_points: list[tuple[str, int]] = field(default_factory=list)
 
     # -- the run -----------------------------------------------------------
     def apply(self, plan: Plan, *, allow_destructive: bool = False) -> ExecutionResult:
@@ -174,9 +180,14 @@ class Executor:
                     failed=step.id,
                     error=lost,
                     resumed=resumed,
+                    restore_points=tuple(self._restore_points),
                 )
             failure = self._run_step(step, run_id)
-            self._observe(step, "failed" if failure else "succeeded", failure)
+            self._observe(
+                step,
+                "failed" if failure else "succeeded",
+                failure or _taken(self._restore_points, step),
+            )
             if failure is not None:
                 return ExecutionResult(
                     run_id=run_id,
@@ -186,6 +197,7 @@ class Executor:
                     failed=step.id,
                     error=failure,
                     resumed=resumed,
+                    restore_points=tuple(self._restore_points),
                 )
             ran.append(step.id)
 
@@ -195,11 +207,16 @@ class Executor:
             ran=tuple(ran),
             skipped=tuple(skipped),
             resumed=resumed,
+            restore_points=tuple(self._restore_points),
         )
 
     def _run_step(self, step: Step, run_id: str) -> str | None:
         """Run one step. Returns the error, or None when it worked."""
         version = self._restore_point(step)
+        if version is not None:
+            # Kept on the run as well as in the history: without a history
+            # schema this is where a restore point lives.
+            self._restore_points.append((step.table, version))
         try:
             blocked = self._blocked(step)
         except Exception as error:  # noqa: BLE001 - the precheck's own query failed
@@ -345,6 +362,14 @@ def _moved(plan: Plan, live: Mapping[str, Relation | None]) -> tuple[str, ...]:
         if fingerprint([diff.live])
         != fingerprint([live.get(diff.live.name if diff.live else diff.table)])
     )
+
+
+def _taken(points: list[tuple[str, int]], step: Step) -> str | None:
+    """The restore point this step took, as a note for whoever is watching."""
+    for table, version in reversed(points):
+        if table == step.table:
+            return f"restore point: {table} version {version}"
+    return None
 
 
 def _kinds(plan: Plan) -> dict[str, str]:

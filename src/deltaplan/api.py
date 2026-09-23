@@ -23,19 +23,14 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from deltaplan.connect import Connection
-from deltaplan.errors import DeltaplanError
 from deltaplan.executor import ExecutionResult, Executor, Status
-from deltaplan.history import DeltaHistory, HistoryStore
+from deltaplan.history import DeltaHistory, HistoryStore, NoHistory
 from deltaplan.loader import Diagnostic, Project, Specs, Target
 from deltaplan.manage import EVERYTHING, Manage
 from deltaplan.model.plan import Plan, Step
 from deltaplan.model.view import Relation
 from deltaplan.model.volume import Volume
 from deltaplan.planning import PlanningError, plan_tables
-
-
-class NoHistory(DeltaplanError):
-    """`apply` records every run, and this project says nowhere to record it."""
 
 
 def plan(
@@ -115,7 +110,10 @@ def apply(
     """Run a plan, and record what it did.
 
     The run is written to the project's `history_schema`, unless a host passes
-    its own `history` — `MemoryHistory` for a test, its own store otherwise.
+    its own `history` — `MemoryHistory` for a test, its own store otherwise. A
+    project with no `history_schema` records nothing and takes no lock; the
+    result still says what ran, and `run.restore_points` names the version each
+    risky step could be put back to.
 
     Raises `StalePlan` if the live objects have moved since the plan was made,
     `DestructiveRefused` if it would destroy something and `allow_destructive`
@@ -149,23 +147,19 @@ def is_stale(plan: Plan, connection: Connection) -> bool:
 def history_for(
     project: Project | None, target: Target | None, connection: Connection
 ) -> HistoryStore:
-    """Where this project records what `apply` did.
+    """Where this project records what `apply` did — or `NoHistory`.
 
-    Raises `NoHistory` when the project says nowhere — `apply` keeps a record
-    of every run, and won't run without somewhere to keep it.
+    A project that names a `history_schema` gets Delta tables in it: a lock, a
+    resume and a record of every run. One that names none gets `NoHistory`,
+    which keeps nothing and locks nothing; deltaplan's own state lives on the
+    tables themselves either way. A host that wants to insist on a record
+    checks `project.history_schema_for(target)` and says so itself.
     """
     if project is None or target is None:
-        raise NoHistory(
-            "apply records every run: pass `project` and `target` so deltaplan "
-            "knows where, or pass a `history` store of your own."
-        )
+        return NoHistory()
     schema = project.history_schema_for(target)
     if not schema:
-        raise NoHistory(
-            "apply records every run in Delta tables, and this project says "
-            "nowhere to keep them. Set `history_schema` in deltaplan.yml, or "
-            "pass a `history` store of your own."
-        )
+        return NoHistory()
     return DeltaHistory(connection.runner, schema)
 
 

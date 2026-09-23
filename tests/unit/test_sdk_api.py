@@ -161,9 +161,11 @@ def test_validate_needs_no_workspace(project_dir: Path) -> None:
     assert deltaplan.validate(project, project.default) == ()
 
 
-def test_apply_without_anywhere_to_record_says_so(
+def test_apply_without_a_history_schema_just_applies(
     project_dir: Path, fake: FakeWarehouse
 ) -> None:
+    """A project that records nothing still changes tables — and says what it
+    could be put back to."""
     (project_dir / "deltaplan.yml").write_text(
         PROJECT.replace("history_schema: main.deltaplan\n", "")
     )
@@ -171,8 +173,14 @@ def test_apply_without_anywhere_to_record_says_so(
     target = project.resolve(project.default)
     connection = Connection(runner=fake)
     plan = deltaplan.plan(project, target, connection)
-    with pytest.raises(deltaplan.NoHistory, match="history_schema"):
-        deltaplan.apply(plan, connection, project=project, target=target)
+    run = deltaplan.apply(plan, connection, project=project, target=target)
+    assert run.ok
+    assert "main.sales.orders" in fake.tables
+    assert not [name for name in fake.schemas if "deltaplan" in name], (
+        "no bookkeeping schema was made"
+    )
+    # And it converges: a second apply of a fresh plan has nothing to do.
+    assert deltaplan.plan(project, target, connection).empty
 
 
 def test_a_plan_survives_being_written_and_read(

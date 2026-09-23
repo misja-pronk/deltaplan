@@ -34,7 +34,6 @@ from __future__ import annotations
 from deltaplan.api import (
     ImportedSchema,
     ImportedSpec,
-    NoHistory,
     apply,
     drift,
     history_for,
@@ -53,7 +52,7 @@ from deltaplan.executor import (
     Executor,
     StalePlan,
 )
-from deltaplan.history import DeltaHistory, HistoryStore, MemoryHistory
+from deltaplan.history import DeltaHistory, HistoryStore, MemoryHistory, NoHistory
 from deltaplan.introspect import IntrospectionError, Introspector, WarehouseRunner
 from deltaplan.loader import (
     Diagnostic,

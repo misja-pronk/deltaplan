@@ -236,9 +236,10 @@ def test_an_unreadable_plan_file(project: Path, tmp_path: Path) -> None:
     assert "cannot read" in missing.output
 
 
-def test_apply_needs_a_history_schema(
+def test_apply_without_a_history_schema_says_what_that_costs(
     project: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """It applies — and says once that nothing is recorded and nothing locked."""
     fake = FakeWarehouse.of(LIVE)
     monkeypatch.setattr(cli, "_connect", lambda *_a, **_k: Connection(runner=fake))
     plan_file = tmp_path / "plan.json"
@@ -250,8 +251,25 @@ def test_apply_needs_a_history_schema(
     result = runner.invoke(
         app, ["apply", str(plan_file), "--config", str(project / "deltaplan.yml")]
     )
-    assert result.exit_code == 1
-    assert "history_schema" in result.output
+    assert result.exit_code == 0, result.output
+    assert "No history_schema" in result.output
+    assert "takes no lock" in result.output
+    assert not [name for name in fake.schemas if "deltaplan" in name]
+
+
+def test_force_unlock_without_a_history_schema_has_nothing_to_unlock(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeWarehouse.of(LIVE)
+    monkeypatch.setattr(cli, "_connect", lambda *_a, **_k: Connection(runner=fake))
+    (project / "deltaplan.yml").write_text(
+        CONFIG.replace("history_schema: main.deltaplan\n", "")
+    )
+    result = runner.invoke(
+        app, ["force-unlock", "--config", str(project / "deltaplan.yml")]
+    )
+    assert result.exit_code == 0, result.output
+    assert "no lock" in result.output.lower()
 
 
 def test_force_unlock(
