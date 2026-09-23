@@ -132,6 +132,18 @@ run = deltaplan.apply(
 a lock per target, skips steps already true of the live table, and resumes a run
 that stopped.
 
+A project with no `history_schema` gets `deltaplan.NoHistory()`, which keeps
+nothing and locks nothing — nothing is written outside the tables your specs
+describe. What that costs is in the
+[safety model](safety.md#without-a-history-schema); the restore point a risky
+step takes is then on the result:
+
+```python
+run = deltaplan.apply(plan, conn, project=project, target=target)
+for table, version in run.restore_points:
+    print(f"RESTORE TABLE {table} TO VERSION AS OF {version}")
+```
+
 Before you ask a person to confirm, `deltaplan.is_stale(plan, conn)` says
 whether the world has moved under the plan.
 

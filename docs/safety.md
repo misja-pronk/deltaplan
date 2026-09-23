@@ -67,6 +67,31 @@ Every step in a plan carries a class, and the class decides what happens:
 Prerequisites are steps, not side effects: if a rename needs column mapping, you see
 "enable columnMapping" as its own numbered line with its own warning.
 
+## Without a history schema
+
+`apply` records every run in three Delta tables — `runs`, `steps` and `lock` — in the
+`history_schema` a project names. A project that names none applies anyway. deltaplan's
+own state is on the tables themselves (the ownership marker, a seed's digest), so the
+history adds three things on top, and this is what each costs to give up:
+
+| With a history schema | Without one |
+|---|---|
+| **A lock per target**: one `apply` at a time | None. Whatever runs deltaplan has to be the only thing running it — a deploy pipeline usually already is. `force-unlock` says there is nothing to unlock. |
+| **Resume**: an interrupted run continues from its recorded steps | Plan again. Every step is checked against the live table before it runs, so the new plan simply doesn't contain what is already true. |
+| **A restore point** before a risky step, in a table | Still taken, and printed — in the apply output and on `run.restore_points`. `RESTORE TABLE … TO VERSION AS OF` is still one command; the number is in the log rather than in a table. |
+| **An audit**: who ran what, when | Not deltaplan's. Your git history, your CI run, and Delta's own table history know. |
+
+Everything else is unchanged: a stale plan is still refused, a destructive step still
+needs `--allow-destructive`, and a second `apply` of the same plan is still refused
+because the world it described has moved.
+
+```yaml
+# deltaplan.yml — with no history_schema, nothing is written outside your tables
+specs: [tables]
+targets:
+  prod: {catalog: prod}
+```
+
 ## What isn't deltaplan's
 
 A project can hand part of a table to the tool that already owns it —

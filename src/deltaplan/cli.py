@@ -19,12 +19,11 @@ from rich.console import Console
 from rich.markup import escape
 
 from deltaplan import api
-from deltaplan.api import NoHistory
 from deltaplan.bundle import BundleError
 from deltaplan.connect import Connection, NotConnected
 from deltaplan.errors import DeltaplanError
 from deltaplan.executor import DestructiveRefused, ExecutionError, ExecutionResult
-from deltaplan.history import HistoryStore, Status
+from deltaplan.history import HistoryStore, NoHistory, Status
 from deltaplan.introspect import IntrospectionError
 from deltaplan.loader import (
     Diagnostic,
@@ -781,8 +780,12 @@ def force_unlock(
     project = _project(config)
     chosen = _target(project, target)
     connection = _connect(warehouse_id, chosen, profile)
+    store = _history(project, chosen, connection, say=False)
+    if isinstance(store, NoHistory):
+        out.print("No history schema, so there is no lock and nothing to unlock.")
+        return
     try:
-        holder = _history(project, chosen, connection).force_unlock(chosen.name)
+        holder = store.force_unlock(chosen.name)
     except IntrospectionError as error:
         err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
@@ -803,17 +806,21 @@ def _read_plan(path: Path) -> Plan:
         raise typer.Exit(1) from error
 
 
-def _history(project: Project, target: Target, connection: Connection) -> HistoryStore:
+def _history(
+    project: Project, target: Target, connection: Connection, *, say: bool = True
+) -> HistoryStore:
+    """Where this run is recorded — and a word when it isn't."""
     try:
-        return api.history_for(project, target, connection)
+        store = api.history_for(project, target, connection)
     except KeyError as error:
         err.print(f"[red]history_schema: {escape(str(error.args[0]))}[/]")
         raise typer.Exit(1) from error
-    except NoHistory as error:
-        err.print(
-            f"[red]{escape(str(error))}\n  history_schema: ${{catalog}}.deltaplan[/]"
+    if isinstance(store, NoHistory) and say:
+        out.print(
+            "[dim]No history_schema: this run isn't recorded and takes no lock. "
+            "Restore points are printed below.[/]"
         )
-        raise typer.Exit(1) from error
+    return store
 
 
 # ---------------------------------------------------------------------------
