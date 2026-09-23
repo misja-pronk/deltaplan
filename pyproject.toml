@@ -1,6 +1,6 @@
 [project]
 name = "deltaplan"
-version = "0.2.0a1"
+version = "0.2.0a2"
 description = "Declarative plan/apply for Databricks SQL tables — Terraform-style diffs for Unity Catalog"
 readme = "README.md"
 requires-python = ">=3.11"

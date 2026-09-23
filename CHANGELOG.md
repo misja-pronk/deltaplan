@@ -6,6 +6,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0a2] - 2026-09-23
+
+The other half of the setup notebook: the rows that belong in the table.
+
+### Added
+
+- **Seeds.** Reference data — country codes, mappings, statuses — kept in the
+  repo beside the spec that describes the table holding it: `seed:
+  countries.csv`, relative to the spec file, or the rows written out in it.
+  A seed is the table's **whole content**, so applying one replaces what is
+  there (`INSERT OVERWRITE`): on a table that already holds rows the step is
+  `destructive`, says so, and records a restore point first. The plan compares
+  a digest the loaded table carries in a `deltaplan.seed` property rather than
+  reading rows back, so it costs nothing to ask and says *seed 2 rows from
+  countries.csv* instead of printing them; the digest is over the values, so
+  reformatting a CSV is not a change. Every value is written as a literal of
+  its column's declared type, and anything that isn't one is a spec error with
+  a line number before any statement exists. Plain columns only, and at most
+  1000 rows — past that it is a dataset for a pipeline, with deltaplan keeping
+  the table's shape. Taking a seed out of a spec doesn't empty the table.
+
+  The statement it builds is the grammar the Databricks manual gives and parses
+  under a Databricks parser, but **no workspace has taken one yet**: the live
+  suite is waiting on a serverless warehouse that won't start. `TODO(verify)`
+  in `planner.py` says so, and `tests/integration/test_live_seeds.py` settles
+  it the moment the suite can run.
+
 ## [0.2.0a1] - 2026-09-22
 
 deltaplan is a library as well as a command, and the command is the library's
