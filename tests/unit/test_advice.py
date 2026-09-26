@@ -10,7 +10,12 @@ whole, and an error deltaplan has nothing to add to is passed through untouched.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import pytest
+
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
 
 from deltaplan.advice import ADVICE, advice, error_class, with_advice
 
@@ -88,7 +93,8 @@ def test_what_deltaplan_adds(message: str, says: str) -> None:
 def test_the_workspaces_own_words_come_first_and_whole() -> None:
     together = with_advice(QUOTA)
     assert together.startswith(QUOTA), "searchable, unaltered, at the top"
-    assert advice(QUOTA) in together
+    said = advice(QUOTA)
+    assert said is not None and said in together
 
 
 def test_an_error_nobody_has_advice_for_is_passed_through() -> None:
@@ -130,7 +136,7 @@ def test_a_failed_statement_carries_it_through_the_error() -> None:
             def execute_statement(**_kwargs: object) -> object:
                 raise RuntimeError(WAREHOUSE)
 
-    runner = WarehouseRunner(Refusing(), "w1")  # type: ignore[arg-type]
+    runner = WarehouseRunner(cast("WorkspaceClient", Refusing()), "w1")
     with pytest.raises(IntrospectionError) as raised:
         runner.query("SELECT 1")
     said = str(raised.value)
