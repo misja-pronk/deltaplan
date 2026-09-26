@@ -64,11 +64,32 @@ def test_the_page_stands_on_its_own(plan: Plan) -> None:
     assert "<form" not in page and "apply" not in page.lower().split("<script>")[0]
 
 
+def test_both_readings_are_the_same_table(plan: Plan) -> None:
+    """One set of rows, two lenses — so they can't say different things."""
+    page = render_html(plan)
+    assert 'data-lens="changes"' in page and 'data-lens="full"' in page
+    assert page.count('<table class="rows">') == len(
+        [d for d in plan.diffs if d.changes]
+    ), "one comparison per object, not one per lens"
+    assert "body[data-lens=changes] tr.state-same { display: none; }" in page
+    assert "as read when this plan was made" in page, "the left-hand side is labelled"
+
+
+def test_an_object_has_both_sides_and_a_headline(plan: Plan) -> None:
+    page = render_html(plan)
+    assert 'class="headline"' in page
+    # The column that moved shows what it was and what it becomes, in its cells.
+    assert '<td class="now">int</td>' in page
+    assert '<td class="after">string</td>' in page, "the cast this fixture plans"
+    assert 'class="state-changed' in page and 'class="state-removed' in page
+
+
 def test_it_says_what_the_terminal_says(plan: Plan) -> None:
     page = render_html(plan)
     assert str(plan.summary) in page
     assert "sales.orders" in page, "the table, without its catalog, as elsewhere"
     assert "412 GB" in page, "and its size in the same words"
+    assert "rebuilt" in page or "destroys something" in page
     for step in plan.steps:
         assert step.title in page
         assert step.sql is None or step.sql.splitlines()[0] in page
@@ -99,7 +120,7 @@ def test_an_empty_plan_says_so(plan: Plan) -> None:
     fake = FakeWarehouse.of(LIVE)
     nothing = planned(replace(LIVE, properties=MANAGED), fake)
     assert nothing.empty
-    assert "No changes. Live tables match your specs." in render_html(nothing)
+    assert "No changes. Live objects match your specs." in render_html(nothing)
 
 
 def test_what_a_plan_reports_without_changing_is_on_the_page() -> None:

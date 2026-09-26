@@ -9,8 +9,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **A plan you can read in a browser.** `deltaplan ui` serves the plan as one
-  page on `127.0.0.1` and opens it: filter by risk, fold away what you have
-  read, each step's SQL in place. `deltaplan plan -f html -o plan.html` writes
+  page on `127.0.0.1` and opens it. Every object is a comparison — what it is
+  now, as read when the plan was made, and what it becomes — with the
+  statements that get there underneath, and two readings of the same rows:
+  *changes only* for whoever approves the change, *full object* for whoever
+  wrote the spec. One table underneath both, built by a new pure module
+  (`render/compare.py`), so the readings can't disagree. `deltaplan plan -f html -o plan.html` writes
   that same page as a single self-contained file — no dependencies, nothing
   fetched, opens offline — to attach to a pull request or hand to whoever
   approves it. It renders the same `Plan` the terminal and the Markdown comment

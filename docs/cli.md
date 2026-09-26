@@ -105,10 +105,20 @@ deltaplan ui                  # plan now, and open it
 deltaplan ui plan.json        # show a plan you already have
 ```
 
-Serves the plan as one page on `127.0.0.1` and opens your browser. The terminal
-rendering is the one to reach for most days; this is for the plan with thirty tables in
-it, where you want to filter by risk, fold away what you have read, and see a rewrite's
-SQL without scrolling past everything else.
+Serves the plan as one page on `127.0.0.1` and opens your browser. Each object is shown
+as a comparison — **now** on the left, as it was read when the plan was made, and
+**after** on the right — with the statements that get from one to the other underneath.
+
+Two readings of the same table, because a plan has two readers:
+
+- **Changes only** (the default) — the rows that move, each with the sentence deltaplan
+  uses for it elsewhere. For whoever has to approve the change.
+- **Full object** — every row, including what stays as it is, so the two sides can be
+  checked against each other. For whoever wrote the spec.
+
+The button remembers which you picked. There is one table underneath both, so they can't
+say different things. Search filters by name, and the risk buttons narrow it to what is
+`destructive` or `rewrite`.
 
 `--port` picks the port (0, the default, takes a free one), `--no-open` leaves your
 browser alone, and `-t`, `--select`, `--warehouse-id` and `--profile` work as they do for
