@@ -158,6 +158,17 @@ allowed to change the table.
 [Column tags →](spec.md#column-tags) · [Removing a tag →](spec.md#removing-a-tag-or-a-property) ·
 [Grants →](spec.md#grants) · [Owners →](spec.md#owners)
 
+## Reading a big plan
+
+Thirty tables is where a terminal stops helping. `deltaplan ui` serves the same plan as
+one page on localhost — filter by risk, fold what you have read, each step's SQL in
+place — and `deltaplan plan -f html -o plan.html` writes that page as a single file you
+can attach to a pull request or hand to whoever approves it.
+
+It is the same plan object the terminal and the pull-request comment render, so the
+three can't disagree. And it is read-only: no apply button, nothing fetched, nothing
+written. [`ui` →](cli.md#ui)
+
 ## Handing something to another tool
 
 Plenty of teams already have something that owns part of a table: a policy framework

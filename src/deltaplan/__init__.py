@@ -85,6 +85,7 @@ from deltaplan.model.types import Column, Field, Mask
 from deltaplan.model.view import Relation, View
 from deltaplan.model.volume import Volume
 from deltaplan.planning import PlanningError, plan_tables
+from deltaplan.render.html import render_html
 from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_to_json
 from deltaplan.render.json import loads as plan_from_json
@@ -143,6 +144,7 @@ __all__ = [
     "PrimaryKey",
     "Project",
     "Relation",
+    "render_html",
     "render_markdown",
     "render_plan",
     "Risk",

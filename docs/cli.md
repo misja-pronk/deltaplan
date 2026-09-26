@@ -66,6 +66,8 @@ Reads live state, diffs it against the specs, and prints the plan. `--format`:
 - `md` — Markdown, for a pull-request comment. The [GitHub Action](ci.md) posts it for
   you.
 - `json` — the plan object itself.
+- `html` — one self-contained page, for reading a big plan: search, fold, and each
+  step's SQL in place. See [`ui`](#ui).
 
 `-o plan.json` saves the plan for `apply` and `show`. With the default `rich` format the
 plan is printed as well and the file holds the plan object; with `-f md` or `-f json` the
@@ -95,6 +97,34 @@ deltaplan show plan.json -f md
 Renders a saved plan in any format, without a warehouse. What you see is what
 `apply plan.json` would run — which is why the GitHub Action renders its comment this
 way rather than planning twice.
+
+## `ui`
+
+```sh
+deltaplan ui                  # plan now, and open it
+deltaplan ui plan.json        # show a plan you already have
+```
+
+Serves the plan as one page on `127.0.0.1` and opens your browser. The terminal
+rendering is the one to reach for most days; this is for the plan with thirty tables in
+it, where you want to filter by risk, fold away what you have read, and see a rewrite's
+SQL without scrolling past everything else.
+
+`--port` picks the port (0, the default, takes a free one), `--no-open` leaves your
+browser alone, and `-t`, `--select`, `--warehouse-id` and `--profile` work as they do for
+`plan`.
+
+It is a way of **reading** a plan: nothing is fetched from the network, nothing is
+written, and there is no apply button. To change something, change a spec.
+
+Want the page without a server — to attach to a pull request, keep as a CI artefact, or
+send to someone who approves things:
+
+```sh
+deltaplan plan -f html -o plan.html
+```
+
+One file, no dependencies, opens offline.
 
 ## `apply`
 

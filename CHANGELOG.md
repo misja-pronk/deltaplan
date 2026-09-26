@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A plan you can read in a browser.** `deltaplan ui` serves the plan as one
+  page on `127.0.0.1` and opens it: filter by risk, fold away what you have
+  read, each step's SQL in place. `deltaplan plan -f html -o plan.html` writes
+  that same page as a single self-contained file — no dependencies, nothing
+  fetched, opens offline — to attach to a pull request or hand to whoever
+  approves it. It renders the same `Plan` the terminal and the Markdown comment
+  do, with the same words, and it is read-only: no apply button, nothing
+  written, no call to a workspace. `render_html` is public.
+
 ## [0.2.0a4] - 2026-09-23
 
 A fresh schema converges in one apply.
