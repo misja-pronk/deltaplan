@@ -10,15 +10,18 @@
   > This plan destroys something — step 6 (DROP COLUMN on `sales.orders`). `apply` refuses it without `--allow-destructive`.
   
   <details open>
-  <summary><b>sales.orders</b> · ~ update · 412 GB</summary>
+  <summary><b>sales.orders</b> · ~ update · 1 addition, 2 removals, 3 changes — destroys something · 412 GB</summary>
   
-  ```diff
-  ~ amount  DECIMAL(10,2) → (18,2)
-  ~ address
-  +   zip STRING
-  → customer_ref (was cust_id)
-  - legacy_flag
-  ```
+  | | what | now | after | change |
+  |---|---|---|---|---|
+  | ~ | `amount` | `decimal(10,2)` | `decimal(18,2)` | DECIMAL(10,2) → (18,2) |
+  | ~ | `address` | `struct<street:string>` | `struct<street:string,zip:string>` |  |
+  | + | `address.zip` | — | `string` |  |
+  | ~ | `customer_ref` | `string` | `string` | renamed from cust_id |
+  | - | `cust_id` | `string` | — | dropped |
+  | - | `legacy_flag` | `boolean` | — |  |
+  
+  <sub>1 row unchanged</sub>
   
   | # | Step | Risk | |
   |--:|---|---|---|

@@ -1,9 +1,15 @@
 """The plan as a pull-request comment.
 
-Same plan object, same words as the terminal (`render/labels.py`), laid out for
-GitHub: a summary a reviewer can take in at a glance, an alert for anything
-destructive or expensive, then one collapsible block per table with the changes,
+Same plan object, same words as the terminal (`render/labels.py`) and the same
+comparison as the page (`render/compare.py`), laid out for GitHub: a summary a
+reviewer can take in at a glance, an alert for anything destructive or expensive,
+then one collapsible block per object — what it is now beside what it becomes,
 the numbered steps, and the SQL that `apply` will run.
+
+A comment is the *changes only* lens by nature, so only the rows that moved are
+in the table and the rest are counted underneath. Where a comment would be too
+long for GitHub, the rendering steps down a ladder — comparison, then no SQL,
+then the change list, then table names — and says which rung it is on.
 
 The first line is a hidden marker. The GitHub Action uses it to find the comment
 it posted last time and update it, rather than adding a new one on every push.
@@ -15,6 +21,7 @@ import re
 
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Step, TableDiff
+from deltaplan.render.compare import Comparison, Row, compare
 from deltaplan.render.labels import (
     count,
     describe,
@@ -41,15 +48,21 @@ def render_markdown(
 ) -> str:
     """A GitHub-flavoured Markdown rendering of a plan.
 
-    Falls back to leaving the SQL out, then to naming the tables only, when the
-    full rendering would be too long for a comment — and says so.
+    Rungs, in order, when the one above it would be too long for a comment: the
+    comparison with every statement; the comparison without them; the list of
+    changes; the table names. Each one says what it left out.
     """
-    full = _render(plan, heading, include_sql=True)
-    if len(full) <= limit:
-        return full
-    without_sql = _render(plan, heading, include_sql=False, note=_TRUNCATED_SQL)
-    if len(without_sql) <= limit:
-        return without_sql
+    rungs = (
+        (True, True, None),
+        (True, False, _TRUNCATED_SQL),
+        (False, False, _TRUNCATED_ROWS),
+    )
+    for comparison, include_sql, note in rungs:
+        written = _render(
+            plan, heading, comparison=comparison, include_sql=include_sql, note=note
+        )
+        if len(written) <= limit:
+            return written
     return _render_summary_only(plan, heading)
 
 
@@ -58,9 +71,20 @@ _TRUNCATED_SQL = (
     "Run `deltaplan show plan.json` to see every statement."
 )
 
+_TRUNCATED_ROWS = (
+    "Shown as a list of changes rather than a comparison, and without the SQL: "
+    "the full plan is too long for a comment. Run `deltaplan show plan.json`, or "
+    "open it with `deltaplan ui`, to read it whole."
+)
+
 
 def _render(
-    plan: Plan, heading: str, *, include_sql: bool, note: str | None = None
+    plan: Plan,
+    heading: str,
+    *,
+    include_sql: bool,
+    comparison: bool = True,
+    note: str | None = None,
 ) -> str:
     lines = [marker(heading, plan.target), _title(plan, heading), ""]
     changed = [diff for diff in plan.diffs if diff.changes]
@@ -72,7 +96,7 @@ def _render(
         lines += _alerts(plan)
 
     for diff in changed:
-        lines += _table_block(plan, diff, include_sql=include_sql)
+        lines += _table_block(plan, diff, include_sql=include_sql, comparison=comparison)
 
     lines += _left_alone(plan)
     if note:
@@ -155,15 +179,26 @@ def _alerts(plan: Plan) -> list[str]:
     return lines
 
 
-def _table_block(plan: Plan, diff: TableDiff, *, include_sql: bool) -> list[str]:
+def _table_block(
+    plan: Plan, diff: TableDiff, *, include_sql: bool, comparison: bool = True
+) -> list[str]:
+    seen = compare(diff)
     symbol, verb = table_verb({change.kind for change in diff.changes})
     size = human_bytes(diff.facts.size_bytes)
     summary = f"<b>{_html(display_name(diff.table))}</b> · {symbol} {verb}"
-    if size:
+    if comparison:
+        summary += f" · {_html(seen.headline)}"
+    # The headline says what a rewrite or a drop costs, which is usually the
+    # same number: saying it twice reads like two different ones.
+    if size and size not in seen.headline:
         summary += f" · {size}"
 
     lines = ["<details open>", f"<summary>{summary}</summary>", ""]
-    lines += ["```diff", *_change_lines(diff.changes), "```", ""]
+    lines += (
+        _row_table(seen)
+        if comparison
+        else ["```diff", *_change_lines(diff.changes), "```", ""]
+    )
 
     steps = plan.steps_for(diff.table)
     if steps:
@@ -181,6 +216,72 @@ def _table_block(plan: Plan, diff: TableDiff, *, include_sql: bool) -> list[str]
 
     lines += ["</details>", ""]
     return lines
+
+
+def _row_table(seen: Comparison) -> list[str]:
+    """The object as it is beside what it becomes, one row per thing that moved.
+
+    The same rows the page shows, with the same five columns its *changes only*
+    lens shows: the sides for whoever wrote the spec, and the sentence for
+    whoever approves it. Aligned by meaning, so the `amount` column on the left
+    is the `amount` column on the right however much its type moved — which is
+    why a rename reads as one row gone and one arrived, and the sentence says so.
+    """
+    moved = seen.changed
+    if not moved:
+        return []
+    lines = ["| | what | now | after | change |", "|---|---|---|---|---|"]
+    for row in moved:
+        lines.append(
+            f"| {row.marker} | {_code(_cell(row.path))} | "
+            f"{_side(row.left, row, after=False)} | "
+            f"{_side(row.right, row, after=True)} | {_cell(_said(row))} |"
+        )
+    lines.append("")
+    unchanged = len(seen.rows) - len(moved)
+    if unchanged:
+        lines += [f"<sub>{count(unchanged, 'row')} unchanged</sub>", ""]
+    return lines
+
+
+def _said(row: Row) -> str:
+    """The sentence about a row, without the name it already sits next to.
+
+    The words are the terminal's — one vocabulary across every rendering — and
+    there a change is written under the thing it is about, so the label repeats
+    the name. In a table the name has a column of its own.
+    """
+    said = " ".join(row.said.split())
+    if "renamed from" in said:
+        # A rename is said twice: the hint the spec carries, and the step that
+        # will run. One of them is enough next to the two names.
+        said = "; ".join(part for part in said.split("; ") if "(was " not in part)
+    said = "; ".join(_clause(part, row) for part in said.split("; ")).strip("; ")
+    for prefix in (f"{row.path} ", f"{row.path.rsplit('.', 1)[-1]} "):
+        if said.startswith(prefix):
+            said = said[len(prefix) :]
+            break
+    if said.casefold() in {"", row.path.casefold()}:
+        return ""
+
+    # And nothing the sides already say: an added column's label is its type,
+    # which is the `after` cell it sits next to.
+    beside = (row.right or row.left or "").casefold()
+    return "" if beside.startswith(said.casefold()) else said
+
+
+def _clause(text: str, row: Row) -> str:
+    """One clause of a sentence, without the name the row already carries."""
+    leaf = row.path.rsplit(".", 1)[-1]
+    for prefix in (f"{row.path} ", f"{leaf} "):
+        if text.startswith(prefix):
+            return text[len(prefix) :]
+    return text
+
+
+def _side(value: str | None, row: Row, *, after: bool) -> str:
+    """One side of a row: what it holds, or a dash where it holds nothing."""
+    return _code(_cell(value)) if value is not None else "—"
 
 
 def _change_lines(changes: tuple[Change, ...]) -> list[str]:

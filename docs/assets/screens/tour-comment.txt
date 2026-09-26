@@ -8,18 +8,20 @@
     Rewrites the data of `sales.orders` (412 GB). A restore point is recorded first.
 
 <details markdown open>
-<summary><b>sales.orders</b> · ~ update · 412 GB</summary>
+<summary><b>sales.orders</b> · ~ update · 3 additions, 1 removal, 4 changes — rebuilt, 412 GB</summary>
 
-```diff
-→ customer_ref (was cust_id)
-~ customer_ref  tag pii = 'true'
-~ amount  DECIMAL(10,2) → (18,2)
-+ status STRING
-~ address
-+   country STRING
-+ constraint CHECK (amount >= 0) positive_amount
-+ grant SELECT to analysts
-```
+| | what | now | after | change |
+|---|---|---|---|---|
+| ~ | `customer_ref` | `string` | `string tags pii=true` | renamed from cust_id; tag pii = 'true' |
+| ~ | `amount` | `decimal(10,2)` | `decimal(18,2)` | DECIMAL(10,2) → (18,2) |
+| + | `status` | — | `string NOT NULL` |  |
+| ~ | `address` | `struct<street:string,zip:string>` | `struct<street:string,zip:string,country:string>` |  |
+| + | `address.country` | — | `string` |  |
+| - | `cust_id` | `string` | — | dropped |
+| ~ | `constraints` | `primary key (order_id)` | `primary key (order_id), check positive_amount` | constraint CHECK (amount >= 0) positive_amount |
+| + | `grants` | — | `analysts: SELECT` | grant SELECT to analysts |
+
+<sub>8 rows unchanged</sub>
 
 | # | Step | Risk | |
 |--:|---|---|---|

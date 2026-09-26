@@ -446,13 +446,28 @@ def _lines(text: str) -> list[str]:
     return [line.rstrip() for line in text.strip().splitlines()] if text.strip() else []
 
 
+def _sides(left: str | None, right: str | None) -> State:
+    """What became of a row, from its two sides alone.
+
+    A row with nothing on the left is an addition, not a change: a new object's
+    rows read `+` rather than `~`.
+    """
+    if left == right:
+        return "same"
+    if left is None:
+        return "added"
+    if right is None:
+        return "removed"
+    return "changed"
+
+
 def _function_rows(diff: TableDiff) -> list[Row]:
     desired = diff.desired if isinstance(diff.desired, Function) else None
     live = diff.live if isinstance(diff.live, Function) else None
     extra = [
         Row(
             "signature",
-            "same" if _signature(live) == _signature(desired) else "changed",
+            _sides(_signature(live), _signature(desired)),
             _signature(live),
             _signature(desired),
             kind="detail",

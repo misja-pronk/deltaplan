@@ -56,9 +56,15 @@ jobs:
 ```
 
 The comment shows the summary, an alert for anything destructive, expensive or
-impossible, the changes per table, the numbered steps with their risk, and the SQL
-folded away underneath. It is rendered *from the plan file*, so it shows exactly what
-`apply` of that file would run.
+impossible, then each object as a comparison — what it is now, what it becomes, and the
+sentence about the difference — with the numbered steps and the SQL folded away
+underneath. It is the same comparison [`deltaplan ui`](cli.md#ui) shows, so the review on
+the pull request and the one on a laptop can't describe the same plan differently. Only
+the rows that moved are in the table; the rest are counted under it.
+
+It is rendered *from the plan file*, so it shows exactly what `apply` of that file would
+run. A very large plan steps down: the comparison without the SQL, then the list of
+changes, then the table names — and says which of those it did.
 
 ## Apply on merge
 

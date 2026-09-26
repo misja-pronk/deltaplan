@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The pull-request comment shows the comparison, not a list of changes.** The
+  page `deltaplan ui` serves shows each object as *what it is now* beside *what
+  it becomes*; the comment — where most reviewing actually happens — had the
+  weakest view of the four. It now builds its per-object block from
+  the same `render/compare.py` rows, in the five columns that page's *changes
+  only* lens uses: the marker, the thing, both sides, and the sentence about the
+  difference. Only the rows that moved are in the table and the rest are counted
+  underneath, because a comment is that lens by nature. The title, the summary,
+  the alerts, the steps and the folded SQL are unchanged, and the ladder that
+  keeps a comment under GitHub's limit has a new rung — comparison, comparison
+  without SQL, change list, table names — each saying what it left out.
+
 ### Added
 
 - **`deltaplan adopt`.** The other half of `drift`. A column someone added by

@@ -368,7 +368,7 @@ def test_plan_as_markdown(project: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert result.output.startswith("<!-- deltaplan:plan:dev -->")
-    assert "```diff" in result.output
+    assert "| | what | now | after | change |" in result.output
 
 
 @pytest.mark.usefixtures("live")

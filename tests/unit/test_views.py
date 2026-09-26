@@ -279,7 +279,8 @@ def test_views_survive_the_plan_file() -> None:
 def test_a_view_in_a_pull_request_comment() -> None:
     fake = FakeWarehouse.of(ORDERS)
     rendered = render_markdown(planned([ORDERS, BIG], fake))
-    assert "+ view" in rendered
+    assert "+ create · new view" in rendered
+    assert "| + | `query` | — |" in rendered
     assert "CREATE VIEW IF NOT EXISTS" in rendered
 
 

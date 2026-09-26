@@ -429,5 +429,6 @@ def test_a_new_function_renders_as_a_creation() -> None:
     assert "sales.mask_email   + create" in text
     assert "+ function" in text
     rendered = render_markdown(plan)
-    assert "+ function" in rendered
+    assert "+ create · new function" in rendered
+    assert "| + | `signature` | — | `(email string) returns string` |" in rendered
     assert "CREATE FUNCTION IF NOT EXISTS" in rendered

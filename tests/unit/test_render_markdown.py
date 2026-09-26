@@ -40,16 +40,26 @@ def test_the_design_documents_plan_as_a_comment(snapshot: SnapshotAssertion) -> 
     assert rendered == snapshot
 
 
-def test_changes_are_a_diff_block_so_github_colours_them() -> None:
+def test_the_object_is_shown_as_it_is_beside_what_it_becomes() -> None:
+    """The same comparison the page shows, in the columns its *changes only*
+    lens shows: the sides for whoever wrote the spec, the sentence for whoever
+    approves it."""
     rendered = render_markdown(design_example())
-    block = rendered.split("```diff\n")[1].split("```")[0]
-    assert block.splitlines() == [
-        "~ amount  DECIMAL(10,2) → (18,2)",
-        "~ address",
-        "+   zip STRING",  # the marker leads, so the line is green
-        "→ customer_ref (was cust_id)",
-        "- legacy_flag",  # and this one red
-    ]
+    rows = [line for line in rendered.splitlines() if line.startswith("| ~ |")]
+    assert "| ~ | `amount` | `decimal(10,2)` | `decimal(18,2)` |" in rows[0]
+    assert rows[0].endswith("DECIMAL(10,2) → (18,2) |")
+    assert "| + | `address.zip` | — | `string` |" in rendered
+    assert "| - | `legacy_flag` | `boolean` | — |" in rendered
+    assert "<sub>1 row unchanged</sub>" in rendered, "and the rest are counted"
+
+
+def test_a_rename_reads_as_one_column_gone_and_one_arrived() -> None:
+    """Rows are aligned by meaning, so a rename is two of them — and the
+    sentence on each says which."""
+    rendered = render_markdown(design_example())
+    assert "| - | `cust_id` | `string` | — | dropped |" in rendered
+    arrived = [line for line in rendered.splitlines() if "`customer_ref`" in line]
+    assert "renamed from cust_id" in arrived[0]
 
 
 def test_destruction_is_a_caution_alert() -> None:
@@ -108,7 +118,25 @@ def test_a_long_plan_drops_the_sql_first() -> None:
     shorter = render_markdown(plan, limit=len(full) - 1)
     assert "```sql" not in shorter
     assert "SQL left out" in shorter
-    assert "```diff" in shorter, "the changes are still there"
+    assert "| what | now | after |" in shorter, "the comparison is still there"
+
+
+def test_a_longer_plan_falls_back_to_the_list_of_changes() -> None:
+    """A table of rows is longer than a list of changes, so there is a rung
+    between the comparison and giving up on the objects entirely."""
+    plan = design_example()
+    without_sql = render_markdown(plan, limit=len(render_markdown(plan)) - 1)
+    shorter = render_markdown(plan, limit=len(without_sql) - 1)
+    assert "| what | now | after |" not in shorter
+    assert "```diff" in shorter
+    assert shorter.split("```diff\n")[1].split("```")[0].splitlines() == [
+        "~ amount  DECIMAL(10,2) → (18,2)",
+        "~ address",
+        "+   zip STRING",  # the marker leads, so the line is green
+        "→ customer_ref (was cust_id)",
+        "- legacy_flag",  # and this one red
+    ]
+    assert "too long for a comment" in shorter
 
 
 def test_a_very_long_plan_keeps_only_the_summary() -> None:
@@ -123,9 +151,77 @@ def test_pipes_cannot_break_a_table_cell() -> None:
     desired = table(col("a", "int", comment="x | y"), name=NAME, comment="also | here")
     _, plan = plan_against(desired, live)
     rendered = render_markdown(plan)
-    for row in [line for line in rendered.splitlines() if line.startswith("| ")]:
-        # Every row has the same number of unescaped separators as the header.
-        assert row.replace("\\|", "").count("|") == 5
+    # Every row has as many unescaped separators as the table it is in — which
+    # the `|---|` line under each header settles.
+    lines = rendered.splitlines()
+
+    def separator(line: str) -> bool:
+        return line.startswith("|") and set(line) <= set("|-: ")
+
+    expected: int | None = None
+    for index, line in enumerate(lines):
+        if separator(line):
+            expected = line.count("|")
+        elif line.startswith("| ") and not separator(lines[index + 1]):
+            assert expected is not None, line
+            assert line.replace("\\|", "").count("|") == expected, line
+
+
+def test_every_change_the_differ_made_reaches_the_comment() -> None:
+    """The same promise the page makes: nothing the plan says is lost on the way
+    to the pull request. The comment's cells are shorter than the page's rows, so
+    a change is accounted for by its path or by its sentence."""
+    from dataclasses import replace
+
+    from deltaplan.introspect import Introspector
+    from deltaplan.planning import plan_tables
+    from deltaplan.render.labels import describe
+    from fake_warehouse import FakeWarehouse
+
+    live = replace(LIVE, partitioned_by=("region",), properties=MANAGED)
+    desired = replace(
+        table(
+            col("amount", "decimal(18,2)", comment="Net"),
+            col("address", "struct<street:string,zip:string>"),
+            col("customer_ref", "string", renamed_from="cust_id"),
+            col("segment", "string"),
+            name=NAME,
+        ),
+        comment="Orders",
+        cluster_by=("amount",),
+        tags=(("domain", "sales"),),
+    )
+    plan = plan_tables(
+        [desired], Introspector(FakeWarehouse.of(live)), target="dev", tool_version="0"
+    )
+    rendered = render_markdown(plan)
+    rows = "\n".join(line for line in rendered.splitlines() if line.startswith("| "))
+    for change in plan.diffs[0].changes:
+        label = describe(change)[1]
+        path = change.path or change.kind
+        assert path.split(".")[-1] in rows or label in rows, (
+            f"{change.kind} at {change.path!r} went missing"
+        )
+
+
+def test_a_plan_with_hundreds_of_tables_still_fits_in_a_comment() -> None:
+    """The ladder's last rung. A comparison is longer than a change list, which
+    is longer than a name — and GitHub refuses a comment over 65,536
+    characters, so something has to give and say that it did."""
+    from dataclasses import replace
+
+    one = design_example()
+    many = replace(
+        one,
+        diffs=tuple(
+            replace(one.diffs[0], table=f"main.sales.orders_{index:03d}")
+            for index in range(300)
+        ),
+    )
+    rendered = render_markdown(many)
+    assert len(rendered) <= 60_000
+    assert "too long for a comment" in rendered
+    assert "`sales.orders_299`" in rendered, "every table is still named"
 
 
 def test_kept_and_unmanaged_tables_are_listed() -> None:
@@ -161,4 +257,6 @@ def test_a_dotted_property_is_not_inside_a_column() -> None:
     )
     _, plan = plan_against(desired, live)
     rendered = render_markdown(plan)
-    assert "```diff\n~ property delta.enableChangeDataFeed = 'true'\n```" in rendered
+    assert "| + | `properties` |" in rendered
+    assert "delta.enableChangeDataFeed = 'true'" in rendered
+    assert "`id`" not in rendered.split("| + | `properties` |")[1].split("\n")[0]
