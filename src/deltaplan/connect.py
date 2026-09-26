@@ -25,6 +25,7 @@ import os
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
+from deltaplan.advice import with_advice
 from deltaplan.errors import DeltaplanError
 from deltaplan.introspect import Introspector, SqlRunner, WarehouseRunner
 from deltaplan.manage import EVERYTHING, Manage
@@ -155,7 +156,7 @@ def _client(profile: str | None, host: str | None) -> WorkspaceClient:
             else "the environment or the DEFAULT profile"
         )
         raise NotConnected(
-            f"can't connect to a Databricks workspace using {where}: {error}"
+            with_advice(f"can't connect to a Databricks workspace using {where}: {error}")
         ) from error
 
 

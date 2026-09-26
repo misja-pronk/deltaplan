@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
+from deltaplan.advice import with_advice
 from deltaplan.ddl import DdlError, read_columns
 from deltaplan.errors import DeltaplanError
 from deltaplan.manage import EVERYTHING, Manage
@@ -946,14 +947,21 @@ class WarehouseRunner:
         )
 
         api = self.client.statement_execution
-        response = api.execute_statement(
-            statement=statement,
-            warehouse_id=self.warehouse_id,
-            wait_timeout=self.wait_timeout,
-            on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE,
-            disposition=Disposition.INLINE,
-            format=Format.JSON_ARRAY,
-        )
+        try:
+            response = api.execute_statement(
+                statement=statement,
+                warehouse_id=self.warehouse_id,
+                wait_timeout=self.wait_timeout,
+                on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE,
+                disposition=Disposition.INLINE,
+                format=Format.JSON_ARRAY,
+            )
+        except Exception as error:  # noqa: BLE001 - whatever the SDK raised
+            # A refusal from the platform rather than from the statement: a
+            # warehouse that can't take the request looks like this. It becomes
+            # deltaplan's own error so a host catches one root, and keeps the
+            # workspace's words.
+            raise IntrospectionError(with_advice(str(error))) from error
 
         statement_id = response.statement_id
         if statement_id is None:
@@ -978,7 +986,9 @@ class WarehouseRunner:
                 if response.status and response.status.error
                 else "no error message"
             )
-            raise IntrospectionError(f"{state}: {message}\n  {statement}")
+            raise IntrospectionError(
+                with_advice(f"{state}: {message}") + f"\n  {statement}"
+            )
 
         names = [
             column.name or f"col{index}"
