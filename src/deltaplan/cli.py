@@ -7,6 +7,7 @@ that write to a workspace.
 
 import json
 import os
+import webbrowser
 from collections.abc import Callable
 from enum import StrEnum
 from fnmatch import fnmatch
@@ -41,12 +42,14 @@ from deltaplan.loader import (
 )
 from deltaplan.manage import EVERYTHING
 from deltaplan.model.plan import Plan, Step
+from deltaplan.render.html import render_html
 from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_json
 from deltaplan.render.json import loads as plan_loads
 from deltaplan.render.labels import count
 from deltaplan.render.markdown import render_markdown
 from deltaplan.render.rich import RISK_STYLE, TITLE_WIDTH, number_width, render_plan
+from deltaplan.serve import page_server
 from deltaplan.spec_schema import MODELINE, project_schema, spec_schema
 from deltaplan.sqlspec import sql_cannot_say
 
@@ -115,6 +118,7 @@ class Format(StrEnum):
     rich = "rich"
     md = "md"
     json = "json"
+    html = "html"
 
 
 def _print_version(value: bool) -> None:
@@ -464,6 +468,66 @@ IN_SYNC, FAILED, DRIFTED = 0, 1, 2
 
 
 @app.command()
+def ui(
+    plan_file: Annotated[
+        Path | None,
+        typer.Argument(help="A plan file to show. Without one, deltaplan plans now."),
+    ] = None,
+    target: Annotated[
+        str | None, typer.Option("--target", "-t", help="Which target to plan for.")
+    ] = None,
+    config: Annotated[
+        Path | None, typer.Option("--config", "-c", help="Path to deltaplan.yml.")
+    ] = None,
+    warehouse_id: Annotated[
+        str | None, typer.Option("--warehouse-id", help="SQL warehouse to read through.")
+    ] = None,
+    profile: ProfileOption = None,
+    parallel: ParallelOption = 8,
+    select: SelectOption = None,
+    port: Annotated[
+        int, typer.Option("--port", help="Port to serve on; 0 picks a free one.")
+    ] = 0,
+    open_browser: Annotated[
+        bool, typer.Option("--open/--no-open", help="Open a browser at the address.")
+    ] = True,
+) -> None:
+    """Read a plan in a browser: search it, fold it, see each step's SQL.
+
+    The terminal rendering is fine until a plan has thirty tables in it. This
+    serves the same plan as one page on localhost — nothing is fetched from
+    anywhere, nothing is written, and there is no apply button: to change
+    something, change a spec.
+
+    With a plan file it shows that plan; without one it plans first, the way
+    `deltaplan plan` would.
+    """
+    built = (
+        _read_plan(plan_file)
+        if plan_file
+        else _plan_for(
+            config,
+            target,
+            warehouse_id,
+            profile=profile,
+            parallel=parallel,
+            select=select,
+        )
+    )
+    server = page_server(render_html(built), port)
+    where = f"http://127.0.0.1:{server.server_address[1]}/"
+    out.print(f"[green]Serving[/] the plan at [bold]{where}[/]  [dim](Ctrl-C to stop)[/]")
+    if open_browser:
+        webbrowser.open(where)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        out.print("Stopped.")
+    finally:
+        server.server_close()
+
+
+@app.command()
 def drift(
     target: Annotated[
         str | None, typer.Option("--target", "-t", help="Which target to check.")
@@ -538,6 +602,8 @@ def _output(
             text = plan_json(built)
         case Format.md:
             text = render_markdown(built, heading=heading)
+        case Format.html:
+            text = render_html(built)
         case Format.rich:
             # The terminal view is for reading; the file is for `apply` and
             # `show`, so it is the plan object, as the docs' `plan -o plan.json`
