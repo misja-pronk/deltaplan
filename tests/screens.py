@@ -937,6 +937,30 @@ def feature_ownership(studio: Studio) -> None:
 
 
 @scene
+def feature_adopt(studio: Studio) -> None:
+    orders = """\
+        # Orders, from the ingest pipeline
+        table: ${catalog}.sales.orders
+        comment: Order facts
+
+        columns:
+          - {name: order_id, type: bigint}
+          - {name: amount, type: "decimal(18,2)"}
+    """
+    studio.write("deltaplan.yml", PROJECT)
+    studio.write("tables/orders.yml", orders)
+    studio.apply()
+    # Someone added a column by hand at 2am to unblock a load.
+    studio.fake.query(
+        "ALTER TABLE `dev`.`sales`.`orders` "
+        "ADD COLUMNS (region STRING COMMENT 'ISO 3166 code')"
+    )
+    studio.shoot("feature-adopt", "deltaplan adopt")
+    # The file as adopt left it: the comment and the variable are still there.
+    studio.quote("tables/orders.yml", "feature-adopt.yml")
+
+
+@scene
 def feature_strict(studio: Studio) -> None:
     studio.write("deltaplan.yml", PROJECT + "\nschemas:\n  ${catalog}.sales: strict\n")
     orders = """\

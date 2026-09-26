@@ -161,6 +161,19 @@ for name, reason in found.skipped:
 Nothing is written: where the specs go is yours. Owners are left out, as is
 anything `manage:` hands to another tool.
 
+## Adopting drift
+
+```python
+for adoption in deltaplan.adopt(project, target, conn):
+    print(adoption.path, *adoption.notes, sep="\n  ")
+    adoption.write()  # nothing is written until you say so
+```
+
+The other direction from `apply`: each `Adoption` carries the new text of a spec
+file (`before`, `after`), what changed in it (`notes`), and what a plan would
+still say afterwards (`remaining`). No workspace object is touched. `select`
+narrows it the way it does for `plan`.
+
 ## Verifying a workspace
 
 ```python

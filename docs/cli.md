@@ -58,6 +58,47 @@ properties. An imported table is claimed as managed on its first apply.
 [what SQL specs can't say](formats.md#what-each-format-supports) — is written as YAML
 instead, and the output says so.
 
+## `adopt`
+
+```sh
+deltaplan drift                      # main.sales.orders has a column no spec mentions
+deltaplan adopt main.sales.orders    # write it into the spec
+git diff                             # and now it is a reviewable change
+```
+
+```
+tables/orders.yml
+  + columns: region string
+Adopted 1 spec. `deltaplan plan` is quiet now: read the diff, and commit it.
+```
+
+The other direction from `apply`. `drift` can only tell you a table was changed by
+hand; the change is usually *wanted*, and the only ways out were to retype it into the
+spec or to apply the plan and undo someone's work. This is the third: the spec file is
+edited to match the workspace, and what you are left with is a git diff.
+
+**No table is touched** — this writes spec files and nothing else.
+
+What it takes from the workspace is what deltaplan would otherwise have planned: a
+column, a type, a nested field, `not null`, a comment, clustering, a view's query, a
+function's body. What it leaves alone is everything a spec never claimed — a tag,
+property or grant the file doesn't mention stays unmanaged, because adopting drift is
+not the moment to start managing something new. A tag the spec *does* declare takes the
+live value.
+
+And what only a file can say survives, because the file is edited rather than
+rewritten: `${catalog}` and every other variable, `renamed_from`, `using:`, a seed's
+rows, hooks — and the comments and blank lines around them.
+
+- Names work like `--select`: `orders`, `sales.orders`, `sales.*`. With none, every
+  spec that has drifted.
+- `--dry-run` prints what would change and writes nothing; `--diff` prints the new text.
+- A `.sql` spec is refused with the reason: rewriting a `CREATE` statement from live
+  state is not something to do by text search.
+- After writing, deltaplan reads the file back and diffs it against the workspace. What
+  it couldn't express is printed as *Still planned* — a seed is the usual one, because
+  its rows live in the repo and no workspace can tell a file what they should be.
+
 ## `doctor`
 
 ```sh
@@ -307,6 +348,9 @@ Asks whether `apply` would do anything, and exits accordingly:
 Drift is a hand edit in the catalog, a table dropped outside deltaplan, a spec merged but
 never applied. Unmanaged objects are not drift: deltaplan never claimed them. Point a
 [scheduled workflow](ci.md#catch-drift-nightly) at it.
+
+When the hand edit was the right call, [`adopt`](#adopt) writes it into the spec instead
+of planning it away.
 
 ## `force-unlock`
 

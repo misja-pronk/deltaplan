@@ -436,6 +436,10 @@ def _compose(path: Path) -> Node | None:
         text = path.read_text(encoding="utf-8")
     except OSError as error:
         raise SpecError(f"cannot read spec: {error}", Loc(path, 1, 1)) from error
+    return _compose_text(text, path)
+
+
+def _compose_text(text: str, path: Path) -> Node | None:
     try:
         return yaml.compose(text, Loader=yaml.SafeLoader)
     except yaml.MarkedYAMLError as error:
@@ -923,13 +927,30 @@ def load_spec(
         from deltaplan.sqlspec import load_sql_spec
 
         return load_sql_spec(path, variables, unresolved)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise SpecError(f"cannot read spec: {error}", Loc(path, 1, 1)) from error
+    return load_spec_text(text, path, variables, unresolved, manage)
+
+
+def load_spec_text(
+    text: str,
+    path: Path,
+    variables: Mapping[str, str] | None = None,
+    unresolved: Mapping[str, str] | None = None,
+    manage: Manage = EVERYTHING,
+) -> Relation:
+    """The same, from text that isn't on disk yet — what `adopt` checks its own
+    work with. `path` is only for the errors, which still name a file and a line.
+    """
     ctx = _Ctx(
         path,
         tuple(sorted((variables or {}).items())),
         tuple(sorted((unresolved or {}).items())),
         manage=manage,
     )
-    node = _compose(path)
+    node = _compose_text(text, path)
     if node is None:
         raise SpecError("spec file is empty", Loc(path, 1, 1))
     items = _mapping(ctx, node, "a spec")
@@ -1986,19 +2007,45 @@ def dump_spec(
     spec serves every target. `manage` leaves out what this project hands to
     another tool, so `import` never writes a key `validate` would refuse.
     """
+    return _written(
+        spec_document(table, catalog_variable=catalog_variable, manage=manage)
+    )
+
+
+def _written(document: Mapping[str, object]) -> str:
+    return yaml.dump(
+        dict(document),
+        Dumper=_SpecDumper,
+        sort_keys=False,
+        default_flow_style=False,
+        width=100,
+    )
+
+
+def spec_document(
+    table: Relation,
+    *,
+    catalog_variable: str | None = None,
+    manage: Manage = EVERYTHING,
+) -> dict[str, object]:
+    """The spec for a relation as a plain document — what `dump_spec` writes.
+
+    Separate from the writing so that `adopt` can compare this with the document
+    a file already holds, and edit only where the two differ.
+    """
     table = strip(table, manage)
     name = table.name
     if catalog_variable:
         _, _, rest = name.partition(".")
         name = f"${{{catalog_variable}}}.{rest}"
     if isinstance(table, View):
-        return _dump_view(table, name)
+        return _view_document(table, name)
     if isinstance(table, Function):
-        return _dump_function(table, name)
+        return _function_document(table, name)
     if isinstance(table, Schema):
-        return _dump_schema(table, name)
+        return _securable_document("schema", table, name)
     if isinstance(table, Volume):
-        return _dump_securable("volume", table, name)
+        return _securable_document("volume", table, name)
 
     document: dict[str, object] = {"table": name}
     if table.comment is not None:
@@ -2039,15 +2086,33 @@ def dump_spec(
             {"principal": grant.principal, "privileges": list(grant.privileges)}
             for grant in table.grants
         ]
+    # What only a file says. A live table has none of these, so `import` never
+    # writes one; `adopt` edits a file that may have them, and a document that
+    # left them out would be a document that deletes them.
+    if table.seed is not None:
+        document["seed"] = table.seed.source or [
+            {
+                name: value
+                for name, value in zip(table.seed.columns, row, strict=True)
+                if value is not None
+            }
+            for row in table.seed.rows
+        ]
+    if table.hooks is not None:
+        hooks: dict[str, object] = {}
+        if table.hooks.before is not None:
+            hooks["before"] = _LiteralText(table.hooks.before.strip() + "\n")
+        if table.hooks.after is not None:
+            hooks["after"] = _LiteralText(table.hooks.after.strip() + "\n")
+        document["hooks"] = hooks
+    if table.renamed_from:
+        document["renamed_from"] = table.renamed_from
+    return document
 
-    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False, width=100)
 
-
-def _dump_schema(schema: Schema, name: str) -> str:
-    return _dump_securable("schema", schema, name)
-
-
-def _dump_securable(key: str, securable: Schema | Volume, name: str) -> str:
+def _securable_document(
+    key: str, securable: Schema | Volume, name: str
+) -> dict[str, object]:
     """A schema or volume spec: a comment, tags and grants."""
     document: dict[str, object] = {key: name}
     if securable.comment is not None:
@@ -2061,10 +2126,10 @@ def _dump_securable(key: str, securable: Schema | Volume, name: str) -> str:
             {"principal": grant.principal, "privileges": list(grant.privileges)}
             for grant in securable.grants
         ]
-    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False, width=100)
+    return document
 
 
-def _dump_function(function: Function, name: str) -> str:
+def _function_document(function: Function, name: str) -> dict[str, object]:
     document: dict[str, object] = {"function": name}
     if function.comment is not None:
         document["comment"] = function.comment
@@ -2081,12 +2146,10 @@ def _dump_function(function: Function, name: str) -> str:
             for grant in function.grants
         ]
     document["body"] = _LiteralText(function.body.strip() + "\n")
-    return yaml.dump(
-        document, Dumper=_SpecDumper, sort_keys=False, default_flow_style=False, width=100
-    )
+    return document
 
 
-def _dump_view(view: View, name: str) -> str:
+def _view_document(view: View, name: str) -> dict[str, object]:
     """A view spec. The query is written as the catalog holds it, catalog names
     and all — rewriting names inside SQL is not something to do by text search.
     """
@@ -2106,9 +2169,7 @@ def _dump_view(view: View, name: str) -> str:
             for grant in view.grants
         ]
     document["query"] = _LiteralText(view.query.strip() + "\n")
-    return yaml.dump(
-        document, Dumper=_SpecDumper, sort_keys=False, default_flow_style=False, width=100
-    )
+    return document
 
 
 class _LiteralText(str):
@@ -2131,6 +2192,11 @@ def _column_document(column: Field) -> dict[str, object]:
     rendered: dict[str, object] = {"name": column.name, "type": render_type(column.type)}
     if not column.nullable:
         rendered["nullable"] = False
+    # Planning hints: a spec's own, never a live column's.
+    if column.renamed_from:
+        rendered["renamed_from"] = column.renamed_from
+    if column.using:
+        rendered["using"] = column.using
     if column.comment is not None:
         rendered["comment"] = column.comment
     if column.tags or column.removed_tags:

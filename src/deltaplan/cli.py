@@ -1,8 +1,9 @@
 """The `deltaplan` command line.
 
-`validate` lints specs offline; `import` writes specs for what already exists;
-`plan`, `show`, `drift` and `doctor` read; `apply`, `force-unlock` and `verify`
-are the only commands that write to a workspace.
+`validate` lints specs offline; `import` writes specs for what already exists,
+and `adopt` rewrites them from live state; `plan`, `show`, `drift` and `doctor`
+read; `apply`, `force-unlock` and `verify` are the only commands that write to a
+workspace.
 """
 
 import json
@@ -22,6 +23,7 @@ from rich.padding import Padding
 from rich.text import Text
 
 from deltaplan import api, probes
+from deltaplan.adopt import CannotAdopt
 from deltaplan.bundle import BundleError
 from deltaplan.connect import Connection, NotConnected
 from deltaplan.doctor import look, worst
@@ -744,6 +746,105 @@ def ui(
         out.print("Stopped.")
     finally:
         server.server_close()
+
+
+@app.command()
+def adopt(
+    names: Annotated[
+        list[str] | None,
+        typer.Argument(
+            help="Which specs to rewrite: `orders`, `sales.orders`, `sales.*`. "
+            "With none, every spec that has drifted."
+        ),
+    ] = None,
+    target: Annotated[
+        str | None, typer.Option("--target", "-t", help="Which target to read.")
+    ] = None,
+    config: Annotated[
+        Path | None, typer.Option("--config", "-c", help="Path to deltaplan.yml.")
+    ] = None,
+    warehouse_id: Annotated[
+        str | None, typer.Option("--warehouse-id", help="SQL warehouse to read through.")
+    ] = None,
+    profile: ProfileOption = None,
+    parallel: ParallelOption = 8,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print what would change, and write nothing."),
+    ] = False,
+    show_diff: Annotated[
+        bool, typer.Option("--diff", help="Print the new text of each file.")
+    ] = False,
+) -> None:
+    """Rewrite specs to say what is live — drift, back into the files.
+
+    `drift` tells you a table was changed by hand. Usually that change was
+    wanted, and the only ways out were to retype it into the spec or to apply
+    the plan and undo someone's work. This is the third: the spec file that
+    already describes the table is edited to match the workspace, and what you
+    are left with is a git diff to review.
+
+    It takes from the workspace what deltaplan would otherwise have planned — a
+    column, a type, `not null`, a comment, a view's query. It leaves alone
+    everything a spec never claimed: a tag or grant the file doesn't mention
+    stays unmanaged. And it keeps what only a file can say: `${catalog}`,
+    `renamed_from`, `using:`, a seed's rows, and every comment around them.
+
+    **No table is touched.** This writes spec files, and nothing else.
+    """
+    project = _project(config)
+    chosen = _target(project, target)
+    specs = _load(project, chosen)
+    _abort_on_lint_errors(specs)
+    connection = _connect(warehouse_id, chosen, profile)
+    select = _selection(names, [spec.table.name for spec in specs.files])
+    try:
+        adoptions = api.adopt(
+            project,
+            chosen,
+            connection,
+            select=select,
+            specs=specs,
+            parallel=parallel,
+        )
+    except (CannotAdopt, IntrospectionError) as error:
+        err.print(f"[red]{escape(str(error))}[/]")
+        raise typer.Exit(1) from error
+
+    if not adoptions:
+        out.print("[green]Every spec already says what is live.[/]")
+        return
+    for adoption in adoptions:
+        out.print(f"[bold]{escape(str(_from_here(adoption.path)))}[/]")
+        for note in adoption.notes:
+            colour = {"+": "green", "-": "red", "~": "yellow"}.get(note[0], "white")
+            out.print(f"  [{colour}]{escape(note)}[/]")
+        if show_diff:
+            out.print(_indented(adoption.after), style="dim")
+        if adoption.remaining:
+            out.print(
+                f"  [yellow]Still planned: {escape(', '.join(adoption.remaining))}[/]"
+            )
+            out.print(
+                "  [dim]A spec says these, not the workspace — a seed's rows live "
+                "in the repo.[/]"
+            )
+        if not dry_run and adoption.changed:
+            adoption.write()
+    written = [adoption for adoption in adoptions if adoption.changed]
+    if dry_run:
+        out.print(
+            f"[yellow]Nothing written[/] (--dry-run): "
+            f"{count(len(written), 'spec')} would change."
+        )
+        return
+    if not written:
+        out.print("[green]Every spec already says what is live.[/]")
+        return
+    out.print(
+        f"[green]Adopted {count(len(written), 'spec')}.[/] "
+        "`deltaplan plan` is quiet now: read the diff, and commit it."
+    )
 
 
 @app.command()

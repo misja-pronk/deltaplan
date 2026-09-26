@@ -166,6 +166,15 @@ not a governance suite. Deliberately skipped, with reasons in the memory
 `product-focus`: policy rules in `validate`, a `protect:` flag, a breaking-change
 flag, a `restore` command, ABAC, catalogs, external tables.
 
+**The Databricks assumptions are `probes.py`**, not a test file: `deltaplan verify`
+runs them in a user's own scratch schema, and
+`tests/integration/test_live_assumptions.py` is a thin parametrised caller of the
+same list. A new assumption about Databricks goes in `PROBES`; a new assumption
+about *deltaplan* is still a test. **`adopt.py` + `yamledit.py`** are the way back:
+`deltaplan adopt` writes live state into the spec file that already describes an
+object by editing the YAML text through its node tree, so comments, `${var}` and
+spec-only hints survive. Neither module is in the layout above.
+
 **Live verification** runs in CI on every pull request (`integration.yml`), and by
 hand with `uv run pytest -m integration` and the workspace env (see memory). By hand,
 run it from a separate `git worktree` of the commit under test — editing files mid-run

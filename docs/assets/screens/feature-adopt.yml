@@ -1,0 +1,8 @@
+# Orders, from the ingest pipeline
+table: ${catalog}.sales.orders
+comment: Order facts
+
+columns:
+  - {name: order_id, type: bigint}
+  - {name: amount, type: "decimal(18,2)"}
+  - {name: region, type: string, comment: ISO 3166 code}

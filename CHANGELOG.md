@@ -8,6 +8,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`deltaplan adopt`.** The other half of `drift`. A column someone added by
+  hand at 2am to unblock a load is usually *wanted*, and until now the only ways
+  out were to retype it into the spec or to apply the plan and undo their work.
+  `deltaplan adopt` writes live state into the spec file that already describes
+  the table, and leaves a git diff to review. The file is **edited, not
+  rewritten**: the comments someone wrote, the blank lines, the quoting, the
+  `${catalog}` and every `renamed_from`, `using:` and seed row are still there
+  afterwards — only what deltaplan would otherwise have planned changes (a new
+  module, `yamledit`, edits YAML text through its own node tree). What a spec
+  never claimed is left alone: a tag, property or grant the file doesn't mention
+  stays unmanaged, because adopting drift is not the moment to start managing
+  something new. Then it reads its own work back and diffs it against the
+  workspace, so what a file can't hold — a seed's rows, which live in the repo —
+  is reported rather than discovered by the next plan. `--dry-run`, `--diff`, and
+  `deltaplan.adopt()` for a program.
+
 - **`deltaplan verify`.** The Databricks behaviour deltaplan's plans rest on —
   that a `REPLACE` keeps a table's tags and grants, that a nested `NOT NULL` is
   an ordinary `ALTER`, that the warehouse runs in ANSI mode — used to be

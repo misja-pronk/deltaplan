@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 
+from deltaplan.adopt import Adoption
 from deltaplan.connect import Connection
 from deltaplan.executor import ExecutionResult, Executor, Status
 from deltaplan.history import DeltaHistory, HistoryStore, NoHistory
@@ -198,6 +199,78 @@ def verify(
                 observer(result)
             results.append(result)
     return tuple(results)
+
+
+def adopt(
+    project: Project,
+    target: Target,
+    connection: Connection,
+    *,
+    select: Callable[[str], bool] | Sequence[str] | str | None = None,
+    specs: Specs | None = None,
+    parallel: int = 8,
+) -> tuple[Adoption, ...]:
+    """Rewrite specs to say what is live — drift, back into the files.
+
+    The other direction from `apply`: nothing in the workspace is touched, and
+    what comes back is the new text of each spec whose live object has moved,
+    with what changed in it. **Nothing is written** — call `adoption.write()`,
+    or show the text and let someone decide.
+
+    `select` narrows it to some of the specs; without one, every spec the
+    project has is considered, and only the ones that moved come back.
+
+    Raises `CannotAdopt` for a spec no file edit can express — a `.sql` spec, or
+    a live object of a different kind — and `IntrospectionError` if the
+    workspace can't be read.
+    """
+    from deltaplan.adopt import adopt as adopt_spec
+    from deltaplan.planning import live_schemas
+
+    specs = specs if specs is not None else project.load_specs(target)
+    chosen = _selector(select)
+    loaded = [one for one in specs.files if chosen is None or chosen(one.table.name)]
+    if not loaded:
+        return ()
+    schemas = live_schemas(
+        [one.table for one in loaded], connection.introspector(project.manage, parallel)
+    )
+    adoptions: list[Adoption] = []
+    for one in loaded:
+        catalog, schema = one.table.parts[0], one.table.parts[1]
+        live = schemas[(catalog, schema)].relation(one.table.name, kind_of(one.table))
+        if live is None:
+            continue  # nothing live to adopt: that is a create, and `apply` does it
+        adoption = adopt_spec(
+            one,
+            live,
+            variables=target.variables_map(),
+            unresolved=target.unresolved_map(),
+            manage=project.manage,
+        )
+        # An unchanged file with something still planned is worth handing back:
+        # a seed's rows are the file's own, and nobody should have to guess why
+        # the plan isn't empty.
+        if adoption.changed or adoption.remaining:
+            adoptions.append(adoption)
+    return tuple(adoptions)
+
+
+def kind_of(relation: Relation) -> str:
+    """What a relation is, in the word `LiveSchema.relation` takes."""
+    from deltaplan.model.function import Function
+    from deltaplan.model.schema import Schema
+    from deltaplan.model.view import View
+
+    if isinstance(relation, View):
+        return "view"
+    if isinstance(relation, Function):
+        return "function"
+    if isinstance(relation, Volume):
+        return "volume"
+    if isinstance(relation, Schema):
+        return "schema"
+    return "table"
 
 
 def is_stale(plan: Plan, connection: Connection) -> bool:

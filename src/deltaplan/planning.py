@@ -93,7 +93,7 @@ def plan_tables(
     described = {spec.name for spec in specs if isinstance(spec, Table | View)}
     if select is not None:
         specs = [spec for spec in specs if select(spec.name)]
-    schemas = _introspect(specs, introspector)
+    schemas = live_schemas(specs, introspector)
     relations = order_relations(specs)
     functions = [spec for spec in relations if isinstance(spec, Function)]
     _refuse_bundle_conflicts(specs, schemas, owned_elsewhere or {})
@@ -475,9 +475,14 @@ def _refuse_kind_changes(
             )
 
 
-def _introspect(
+def live_schemas(
     specs: Sequence[Relation], introspector: Introspector
 ) -> dict[tuple[str, str], LiveSchema]:
+    """Read every schema these specs are in, the way a plan reads it.
+
+    Public because `adopt` compares the same live state a plan would, and
+    reading it differently is how two commands come to disagree.
+    """
     for spec in specs:
         if isinstance(spec, Schema):
             if len(spec.parts) != 2:

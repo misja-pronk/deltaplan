@@ -296,6 +296,25 @@ its own. Anything no spec describes is listed as unmanaged and left alone.
 
 [Safety model →](safety.md)
 
+## Adopting drift
+
+Someone added a column by hand at 2am to unblock a load. `deltaplan drift` says so —
+and `deltaplan adopt` writes it into the spec that already describes the table, so the
+change becomes a reviewable git diff instead of something to retype or to undo.
+
+![Adopting a column somebody added by hand](assets/screens/feature-adopt.svg)
+
+```yaml title="tables/orders.yml — after adopting" hl_lines="8"
+--8<-- "assets/screens/feature-adopt.yml"
+```
+
+The file is *edited*, not rewritten: the comment at the top, the `${catalog}`, the
+blank line and the flow style are all still there. What comes from the workspace is
+what deltaplan would otherwise have planned; a tag or grant the spec never mentioned
+stays unmanaged, and a seed's rows stay the file's own.
+
+[`adopt` →](cli.md#adopt)
+
 ## Strict schemas
 
 In an additive schema (the default) a managed table whose spec is deleted stays. In a

@@ -31,9 +31,11 @@ making one: `render_plan` for a terminal, `render_markdown` for a pull request,
 
 from __future__ import annotations
 
+from deltaplan.adopt import Adoption, CannotAdopt
 from deltaplan.api import (
     ImportedSchema,
     ImportedSpec,
+    adopt,
     apply,
     drift,
     history_for,
@@ -96,11 +98,14 @@ from deltaplan.render.rich import plan_text, render_plan
 
 __all__ = [
     "__version__",
+    "adopt",
+    "Adoption",
     "apply",
     "Bench",
     "Bundle",
     "BundleError",
     "BundleTarget",
+    "CannotAdopt",
     "Check",
     "Column",
     "Connection",
@@ -137,8 +142,8 @@ __all__ = [
     "MemoryHistory",
     "NoHistory",
     "NotConnected",
-    "plan",
     "Plan",
+    "plan",
     "plan_from_json",
     "plan_tables",
     "plan_text",
