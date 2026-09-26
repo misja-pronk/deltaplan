@@ -92,6 +92,21 @@ targets:
   prod: {catalog: prod}
 ```
 
+## When Databricks refuses
+
+A refusal from the workspace arrives as the workspace wrote it — the error class, the
+request id, the sentence. deltaplan never rewrites that: it is what you search for, and
+what a Databricks engineer will ask you to paste.
+
+For the dozen failures that happen often, it adds one paragraph underneath with what it
+knows. The table quota that counts dropped tables for a week. The function whose body
+names a table that has to exist first. The warehouse that took the request and couldn't
+run it, which is what a stopped serverless warehouse looks like. Each of those cost
+somebody an afternoon once.
+
+An error with nothing useful to add is passed through untouched — no guessing, and
+nothing that tells you to install something you already have.
+
 ## What isn't deltaplan's
 
 A project can hand part of a table to the tool that already owns it —

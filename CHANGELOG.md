@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **What deltaplan knows about a Databricks refusal.** The workspace's own
+  sentence comes through first and whole, as always; for a dozen failures that
+  happen often, one paragraph underneath now says what deltaplan knows — that
+  the table quota counts dropped tables for a week, that a function's body needs
+  its table to exist first, that "could not be processed by the warehouse" is
+  what a stopped serverless warehouse looks like. Matched on the error class
+  Databricks names, with the real messages as tests, so a rewording is a failing
+  test rather than silence. An error with nothing to add is untouched.
+
+### Added
+
 - **A plan you can read in a browser.** `deltaplan ui` serves the plan as one
   page on `127.0.0.1` and opens it. Every object is a comparison — what it is
   now, as read when the plan was made, and what it becomes — with the
