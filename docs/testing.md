@@ -1,13 +1,20 @@
 # Testing without a workspace
 
 deltaplan generates SQL for a system most contributors can't run on a laptop, and
-that CI shouldn't need credentials to check. The suite is built in three layers, and
+that CI shouldn't need credentials to check. The suite is built in four layers, and
 each one is honest about what it can and cannot prove.
 
 ```sh
-uv run pytest tests/unit        # layers 1 and 2 — fast, offline, every PR
-uv run pytest -m integration    # layer 3 — real workspace, nightly
+uv run pytest tests/unit        # layers 1, 2 and 3 — fast, offline, every PR
+uv run pytest -m integration    # layer 4 — real workspace, nightly
 ```
+
+| Layer | Proves |
+|---|---|
+| Unit tests | the pure middle of the pipeline does what it says |
+| The fake warehouse | deltaplan's SQL matches **deltaplan's reading** of the manual |
+| Transcripts | what **Databricks answered**, on the day they were recorded |
+| The live suite | that it still does |
 
 <hr class="dp-rule">
 
@@ -55,7 +62,35 @@ machinery behaves. In milliseconds, with no credentials.
     quietly, so a new statement shape can't slip through untested — but a *wrong*
     statement the fake also gets wrong will sail through. That is what layer 3 is for.
 
-## 3. Integration tests
+## 3. Transcripts: what the workspace actually answered
+
+The layer above proves that deltaplan's SQL matches deltaplan's reading of the manual.
+Where that reading is wrong, the fake is wrong in the same direction and the offline
+suite agrees with the mistake. A transcript is the answer to that.
+
+One live run writes down every statement it sent and the rows or the error that came
+back, per assumption. `tests/unit/test_transcripts.py` then replays each recording
+through the probe it was recorded for — offline, with no credentials — so an assumption
+keeps being checked against **answers Databricks really gave**, between live runs.
+
+```sh
+DELTAPLAN_RECORD=tests/transcripts \
+  uv run pytest -m integration tests/integration/test_live_assumptions.py
+```
+
+Only a probe that held is written: one that didn't is something to fix in the code, and
+a transcript of it would assert the mistake. What is masked is only what is new on every
+run — the schemas the run makes, and the principal a grant names — and nothing else is
+touched, so the diff of a transcript is the diff of what Databricks answers. Read it.
+
+A statement the transcript hasn't got **fails**, with the statement in the message: a
+recording that no longer covers what deltaplan sends has stopped being evidence about
+it, and needs recording again. See `tests/transcripts/README.md`.
+
+A transcript says what was true when it was recorded. That is one thing more than the
+fake can say, and one less than the live suite — which is why the live suite stays.
+
+## 4. Integration tests
 
 `tests/integration/` is the only source of truth about Databricks. Each test creates an
 ephemeral schema, does its work, and drops it. They are marked `@pytest.mark.integration`
@@ -192,5 +227,5 @@ A new feature earns a scene in the [feature gallery](features.md): add it to
 | The type parser, loader, differ, planner | `tests/unit/`, with a snapshot if it shapes a plan |
 | The SQL a step generates | `tests/unit/test_convergence.py` — teach the fake the statement |
 | The executor, history, locking | `tests/unit/test_executor.py` with `MemoryHistory` |
-| An assumption about what Databricks does | `tests/integration/`, with the docs link |
+| An assumption about what Databricks does | a probe in `src/deltaplan/probes.py`, with the docs link — then record it |
 | Anything a user sees in the terminal | a scene in `tests/screens.py`, then `mise run screens` |

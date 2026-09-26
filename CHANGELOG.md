@@ -8,6 +8,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Transcripts: what the workspace actually answered, kept.** The fake
+  warehouse proves that deltaplan's SQL matches deltaplan's *reading* of the
+  manual — where that reading is wrong, the fake is wrong the same way and the
+  offline suite agrees with the mistake. A transcript is one live run written
+  down: every statement sent, and the rows or the error that came back. With
+  `DELTAPLAN_RECORD=tests/transcripts` a live run writes one per assumption
+  (with the date and the runtime that answered), and `tests/unit/` replays each
+  through the probe it was recorded for — offline, with no credentials. A
+  statement a recording doesn't cover fails loudly, with the statement in the
+  message, so a recording that has stopped being evidence says so instead of
+  passing quietly. The suite now has four layers, and `docs/testing.md` says what
+  each can and cannot prove.
+
+### Added
+
 - **`deltaplan adopt`.** The other half of `drift`. A column someone added by
   hand at 2am to unblock a load is usually *wanted*, and until now the only ways
   out were to retype it into the spec or to apply the plan and undo their work.

@@ -175,6 +175,12 @@ about *deltaplan* is still a test. **`adopt.py` + `yamledit.py`** are the way ba
 object by editing the YAML text through its node tree, so comments, `${var}` and
 spec-only hints survive. Neither module is in the layout above.
 
+**Transcripts** are the third level between the fake and the live suite:
+`DELTAPLAN_RECORD=tests/transcripts` on a live run writes what the workspace
+answered per probe (`tests/transcript.py`), and `tests/unit/test_transcripts.py`
+replays each one offline. A statement a recording doesn't cover fails loudly, like
+`FakeSqlError`. Only a probe that held is written.
+
 **Live verification** runs in CI on every pull request (`integration.yml`), and by
 hand with `uv run pytest -m integration` and the workspace env (see memory). By hand,
 run it from a separate `git worktree` of the commit under test — editing files mid-run
