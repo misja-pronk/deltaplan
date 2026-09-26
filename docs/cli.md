@@ -58,6 +58,36 @@ properties. An imported table is claimed as managed on its first apply.
 [what SQL specs can't say](formats.md#what-each-format-supports) — is written as YAML
 instead, and the output says so.
 
+## `doctor`
+
+```sh
+deltaplan doctor
+```
+
+```
+✓ project    deltaplan.yml, 14 specs in tables
+✓ target     prod (catalog prod)
+✓ bundle     databricks.yml — resolved via /opt/homebrew/bin/databricks
+✓ workspace  https://dbc-1234abcd.cloud.databricks.com as you@example.com
+⚠ warehouse  Serverless Starter (STOPPED)
+             → It starts on the first statement. If it stays stopped, the workspace
+               can't give it compute — that is not something deltaplan can fix.
+✗ metastore  table quota 523 of 500
+             → A dropped table counts for as long as UNDROP could bring it back, so
+               this is often far above what the catalogs hold. …
+```
+
+Checks the project, the target, the bundle, the workspace, the warehouse, the metastore's
+table quota, and where `apply` would record a run. Every line says what was looked at and
+what was found; anything that isn't right says what to do about it.
+
+It **changes nothing** — no schema is created, no warehouse started, no grant touched —
+and exits 0 unless something will stop a run. `--json` gives a host the same findings.
+
+Run it when a command fails in a way that seems to be about the environment rather than
+about your specs. Most of these checks exist because something once surfaced five steps
+into an apply instead of here.
+
 ## `plan`
 
 Reads live state, diffs it against the specs, and prints the plan. `--format`:

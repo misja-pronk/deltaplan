@@ -40,6 +40,10 @@ A 2X-Small serverless warehouse is plenty.
     `--profile dev` to the `import` below — it writes the profile into the project, so
     you never type it again.
 
+!!! tip "Something not working?"
+    `deltaplan doctor` checks the connection, the warehouse, the metastore's quota and
+    the rest, and says what to do about whatever isn't right. It changes nothing.
+
 ## 3. Import a schema
 
 Start in an empty directory and import a schema whose tables you'd otherwise manage by

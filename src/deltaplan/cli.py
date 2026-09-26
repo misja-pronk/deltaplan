@@ -22,6 +22,7 @@ from rich.markup import escape
 from deltaplan import api
 from deltaplan.bundle import BundleError
 from deltaplan.connect import Connection, NotConnected
+from deltaplan.doctor import look, worst
 from deltaplan.errors import DeltaplanError
 from deltaplan.executor import DestructiveRefused, ExecutionError, ExecutionResult
 from deltaplan.history import HistoryStore, NoHistory, Status
@@ -465,6 +466,78 @@ def show(
 
 #: `drift`'s exit codes, the way `terraform plan -detailed-exitcode` has them.
 IN_SYNC, FAILED, DRIFTED = 0, 1, 2
+
+
+@app.command()
+def doctor(
+    target: Annotated[
+        str | None, typer.Option("--target", "-t", help="Which target to check.")
+    ] = None,
+    config: Annotated[
+        Path | None, typer.Option("--config", "-c", help="Path to deltaplan.yml.")
+    ] = None,
+    warehouse_id: Annotated[
+        str | None, typer.Option("--warehouse-id", help="SQL warehouse to check.")
+    ] = None,
+    profile: ProfileOption = None,
+    output_json: Annotated[
+        bool, typer.Option("--json", help="Print the findings as JSON.")
+    ] = False,
+) -> None:
+    """Check the setup, and say what to do about what isn't right.
+
+    The project, the target, the bundle, the workspace, the warehouse, the
+    metastore's table quota and where `apply` would record a run. Nothing is
+    changed: no schema is created, no warehouse started, no grant touched.
+
+    Exits 0 unless something will stop a run.
+    """
+    project = _optional_project(config)
+    chosen: Target | None = None
+    if project is not None:
+        try:
+            chosen = _named(project, target or str(project.default_target))
+        except (KeyError, BundleError) as error:
+            err.print(f"[red]{escape(str(error))}[/]")
+            chosen = None
+
+    def connect() -> Connection:
+        return (
+            Connection.from_target(chosen, profile=profile, warehouse_id=warehouse_id)
+            if chosen
+            else Connection(profile=profile, warehouse_id=warehouse_id)
+        )
+
+    findings = list(look(project, chosen, connect))
+    if output_json:
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "about": f.about,
+                        "verdict": f.verdict,
+                        "found": f.found,
+                        "remedy": f.remedy,
+                    }
+                    for f in findings
+                ],
+                indent=2,
+            )
+        )
+    else:
+        width = max((len(f.about) for f in findings), default=0)
+        for finding in findings:
+            colour = {"ok": "green", "warning": "yellow", "problem": "red"}[
+                finding.verdict
+            ]
+            out.print(
+                f"[{colour}]{finding.mark}[/] [bold]{finding.about.ljust(width)}[/]  "
+                f"{escape(finding.found)}"
+            )
+            if finding.remedy:
+                out.print(f"  {' ' * width}[dim]→ {escape(finding.remedy)}[/]")
+    if worst(findings) == "problem":
+        raise typer.Exit(1)
 
 
 @app.command()

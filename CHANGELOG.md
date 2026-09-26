@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`deltaplan doctor`.** Checks the project, the target, the bundle, the
+  workspace, the warehouse, the metastore's table quota and where `apply` would
+  record a run — and says what to do about whatever isn't right. Every check is
+  there because something once surfaced five steps into an apply instead: a
+  warehouse that wouldn't start, a metastore counting dropped tables, a
+  `databricks` on PATH that was a shim, a typo in `specs:`. It changes nothing,
+  exits 0 unless something will stop a run, and `--json` gives a host the same
+  findings.
+
 - **What deltaplan knows about a Databricks refusal.** The workspace's own
   sentence comes through first and whole, as always; for a dozen failures that
   happen often, one paragraph underneath now says what deltaplan knows — that
