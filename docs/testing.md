@@ -79,6 +79,24 @@ Every Databricks behaviour deltaplan relies on should have a test here and a lin
 documentation in its docstring. Where a behaviour is assumed but unverified, the code
 says `TODO(verify)` rather than pretending.
 
+### The assumptions live in `src/`, not here
+
+The behaviour assumptions themselves are `deltaplan.probes.PROBES`: a list of named
+probes, each with its docs link, what deltaplan does because of it, and a check that
+makes its own objects in a scratch schema. `test_live_assumptions.py` is a thin
+parametrised caller of that list, and `deltaplan verify` runs the same list in a user's
+workspace. So an assumption is written down **once**, and a user can settle it on the
+runtime they actually have.
+
+A new Databricks assumption therefore goes in `probes.py`, not in a test of its own —
+unless what you are testing is deltaplan's own logic, which belongs in a test. The rule
+of thumb: if the sentence is about what *Databricks* does, it is a probe; if it is about
+what *deltaplan* plans, it is a test.
+
+Offline, `tests/unit/test_probes.py` runs the probe machinery against the fake
+warehouse. It deliberately asserts nothing about whether a probe *holds*: the fake
+interprets deltaplan's own SQL, so a ✓ from it would be deltaplan agreeing with itself.
+
 ### Running the live suite
 
 Nothing in deltaplan has been verified against a real workspace until this has run. Every

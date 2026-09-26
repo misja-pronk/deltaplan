@@ -31,6 +31,7 @@ from deltaplan.model.plan import Plan, Step
 from deltaplan.model.view import Relation
 from deltaplan.model.volume import Volume
 from deltaplan.planning import PlanningError, plan_tables
+from deltaplan.probes import Result
 
 
 def plan(
@@ -131,6 +132,72 @@ def apply(
         observer=observer or (lambda *_: None),
     )
     return executor.apply(plan, allow_destructive=allow_destructive)
+
+
+def verify(
+    connection: Connection,
+    where: str,
+    *,
+    principal: str = "account users",
+    slow: bool = False,
+    undrop: bool = True,
+    keep: bool = False,
+    observer: Callable[[Result], None] | None = None,
+) -> tuple[Result, ...]:
+    """Settle the Databricks behaviour deltaplan relies on, in this workspace.
+
+    Unlike everything else here that reads, this one writes: it makes a scratch
+    schema, makes tables, views and functions in it, and drops the schema with
+    everything in it. `where` is the `catalog.schema` to make — it must not
+    already exist — or just a catalog, and deltaplan names the schema itself.
+
+    Each probe comes back as a `Result`: `held`, `differed` (this workspace does
+    something else, and `result.probe.matters` says what that costs), or
+    `unknown` (it couldn't be carried out at all). `observer` is called with
+    each as it finishes, because a run takes a while.
+
+    `slow` includes the probes that start a Databricks pipeline; `undrop`
+    includes the one that needs a second schema which keeps what it drops.
+    `keep` leaves the schemas behind to look at.
+
+    Raises `DeltaplanError` if the scratch schema can't be made — a probe that
+    fails is a result, not an exception.
+    """
+    from contextlib import ExitStack
+
+    from deltaplan import probes
+
+    catalog = where.partition(".")[0]
+    results: list[Result] = []
+    with ExitStack() as stack:
+        schema = stack.enter_context(probes.scratch(connection.runner, where, keep=keep))
+        made: list[str] = []
+
+        def recoverable() -> str:
+            # Made only if a probe asks: a schema that keeps what it drops holds
+            # the metastore's table quota for its whole recovery period.
+            if not made:
+                made.append(
+                    stack.enter_context(
+                        probes.scratch(
+                            connection.runner, catalog, keeps_dropped=True, keep=keep
+                        )
+                    )
+                )
+            return made[0]
+
+        bench = probes.Bench(
+            runner=connection.runner,
+            introspector=connection.introspector(),
+            schema=schema,
+            principal=principal,
+            recoverable=recoverable if undrop else None,
+        )
+        for result in probes.run(bench, probes.chosen(slow=slow, keeps_dropped=undrop)):
+            if observer is not None:
+                observer(result)
+            results.append(result)
+    return tuple(results)
 
 
 def is_stale(plan: Plan, connection: Connection) -> bool:

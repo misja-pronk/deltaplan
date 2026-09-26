@@ -1,14 +1,14 @@
 """The `deltaplan` command line.
 
 `validate` lints specs offline; `import` writes specs for what already exists;
-`plan`, `show` and `drift` read; `apply` and `force-unlock` are the only commands
-that write to a workspace.
+`plan`, `show`, `drift` and `doctor` read; `apply`, `force-unlock` and `verify`
+are the only commands that write to a workspace.
 """
 
 import json
 import os
 import webbrowser
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from enum import StrEnum
 from fnmatch import fnmatch
 from functools import partial
@@ -18,8 +18,10 @@ from typing import Annotated
 import typer
 from rich.console import Console
 from rich.markup import escape
+from rich.padding import Padding
+from rich.text import Text
 
-from deltaplan import api
+from deltaplan import api, probes
 from deltaplan.bundle import BundleError
 from deltaplan.connect import Connection, NotConnected
 from deltaplan.doctor import look, worst
@@ -43,6 +45,7 @@ from deltaplan.loader import (
 )
 from deltaplan.manage import EVERYTHING
 from deltaplan.model.plan import Plan, Step
+from deltaplan.probes import Result
 from deltaplan.render.html import render_html
 from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_json
@@ -538,6 +541,149 @@ def doctor(
                 out.print(f"  {' ' * width}[dim]→ {escape(finding.remedy)}[/]")
     if worst(findings) == "problem":
         raise typer.Exit(1)
+
+
+@app.command()
+def verify(
+    schema: Annotated[
+        str,
+        typer.Option(
+            "--schema",
+            help="The catalog.schema to make, use and drop — or just a catalog, "
+            "and deltaplan names it.",
+        ),
+    ],
+    target: Annotated[
+        str | None, typer.Option("--target", "-t", help="Which target to verify.")
+    ] = None,
+    config: Annotated[
+        Path | None, typer.Option("--config", "-c", help="Path to deltaplan.yml.")
+    ] = None,
+    warehouse_id: Annotated[
+        str | None, typer.Option("--warehouse-id", help="SQL warehouse to run on.")
+    ] = None,
+    profile: ProfileOption = None,
+    principal: Annotated[
+        str,
+        typer.Option("--principal", help="A principal to grant to while probing."),
+    ] = "account users",
+    slow: Annotated[
+        bool,
+        typer.Option(
+            "--slow/--no-slow",
+            help="Also run the probes that take minutes (they start a pipeline).",
+        ),
+    ] = False,
+    undrop: Annotated[
+        bool,
+        typer.Option(
+            "--undrop/--no-undrop",
+            help="Include the UNDROP probe, which needs a second schema that "
+            "keeps what it drops.",
+        ),
+    ] = True,
+    keep: Annotated[
+        bool, typer.Option("--keep", help="Leave the scratch schema behind.")
+    ] = False,
+    output_json: Annotated[
+        bool, typer.Option("--json", help="Print the results as JSON.")
+    ] = False,
+) -> None:
+    """Settle what Databricks does here, in a scratch schema of your own.
+
+    Every plan deltaplan makes rests on behaviour — that a `REPLACE` keeps a
+    table's tags and grants, that a nested `NOT NULL` is an ordinary `ALTER`,
+    that the warehouse runs in ANSI mode. This runs those assumptions against
+    *your* workspace and says which hold. Where one doesn't, it says what that
+    costs.
+
+    Unlike `doctor`, this writes: it makes a schema, makes tables, views and
+    functions in it, and drops the schema with everything in it when it is done.
+
+    Exits 0 when every probe held, 1 when one didn't.
+    """
+    project = _optional_project(config)
+    # A project is optional: verify needs a workspace, not specs. With one, its
+    # target says which workspace and which warehouse.
+    chosen = _target(project, target) if project is not None else None
+    connection = _connect(warehouse_id, chosen, profile)
+    where = schema if "." in schema else f"{schema}.{probes.scratch_name()}"
+    if not output_json:
+        host = getattr(getattr(connection.client, "config", None), "host", "") or ""
+        out.print(
+            "Databricks behaviour deltaplan relies on"
+            + (f", in [bold]{escape(host)}[/]" if host else "")
+            + f" [dim]({escape(where)})[/]:"
+        )
+    try:
+        results = api.verify(
+            connection,
+            where,
+            principal=principal,
+            slow=slow,
+            undrop=undrop,
+            keep=keep,
+            observer=None if output_json else _show_probe,
+        )
+    except DeltaplanError as error:
+        err.print(f"[red]{escape(str(error))}[/]")
+        raise typer.Exit(1) from error
+    if output_json:
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "name": result.probe.name,
+                        "outcome": result.outcome,
+                        "detail": result.detail,
+                        "docs": result.probe.docs,
+                        "matters": result.probe.matters,
+                    }
+                    for result in results
+                ],
+                indent=2,
+            )
+        )
+    else:
+        held = [result for result in results if result.held]
+        out.print(_probe_summary(held, results))
+        left_out = len(probes.PROBES) - len(results)
+        if left_out:
+            out.print(f"[dim]{left_out} not run (--slow, --undrop).[/]")
+    if len(results) != len([result for result in results if result.held]):
+        raise typer.Exit(1)
+
+
+def _show_probe(result: Result) -> None:
+    """One probe, as it finishes: a run takes a while.
+
+    What the workspace said is indented under the probe and wraps to that
+    indent, because it is usually a sentence and a statement, not a word.
+    """
+    colour = {"held": "green", "differed": "red", "unknown": "yellow"}[result.outcome]
+    out.print(f"  [{colour}]{result.mark}[/] {escape(result.probe.name)}")
+    if result.detail:
+        out.print(_indented(result.detail), style="dim")
+    if not result.held:
+        out.print(_indented(f"\u2192 {result.probe.matters}"), style="yellow")
+
+
+def _indented(text: str) -> Padding:
+    """Text under a probe's line, wrapped to stay under it."""
+    return Padding(Text(text), (0, 0, 0, 6))
+
+
+def _probe_summary(held: Sequence[Result], results: Sequence[Result]) -> str:
+    """`18 held, 1 didn't, 1 couldn't be tried.`"""
+    parts = [f"{len(held)} held"]
+    differed = [result for result in results if result.outcome == "differed"]
+    unknown = [result for result in results if result.outcome == "unknown"]
+    if differed:
+        parts.append(f"{len(differed)} didn't")
+    if unknown:
+        parts.append(f"{len(unknown)} couldn't be tried")
+    joined = ", ".join(parts)
+    return f"[green]{joined}.[/]" if len(held) == len(results) else f"[bold]{joined}.[/]"
 
 
 @app.command()

@@ -8,6 +8,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`deltaplan verify`.** The Databricks behaviour deltaplan's plans rest on —
+  that a `REPLACE` keeps a table's tags and grants, that a nested `NOT NULL` is
+  an ordinary `ALTER`, that the warehouse runs in ANSI mode — used to be
+  settled only by a live suite nobody but the maintainer can run, against one
+  workspace on one runtime. It now ships as a list of named probes
+  (`deltaplan.PROBES`), and `verify --schema main.scratch` runs them in a
+  scratch schema of yours: ✓ for each that holds, and for each that doesn't the
+  workspace's own words plus what it costs. Two long-standing `TODO(verify)`
+  assumptions are probes too, so a user can settle on their own runtime what no
+  workspace here could: a seed's `INSERT OVERWRITE … (columns) VALUES …`, and
+  `CLUSTER BY AUTO`. `--json` for a host, exit 1 when something didn't hold,
+  `deltaplan.verify()` for a program. The live suite is now a thin caller of
+  that same list, so an assumption is written down once.
+
 - **`deltaplan doctor`.** Checks the project, the target, the bundle, the
   workspace, the warehouse, the metastore's table quota and where `apply` would
   record a run — and says what to do about whatever isn't right. Every check is
@@ -25,8 +39,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   what a stopped serverless warehouse looks like. Matched on the error class
   Databricks names, with the real messages as tests, so a rewording is a failing
   test rather than silence. An error with nothing to add is untouched.
-
-### Added
 
 - **A plan you can read in a browser.** `deltaplan ui` serves the plan as one
   page on `127.0.0.1` and opens it. Every object is a comparison — what it is

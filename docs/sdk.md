@@ -161,6 +161,22 @@ for name, reason in found.skipped:
 Nothing is written: where the specs go is yours. Owners are left out, as is
 anything `manage:` hands to another tool.
 
+## Verifying a workspace
+
+```python
+for result in deltaplan.verify(conn, "main"):
+    print(result.mark, result.probe.name)
+    if not result.held:
+        print("   ", result.detail)
+        print("   ", result.probe.matters, result.probe.docs)
+```
+
+The assumptions every plan rests on, run against this workspace: `deltaplan.PROBES`
+is the list, and each `Result` is `held`, `differed` or `unknown`. This one
+**writes** — it makes a scratch schema, uses it and drops it — so a host that
+runs it should say so first. Pass `observer=` to report each probe as it
+finishes rather than waiting for the run.
+
 ## Errors
 
 Every error deltaplan raises on purpose descends from `DeltaplanError`, so one

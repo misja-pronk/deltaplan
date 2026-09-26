@@ -41,6 +41,7 @@ from deltaplan.api import (
     is_stale,
     plan,
     validate,
+    verify,
 )
 from deltaplan.bundle import Bundle, BundleError, BundleTarget, find_cli
 from deltaplan.connect import Connection, NotConnected
@@ -85,6 +86,7 @@ from deltaplan.model.types import Column, Field, Mask
 from deltaplan.model.view import Relation, View
 from deltaplan.model.volume import Volume
 from deltaplan.planning import PlanningError, plan_tables
+from deltaplan.probes import PROBES, Bench, Disagrees, Probe, Result
 from deltaplan.render.html import render_html
 from deltaplan.render.json import PlanFileError
 from deltaplan.render.json import dumps as plan_to_json
@@ -95,6 +97,7 @@ from deltaplan.render.rich import plan_text, render_plan
 __all__ = [
     "__version__",
     "apply",
+    "Bench",
     "Bundle",
     "BundleError",
     "BundleTarget",
@@ -105,6 +108,7 @@ __all__ = [
     "DeltaplanError",
     "DestructiveRefused",
     "Diagnostic",
+    "Disagrees",
     "drift",
     "dump_spec",
     "ExecutionError",
@@ -142,11 +146,14 @@ __all__ = [
     "PlanFileError",
     "PlanningError",
     "PrimaryKey",
+    "Probe",
+    "PROBES",
     "Project",
     "Relation",
     "render_html",
     "render_markdown",
     "render_plan",
+    "Result",
     "Risk",
     "RowFilter",
     "Schema",
@@ -163,6 +170,7 @@ __all__ = [
     "Target",
     "validate",
     "validate_spec",
+    "verify",
     "View",
     "Volume",
     "WarehouseRunner",

@@ -44,6 +44,11 @@ A 2X-Small serverless warehouse is plenty.
     `deltaplan doctor` checks the connection, the warehouse, the metastore's quota and
     the rest, and says what to do about whatever isn't right. It changes nothing.
 
+!!! tip "New workspace, or a fresh runtime?"
+    `deltaplan verify --schema main.scratch` runs the Databricks behaviour every plan
+    rests on against your workspace, in a schema it makes and drops, and says which
+    holds. See [`verify`](cli.md#verify).
+
 ## 3. Import a schema
 
 Start in an empty directory and import a schema whose tables you'd otherwise manage by

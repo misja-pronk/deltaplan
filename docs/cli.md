@@ -88,6 +88,56 @@ Run it when a command fails in a way that seems to be about the environment rath
 about your specs. Most of these checks exist because something once surfaced five steps
 into an apply instead of here.
 
+## `verify`
+
+```sh
+deltaplan verify --schema main.scratch      # makes it, uses it, drops it
+deltaplan verify --schema main              # deltaplan names the schema
+```
+
+```
+Databricks behaviour deltaplan relies on, in https://dbc-1234.cloud.databricks.com
+(main.scratch):
+  ✓ a table can read itself in a REPLACE … AS SELECT
+  ✓ a replace keeps a table's tags, column tags and grants
+  ✓ RESTORE puts back the table a replace changed
+  ✓ a nested field's NOT NULL is an ordinary ALTER
+  ✓ the widenings deltaplan calls metadata are allowed
+  ✓ a seed's INSERT OVERWRITE with a column list is accepted
+  ✗ CLUSTER BY AUTO is accepted and reads back
+      the table doesn't read back as CLUSTER BY AUTO
+      → `cluster_auto: true` needs predictive optimization on the workspace.
+      Without it, that spec can't be applied here — use explicit keys.
+  18 held, 1 didn't.
+```
+
+Every plan deltaplan makes rests on Databricks behaviour: that a `REPLACE` keeps a
+table's tags and grants, that a nested `NOT NULL` is an ordinary `ALTER`, that the
+warehouse runs in ANSI mode. Those were settled against one workspace on one runtime.
+This runs them against **yours**, and where one doesn't hold it says what that costs —
+in the workspace's own words, so you can search for them.
+
+It is the only command besides `apply` and `force-unlock` that writes: it creates a
+schema, makes tables, views and functions in it, and drops the schema with everything
+inside when it is done. It will not use a schema that already exists — it drops what it
+made, and that has to be nothing of yours. Nothing outside that schema is read or
+touched.
+
+- `--slow` also runs the probes that take minutes (they start a Databricks pipeline).
+- `--no-undrop` leaves out the one probe that needs a second schema which keeps what it
+  drops — a dropped table holds the metastore's table quota for its recovery period.
+- `--keep` leaves the schema behind to look at.
+- `--principal` names a principal to grant to while probing (`account users` by default).
+- `--json` gives a host every probe with its outcome, the docs link, and what rests on it.
+
+Exits 0 when every probe held, 1 when one didn't. A `!` is a probe that couldn't be
+carried out at all — a privilege you haven't got, a warehouse that stopped — which is
+not an answer about behaviour.
+
+Run it when adopting deltaplan in a new workspace, and after a runtime upgrade. The same
+list is what deltaplan's own live suite runs, so a probe here is never a second opinion
+about what the tool assumes: it is the assumption itself.
+
 ## `plan`
 
 Reads live state, diffs it against the specs, and prints the plan. `--format`:

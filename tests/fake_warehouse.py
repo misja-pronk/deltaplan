@@ -262,7 +262,8 @@ class FakeWarehouse:
             return ()
         if upper.startswith("CREATE SCHEMA"):
             match = re.fullmatch(
-                r"CREATE SCHEMA IF NOT EXISTS (\S+)(?: COMMENT ('(?:[^'\\]|\\.)*'))?",
+                r"CREATE SCHEMA (?:IF NOT EXISTS )?(\S+)"
+                r"(?: COMMENT ('(?:[^'\\]|\\.)*'))?",
                 flat,
             )
             if match is None:

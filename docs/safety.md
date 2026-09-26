@@ -212,3 +212,16 @@ Delta's rules for nested fields, type widening and column mapping are specific, 
 change. deltaplan's policy is that every behaviour it relies on has a test and a link to
 the documentation behind it — and where a behaviour is unverified, it is marked as such
 rather than guessed at.
+
+Those tests ran against one workspace, on one runtime, on the day they ran. Yours is a
+different workspace — so the assumptions ship as a command:
+
+```sh
+deltaplan verify --schema main.scratch
+```
+
+[`verify`](cli.md#verify) runs them in a scratch schema of yours and says which hold,
+with the workspace's own words where one doesn't and what that costs. It is the same
+list deltaplan's own live suite runs, so it can't be a second opinion about what the
+tool assumes — it is the assumption itself. Worth running when you adopt deltaplan in a
+new workspace, and after a runtime upgrade.

@@ -825,8 +825,10 @@ class _Planner:
         TODO(verify): the statement is the documented grammar —
         `INSERT OVERWRITE [TABLE] name [ ( columns ) | BY NAME ] query`, with
         `VALUES` as the query — and a Databricks parser reads it, but no
-        workspace has taken one yet. `tests/integration/test_live_seeds.py`
-        settles it the moment the live suite can run again.
+        workspace has taken one here yet. `deltaplan verify` settles it on any
+        workspace (the probe "a seed's INSERT OVERWRITE with a column list is
+        accepted"), and `tests/integration/test_live_seeds.py` settles it here
+        the moment the live suite can run again.
         https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-dml-insert-into
         """
         seed = change.after
@@ -2261,6 +2263,8 @@ def _clustering_clause(table: Table) -> str | None:
 
     TODO(verify): AUTO needs predictive optimization; on a workspace without it
     the statement's behaviour is unverified (it was on where this was tested).
+    `deltaplan verify` answers it for the workspace in front of you — the probe
+    "CLUSTER BY AUTO is accepted and reads back".
     https://docs.databricks.com/aws/en/delta/clustering#automatic-liquid-clustering
     """
     if table.cluster_auto:
