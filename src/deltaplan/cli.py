@@ -213,7 +213,7 @@ def validate(
             err.print(f"[red]{escape(str(error))}[/]")
             problems += 1
             continue
-        for diagnostic in validate_spec(table, str(path)):
+        for diagnostic in validate_spec(table, _shown(path)):
             _print_diagnostic(diagnostic)
             problems += diagnostic.severity == "error"
 
@@ -340,7 +340,7 @@ def import_schema(
         path.write_text(head + spec.text, encoding="utf-8")
         reason = sql_cannot_say(spec.relation) if spec_format is SpecFormat.sql else None
         note = f" [dim](YAML: SQL can't say {reason})[/]" if reason else ""
-        out.print(f"[green]+[/] {escape(str(path))}{note}")
+        out.print(f"[green]+[/] {escape(_shown(path))}{note}")
 
     for name, reason in found.skipped:
         out.print(
@@ -815,7 +815,7 @@ def adopt(
         out.print("[green]Every spec already says what is live.[/]")
         return
     for adoption in adoptions:
-        out.print(f"[bold]{escape(str(_from_here(adoption.path)))}[/]")
+        out.print(f"[bold]{escape(_shown(adoption.path))}[/]")
         for note in adoption.notes:
             colour = {"+": "green", "-": "red", "~": "yellow"}.get(note[0], "white")
             out.print(f"  [{colour}]{escape(note)}[/]")
@@ -931,11 +931,11 @@ def _output(
             render_plan(built, out)
             if output:
                 output.write_text(plan_json(built), encoding="utf-8")
-                out.print(f"\n[green]Wrote[/] {escape(str(output))}")
+                out.print(f"\n[green]Wrote[/] {escape(_shown(output))}")
             return
     if output:
         output.write_text(text, encoding="utf-8")
-        out.print(f"[green]Wrote[/] {escape(str(output))}")
+        out.print(f"[green]Wrote[/] {escape(_shown(output))}")
     else:
         typer.echo(text, nl=False)
 
@@ -1185,10 +1185,10 @@ def _read_plan(path: Path) -> Plan:
     try:
         return plan_loads(path.read_text(encoding="utf-8"))
     except OSError as error:
-        err.print(f"[red]cannot read {escape(f'{path}: {error}')}[/]")
+        err.print(f"[red]cannot read {escape(f'{_shown(path)}: {error}')}[/]")
         raise typer.Exit(1) from error
     except PlanFileError as error:
-        err.print(f"[red]{escape(f'{path}: {error}')}[/]")
+        err.print(f"[red]{escape(f'{_shown(path)}: {error}')}[/]")
         raise typer.Exit(1) from error
 
 
@@ -1244,6 +1244,12 @@ def _from_here(path: Path) -> Path:
         return path.relative_to(Path.cwd())
     except ValueError:
         return path
+
+
+def _shown(path: Path) -> str:
+    """A path as a person reads it: from here, with forward slashes on every
+    platform, so what Windows prints is what the docs show."""
+    return _from_here(path).as_posix()
 
 
 def _target(project: Project, name: str | None) -> Target:

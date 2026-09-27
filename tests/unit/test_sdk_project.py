@@ -9,13 +9,13 @@ host already holds the bundle's resolved configuration.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
 
 import deltaplan
 from deltaplan.loader import Project, SpecErrors, Specs
+from helpers import fake_databricks
 
 BUNDLE = """\
 bundle:
@@ -88,11 +88,7 @@ def test_the_cli_is_asked_when_the_host_has_nothing(tmp_path: Path, monkeypatch)
             },
         }
     )
-    binary = write(
-        tmp_path, "bin/databricks", f"#!/bin/bash\ncat <<'JSON'\n{answer}\nJSON\n"
-    )
-    binary.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{binary.parent}:{os.environ['PATH']}")
+    monkeypatch.setenv("PATH", fake_databricks(tmp_path, answer + "\n"))
     write(tmp_path, "databricks.yml", BUNDLE)
     write(tmp_path, "deltaplan.yml", PROJECT)
     project = Project.load(tmp_path / "deltaplan.yml")
@@ -103,13 +99,10 @@ def test_the_cli_is_asked_when_the_host_has_nothing(tmp_path: Path, monkeypatch)
 def test_a_failing_cli_is_the_error(tmp_path: Path, monkeypatch) -> None:
     """Its words, not ours: a bundle that doesn't resolve has no names to plan
     against, so deltaplan stops rather than guessing from the file."""
-    binary = write(
-        tmp_path,
-        "bin/databricks",
-        "#!/bin/bash\n>&2 echo 'Error: two profiles match this host'\nexit 1\n",
+    monkeypatch.setenv(
+        "PATH",
+        fake_databricks(tmp_path, stderr="Error: two profiles match this host\n", code=1),
     )
-    binary.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{binary.parent}:{os.environ['PATH']}")
     write(tmp_path, "databricks.yml", BUNDLE)
     write(tmp_path, "deltaplan.yml", PROJECT)
     project = Project.load(tmp_path / "deltaplan.yml")

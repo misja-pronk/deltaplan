@@ -8,6 +8,7 @@ input is interpolated into a shell script, and every action it uses is pinned.
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -181,6 +182,11 @@ def run_script(
     import os
     import subprocess
 
+    if sys.platform == "win32":
+        # The Action runs on GitHub's Linux runners. Its bash script, with
+        # bash stubs for uvx and uv, is not something a Windows job can say
+        # anything about.
+        pytest.skip("the Action's shell script runs on Linux runners")
     [step] = [s for s in action["runs"]["steps"] if s.get("id") == "run"]
     bin_dir, calls = tmp_path / "bin", tmp_path / "calls"
     bin_dir.mkdir()

@@ -157,7 +157,7 @@ def test_an_unsupported_feature_is_refused(
 
 
 def test_the_docs_show_the_current_list() -> None:
-    text = DOCS.read_text()
+    text = DOCS.read_text(encoding="utf-8")
     shown = text.split(features.START, 1)[1].split(features.END, 1)[0].strip()
     assert shown == features.markdown(), (
         "docs/formats.md is out of date: run "
@@ -366,7 +366,9 @@ def test_a_project_mixes_yaml_and_sql(tmp_path: Path) -> None:
 # import --format sql: dump, then load back the same model
 # ---------------------------------------------------------------------------
 
-EVERYTHING = (Path(__file__).parents[1] / "fixtures" / "everything.sql").read_text()
+EVERYTHING = (Path(__file__).parents[1] / "fixtures" / "everything.sql").read_text(
+    encoding="utf-8"
+)
 
 
 @pytest.mark.parametrize(

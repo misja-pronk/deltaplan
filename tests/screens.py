@@ -1039,7 +1039,7 @@ def start(studio: Studio) -> None:
     studio.write(
         "tables/customers.yml",
         (studio.root / "tables" / "customers.yml")
-        .read_text()
+        .read_text(encoding="utf-8")
         .replace(
             "- name: country\n  type: string\n",
             "- name: country\n  type: string\n- name: segment\n  type: string\n"

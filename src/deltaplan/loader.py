@@ -101,7 +101,9 @@ class Loc:
     column: int  # 1-based
 
     def __str__(self) -> str:
-        return f"{self.file}:{self.line}:{self.column}"
+        # Forward slashes everywhere: a message reads the same on Windows as in
+        # the docs, and every editor and terminal there takes them.
+        return f"{self.file.as_posix()}:{self.line}:{self.column}"
 
 
 class SpecError(DeltaplanError):
@@ -1652,8 +1654,8 @@ def spec_files(project: Project) -> tuple[Path, ...]:
             except ValueError:  # pragma: no cover - an absolute path elsewhere
                 shown = entry
             raise SpecError(
-                f"`specs:` points at {shown}, which isn't there. Make it, or "
-                "take it out of the list",
+                f"`specs:` points at {shown.as_posix()}, which isn't there. Make "
+                "it, or take it out of the list",
                 Loc(where, 1, 1),
             )
     return tuple(sorted(set(found)))

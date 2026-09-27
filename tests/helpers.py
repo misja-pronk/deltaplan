@@ -1,6 +1,7 @@
 """Small builders, so tests read as tables rather than as constructor calls."""
 
 import os
+import sys
 from pathlib import Path
 
 from deltaplan.model.plan import Plan
@@ -164,9 +165,47 @@ def path_without(executable: str) -> str:
     Offline tests must not shell out to whatever a machine happens to have
     installed: with the real `databricks` on PATH, deltaplan would ask it about
     a bundle instead of reading the file, and the test would say different
-    things on different laptops.
+    things on different laptops. On Windows the program is `databricks.exe`, so
+    every extension `PATHEXT` names counts as it too.
     """
+    names = [executable] + [
+        f"{executable}{ext}" for ext in os.environ.get("PATHEXT", "").split(os.pathsep)
+    ]
     parts = os.environ.get("PATH", "").split(os.pathsep)
     return os.pathsep.join(
-        part for part in parts if part and not (Path(part) / executable).exists()
+        part
+        for part in parts
+        if part and not any((Path(part) / name).exists() for name in names if name)
     )
+
+
+def fake_databricks(
+    directory: Path, stdout: str = "", *, stderr: str = "", code: int = 0
+) -> str:
+    """A `databricks` on PATH that answers with this, and the PATH to find it on.
+
+    A Python script rather than a shell one, with a launcher beside it: on
+    Windows `shutil.which` only finds what `PATHEXT` names, and a bash heredoc
+    is no use there anyway. The launcher runs the interpreter running the tests.
+    """
+    bin_dir = directory / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / "databricks.py"
+    script.write_text(
+        "import sys\n"
+        f"sys.stdout.write({stdout!r})\n"
+        f"sys.stderr.write({stderr!r})\n"
+        f"sys.exit({code})\n",
+        encoding="utf-8",
+    )
+    if os.name == "nt":
+        (bin_dir / "databricks.cmd").write_text(
+            f'@"{sys.executable}" "%~dp0databricks.py" %*\r\n', encoding="utf-8"
+        )
+    else:
+        launcher = bin_dir / "databricks"
+        launcher.write_text(
+            f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8"
+        )
+        launcher.chmod(0o755)
+    return os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])

@@ -6,7 +6,6 @@ override, which beats the variable's default.
 https://docs.databricks.com/aws/en/dev-tools/bundles/variables
 """
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -24,6 +23,7 @@ if TYPE_CHECKING:
 from deltaplan.connect import Connection, NotConnected
 from deltaplan.loader import SpecError, as_deployed, load_project, load_specs
 from deltaplan.model.table import Table
+from helpers import fake_databricks
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
@@ -640,12 +640,8 @@ def test_a_spec_says_why_a_renamed_name_is_unknown(tmp_path: Path) -> None:
 
 def stub_cli(directory: Path, output: str, *, code: int = 0) -> str:
     """A `databricks` that answers `bundle validate -o json`, and the PATH to
-    find it on — in front of the real one, whose shell the stub itself needs."""
-    binary = directory / "bin" / "databricks"
-    binary.parent.mkdir(parents=True, exist_ok=True)
-    binary.write_text(f"#!/bin/bash\ncat <<'JSON'\n{output}\nJSON\nexit {code}\n")
-    binary.chmod(0o755)
-    return f"{binary.parent}:{os.environ['PATH']}"
+    find it on."""
+    return fake_databricks(directory, output + "\n", code=code)
 
 
 def test_the_cli_is_asked_what_the_target_deploys(
