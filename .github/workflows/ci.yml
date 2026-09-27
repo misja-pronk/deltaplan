@@ -33,6 +33,10 @@ jobs:
         include:
           - os: macos-latest
             python-version: "3.14"
+          # Databricks is used from a lot of Windows laptops; nothing here is
+          # meant to be OS-specific, and this is what proves it.
+          - os: windows-latest
+            python-version: "3.14"
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
