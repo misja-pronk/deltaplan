@@ -233,7 +233,9 @@ def test_errors_carry_file_line_and_column(tmp_path: Path) -> None:
     assert raised.value.loc.file == path
     assert raised.value.loc.line == 4
     assert raised.value.loc.column == 5
-    assert str(path) in str(raised.value)
+    # Written with forward slashes on every platform, so a message reads the
+    # same on Windows as in the docs.
+    assert f"{path.as_posix()}:4:5" in str(raised.value)
 
 
 def test_undefined_variable_points_at_its_line(tmp_path: Path) -> None:
