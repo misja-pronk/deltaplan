@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-from deltaplan.advice import with_advice
+from deltaplan.advice import WAREHOUSE_BUSY, with_advice
 from deltaplan.ddl import DdlError, read_columns
 from deltaplan.errors import DeltaplanError
 from deltaplan.manage import EVERYTHING, Manage
@@ -930,11 +930,17 @@ class Introspector:
 
 @dataclass(frozen=True, slots=True)
 class Progress:
-    """How far a running statement has got: told to whoever is watching."""
+    """How far a running statement has got: told to whoever is watching.
+
+    `waiting` is set while the statement hasn't started because the warehouse
+    hasn't — a stopped warehouse starts on the first request, and that takes a
+    while on a classic one.
+    """
 
     statement: str
     statement_id: str
     elapsed_seconds: float
+    waiting: str | None = None
 
 
 @dataclass(slots=True)
@@ -960,6 +966,10 @@ class WarehouseRunner:
     #: `heartbeat_seconds`, so a person watching can see it is alive.
     heartbeat: Callable[[Progress], None] | None = None
     heartbeat_seconds: float = 30.0
+    #: How long to wait for a warehouse that is starting before giving up on
+    #: it. A serverless one takes seconds; a classic one, minutes.
+    start_wait_seconds: float = 300.0
+    start_poll_seconds: float = 5.0
 
     def query(self, statement: str) -> tuple[Row, ...]:
         from databricks.sdk.service.sql import (
@@ -970,21 +980,38 @@ class WarehouseRunner:
         )
 
         api = self.client.statement_execution
-        try:
-            response = api.execute_statement(
-                statement=statement,
-                warehouse_id=self.warehouse_id,
-                wait_timeout=self.wait_timeout,
-                on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE,
-                disposition=Disposition.INLINE,
-                format=Format.JSON_ARRAY,
-            )
-        except Exception as error:  # noqa: BLE001 - whatever the SDK raised
-            # A refusal from the platform rather than from the statement: a
-            # warehouse that can't take the request looks like this. It becomes
-            # deltaplan's own error so a host catches one root, and keeps the
-            # workspace's words.
-            raise IntrospectionError(with_advice(str(error))) from error
+        waited = 0.0
+        while True:
+            try:
+                response = api.execute_statement(
+                    statement=statement,
+                    warehouse_id=self.warehouse_id,
+                    wait_timeout=self.wait_timeout,
+                    on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE,
+                    disposition=Disposition.INLINE,
+                    format=Format.JSON_ARRAY,
+                )
+                break
+            except Exception as error:  # noqa: BLE001 - whatever the SDK raised
+                # A refusal from the platform rather than from the statement:
+                # nothing ran. A warehouse that is starting says this until it
+                # has started — the first request is what starts it — so that
+                # one is asked again. Anything else becomes deltaplan's own
+                # error, so a host catches one root, and keeps the workspace's
+                # words.
+                if not self._warehouse_starting(error, waited):
+                    raise IntrospectionError(with_advice(str(error))) from error
+                if waited >= self.start_wait_seconds:
+                    raise IntrospectionError(
+                        f"waited {duration(waited)} for warehouse "
+                        f"{self.warehouse_id} to start, and it hasn't: {error}"
+                    ) from error
+                if self.heartbeat:
+                    self.heartbeat(
+                        Progress(statement, "", waited, waiting="warehouse starting")
+                    )
+                time.sleep(self.start_poll_seconds)
+                waited += self.start_poll_seconds
 
         statement_id = response.statement_id
         if statement_id is None:
@@ -1049,6 +1076,23 @@ class WarehouseRunner:
                 statement_id, result.next_chunk_index
             )
         return tuple(rows)
+
+    def _warehouse_starting(self, error: Exception, waited: float) -> bool:
+        """Whether this refusal is a warehouse that hasn't started yet.
+
+        Only for the two things such a warehouse says, and only while the
+        workspace reports it STARTING — or STOPPED, since the request that was
+        just refused is what starts it. A running warehouse that refuses is
+        refusing, and a person should hear that at once.
+        """
+        if not any(text in str(error) for text in WAREHOUSE_BUSY):
+            return False
+        try:
+            warehouse = self.client.warehouses.get(self.warehouse_id)
+        except Exception:  # noqa: BLE001 - then the refusal stands as it is
+            return False
+        state = str(getattr(warehouse.state, "value", warehouse.state)).upper()
+        return state in {"STARTING", "STOPPED"}
 
     def _cancel(self, statement_id: str) -> str:
         """Ask the warehouse to stop a statement; say whether it took the request."""

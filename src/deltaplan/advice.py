@@ -92,6 +92,14 @@ ADVICE: dict[str, str] = {
     ),
 }
 
+#: What a warehouse that can't take a request says. No statement ran, so the
+#: request can be made again — which the runner does while the warehouse is
+#: starting, because the first request is what starts it.
+WAREHOUSE_BUSY: tuple[str, ...] = (
+    "could not be processed by the warehouse",
+    "Cannot create the resource, please try again later",
+)
+
 #: Failures that arrive without an error class, matched on their text instead —
 #: the warehouse ones, which is what a stopped serverless warehouse looks like.
 BY_TEXT: tuple[tuple[str, str], ...] = (

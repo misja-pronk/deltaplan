@@ -199,7 +199,10 @@ class Executor:
                 self.history.renew_lock(target, run_id, self.lock_minutes)
                 self._renewed_at = progress.elapsed_seconds
         if self._current is not None:
-            self._observe(self._current, "running", duration(progress.elapsed_seconds))
+            said = duration(progress.elapsed_seconds)
+            if progress.waiting:
+                said += f" — {progress.waiting}"
+            self._observe(self._current, "running", said)
 
     def _run_steps(self, plan: Plan, run_id: str, *, resumed: bool) -> ExecutionResult:
         already = self.history.finished_steps(run_id) if resumed else frozenset()

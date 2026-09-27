@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A warehouse that is starting is waited for, not failed on.** A stopped SQL
+  warehouse starts on the first request, and until it has started it refuses
+  that request with the same sentence a warehouse that will never start gives —
+  which is how a cold start became a failed `plan`. deltaplan now asks the
+  workspace what the warehouse is doing: while it says *starting* the request
+  is made again (nothing ran, so that is safe for a write too), for up to five
+  minutes; a running warehouse that refuses is reported at once, as before.
+  `apply` shows the wait as *warehouse starting*.
 - **A heartbeat while a step runs.** `apply` shows how long the current step
   has been going — a spinner in a terminal, a line every five minutes in a log
   — so a long rewrite is never silence. A program using `deltaplan.apply()`

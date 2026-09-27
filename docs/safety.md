@@ -107,6 +107,14 @@ somebody an afternoon once.
 An error with nothing useful to add is passed through untouched — no guessing, and
 nothing that tells you to install something you already have.
 
+A stopped SQL warehouse starts on the first request — and until it has started, it
+answers that request with the same sentence a warehouse that will never start gives.
+deltaplan tells them apart by asking the workspace what the warehouse is doing: while it
+says *starting*, the request is made again (nothing ran, so that is safe for a write as
+much as for a read), for up to five minutes on a classic warehouse; the moment it says
+*running* and still refuses, the refusal is reported as it arrived, with the advice
+above. `apply` shows the wait as *warehouse starting*.
+
 ## What isn't deltaplan's
 
 A project can hand part of a table to the tool that already owns it —
