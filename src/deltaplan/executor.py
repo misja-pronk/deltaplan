@@ -21,8 +21,10 @@ It makes narrower ones, and they are what the design asks for:
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
 
 from deltaplan.differ import is_applied
 from deltaplan.errors import DeltaplanError
@@ -32,7 +34,7 @@ from deltaplan.history import (
     Status,
     StepOutcome,
 )
-from deltaplan.introspect import Introspector, SqlRunner
+from deltaplan.introspect import Introspector, Progress, SqlRunner, duration
 from deltaplan.model.change import Change
 from deltaplan.model.plan import Plan, Step, fingerprint
 from deltaplan.model.view import Relation
@@ -96,6 +98,19 @@ class ExecutionResult:
         return self.failed
 
 
+@runtime_checkable
+class Heartbeating(Protocol):
+    """A runner that can say how long its current statement has been running.
+
+    `WarehouseRunner` is one. The executor installs its own heartbeat on such a
+    runner for the length of a run: to keep the lock alive through a long step,
+    and to let whoever is watching see that something is still happening. A
+    runner without one — the fake, a replay, a host's own — is simply quiet.
+    """
+
+    heartbeat: Callable[[Progress], None] | None
+
+
 @dataclass(slots=True)
 class Executor:
     """Runs a plan's steps, recording everything it does."""
@@ -107,11 +122,17 @@ class Executor:
     #: Overridable so tests get a run id they can assert on.
     new_run_id: Callable[[], str] = field(default=lambda: uuid.uuid4().hex[:12])
     #: Called as each step resolves, so a caller can show progress live rather
-    #: than after the fact.
+    #: than after the fact — and while a step runs, with `running` and how long
+    #: it has been going, when the runner can say (`Heartbeating`).
     observer: Callable[[Step, Status, str | None], None] | None = None
     _live: dict[str, Relation | None] = field(default_factory=dict)
     #: `(table, version)` for every restore point this run took.
     _restore_points: list[tuple[str, int]] = field(default_factory=list)
+    #: The step whose statement is running, for the heartbeat to report on.
+    _current: Step | None = None
+    _lock: tuple[str, str] | None = None
+    #: How far into the current statement the lock was last renewed.
+    _renewed_at: float = 0.0
 
     # -- the run -----------------------------------------------------------
     def apply(self, plan: Plan, *, allow_destructive: bool = False) -> ExecutionResult:
@@ -133,14 +154,52 @@ class Executor:
                 "finish, or release it with `deltaplan force-unlock`."
             )
 
+        self._lock = (plan.target, run_id)
         try:
-            if resumed is None:
-                self.history.start_run(run_id, plan_hash, plan.target, plan.tool_version)
-            result = self._run_steps(plan, run_id, resumed=resumed is not None)
-            self.history.finish_run(run_id, result.status)
-            return result
+            with self._watching():
+                if resumed is None:
+                    self.history.start_run(
+                        run_id, plan_hash, plan.target, plan.tool_version
+                    )
+                result = self._run_steps(plan, run_id, resumed=resumed is not None)
+                self.history.finish_run(run_id, result.status)
+                return result
         finally:
             self.history.release_lock(plan.target, run_id)
+
+    @contextmanager
+    def _watching(self) -> Iterator[None]:
+        """Hear from the runner while a statement runs, if it can say.
+
+        A `WarehouseRunner` calls its `heartbeat` every half minute with how
+        long the current statement has been going. That is when the lock has
+        to be kept alive — a rewrite can outlast the lock's TTL, and a second
+        apply must not start halfway through this one — and when whoever is
+        watching gets to see that something is still happening.
+        """
+        runner = self.runner
+        if not isinstance(runner, Heartbeating):
+            yield
+            return
+        previous = runner.heartbeat
+        runner.heartbeat = self._beat
+        try:
+            yield
+        finally:
+            runner.heartbeat = previous
+
+    def _beat(self, progress: Progress) -> None:
+        if self._lock is not None:
+            target, run_id = self._lock
+            # The lock was renewed just before the statement started; renew it
+            # again every half TTL of running, so a missed beat still leaves it
+            # held. Measured in the runner's own elapsed time, not the clock, so
+            # a test can say how long a statement took.
+            if progress.elapsed_seconds - self._renewed_at > self.lock_minutes * 30:
+                self.history.renew_lock(target, run_id, self.lock_minutes)
+                self._renewed_at = progress.elapsed_seconds
+        if self._current is not None:
+            self._observe(self._current, "running", duration(progress.elapsed_seconds))
 
     def _run_steps(self, plan: Plan, run_id: str, *, resumed: bool) -> ExecutionResult:
         already = self.history.finished_steps(run_id) if resumed else frozenset()
@@ -228,6 +287,8 @@ class Executor:
             )
             return blocked
 
+        self._current = step
+        self._renewed_at = 0.0
         try:
             if step.sql is not None:
                 self.runner.query(step.sql)

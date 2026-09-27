@@ -928,15 +928,38 @@ class Introspector:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class Progress:
+    """How far a running statement has got: told to whoever is watching."""
+
+    statement: str
+    statement_id: str
+    elapsed_seconds: float
+
+
 @dataclass(slots=True)
 class WarehouseRunner:
-    """Runs statements on a SQL warehouse via the Statement Execution API."""
+    """Runs statements on a SQL warehouse via the Statement Execution API.
+
+    A statement that outlives `timeout_seconds` is **cancelled** on the
+    warehouse before it is reported — deltaplan never says a statement failed
+    while it is still running. Reads have a budget, because a read that takes
+    five minutes has gone wrong; the runner `apply` uses has none
+    (`Connection.patient()`), because a rewrite of a big table takes as long as
+    it takes. Ctrl-C while a statement runs cancels it the same way.
+    """
 
     client: WorkspaceClient
     warehouse_id: str
     wait_timeout: str = "30s"
     poll_seconds: float = 1.0
-    timeout_seconds: float = 300.0
+    #: How long a statement may run before it is cancelled. None waits for as
+    #: long as it takes.
+    timeout_seconds: float | None = 300.0
+    #: Told how long the current statement has been running, every
+    #: `heartbeat_seconds`, so a person watching can see it is alive.
+    heartbeat: Callable[[Progress], None] | None = None
+    heartbeat_seconds: float = 30.0
 
     def query(self, statement: str) -> tuple[Row, ...]:
         from databricks.sdk.service.sql import (
@@ -967,17 +990,34 @@ class WarehouseRunner:
         if statement_id is None:
             raise IntrospectionError(f"no statement id came back for: {statement}")
 
-        deadline = time.monotonic() + self.timeout_seconds
-        while response.status and response.status.state in {
-            StatementState.PENDING,
-            StatementState.RUNNING,
-        }:
-            if time.monotonic() > deadline:
-                raise IntrospectionError(
-                    f"statement timed out after {self.timeout_seconds:.0f}s: {statement}"
-                )
-            time.sleep(self.poll_seconds)
-            response = api.get_statement(statement_id)
+        started = time.monotonic()
+        deadline = (
+            None if self.timeout_seconds is None else started + self.timeout_seconds
+        )
+        last_beat = started
+        try:
+            while response.status and response.status.state in {
+                StatementState.PENDING,
+                StatementState.RUNNING,
+            }:
+                now = time.monotonic()
+                if deadline is not None and now > deadline:
+                    cancelled = self._cancel(statement_id)
+                    raise IntrospectionError(
+                        f"gave up on a statement after "
+                        f"{duration(now - started)} and {cancelled} "
+                        f"(statement {statement_id}): {statement}"
+                    )
+                if self.heartbeat and now - last_beat >= self.heartbeat_seconds:
+                    self.heartbeat(Progress(statement, statement_id, now - started))
+                    last_beat = now
+                time.sleep(self.poll_seconds)
+                response = api.get_statement(statement_id)
+        except KeyboardInterrupt:
+            # Whoever pressed it wants the statement stopped, not just the
+            # waiting: a REPLACE left running would finish behind their back.
+            self._cancel(statement_id)
+            raise
 
         state = response.status.state if response.status else None
         if state is not StatementState.SUCCEEDED:
@@ -1009,6 +1049,24 @@ class WarehouseRunner:
                 statement_id, result.next_chunk_index
             )
         return tuple(rows)
+
+    def _cancel(self, statement_id: str) -> str:
+        """Ask the warehouse to stop a statement; say whether it took the request."""
+        try:
+            self.client.statement_execution.cancel_execution(statement_id)
+        except Exception as error:  # noqa: BLE001 - whatever the SDK raised
+            return f"could not cancel it ({error})"
+        return "cancelled it"
+
+
+def duration(seconds: float) -> str:
+    """`47s`, `5m 12s`, `2h 03m` — the way a person says how long it took."""
+    whole = int(seconds)
+    if whole < 60:
+        return f"{whole}s"
+    if whole < 3600:
+        return f"{whole // 60}m {whole % 60:02d}s"
+    return f"{whole // 3600}h {(whole % 3600) // 60:02d}m"
 
 
 def warehouse_runner(warehouse_id: str) -> WarehouseRunner:

@@ -20,6 +20,7 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 from rich.padding import Padding
+from rich.status import Status
 from rich.text import Text
 
 from deltaplan import api, probes
@@ -29,7 +30,8 @@ from deltaplan.connect import Connection, NotConnected
 from deltaplan.doctor import look, worst
 from deltaplan.errors import DeltaplanError
 from deltaplan.executor import DestructiveRefused, ExecutionError, ExecutionResult
-from deltaplan.history import HistoryStore, NoHistory, Status
+from deltaplan.history import HistoryStore, NoHistory
+from deltaplan.history import Status as StepStatus
 from deltaplan.introspect import IntrospectionError
 from deltaplan.loader import (
     Diagnostic,
@@ -1086,6 +1088,17 @@ def apply(
     except (ExecutionError, IntrospectionError) as error:
         err.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(1) from error
+    except KeyboardInterrupt as interrupted:
+        # The runner has already asked the warehouse to stop the statement, and
+        # the executor has released the lock. What is left to say is that the
+        # run can be picked up where it stopped.
+        _running.stop()
+        err.print(
+            "\n[yellow]Stopped.[/] The statement that was running was cancelled on "
+            "the warehouse and the lock is released; `deltaplan apply` again "
+            "resumes from this step."
+        )
+        raise typer.Exit(130) from interrupted
 
     _report(result, built, plan_file)
     if not result.ok:
@@ -1109,7 +1122,13 @@ def _confirm(built: Plan) -> bool:
         return False
 
 
-def _show_step(step: Step, status: Status, note: str | None, *, width: int = 1) -> None:
+def _show_step(
+    step: Step, status: StepStatus, note: str | None, *, width: int = 1
+) -> None:
+    if status == "running":
+        _still_running(step, note or "", width=width)
+        return
+    _running.stop()
     colour = {"succeeded": "green", "skipped": "dim", "failed": "red"}[status]
     label = {"succeeded": "ok", "skipped": "skipped", "failed": "failed"}[status]
     line = (
@@ -1121,6 +1140,58 @@ def _show_step(step: Step, status: Status, note: str | None, *, width: int = 1) 
     out.print(line)
     if status == "failed" and note:
         err.print(f"     [red]{escape(note)}[/]")
+
+
+class _Running:
+    """The line for a step that is still going: a spinner in a terminal, a
+    line every five minutes in a log. Either way, a long rewrite is never
+    silence — and the line says how long it has been."""
+
+    def __init__(self) -> None:
+        self.spinner: Status | None = None
+        self.last_logged: float | None = None
+
+    def show(self, text: str, elapsed: float) -> None:
+        if out.is_terminal:
+            if self.spinner is None:
+                self.spinner = out.status(text)
+                self.spinner.start()
+            else:
+                self.spinner.update(text)
+            return
+        # Not a terminal — CI, a redirect. A line each half minute would drown
+        # the log; one at the start and every five minutes says enough.
+        if self.last_logged is None or elapsed - self.last_logged >= 300:
+            out.print(text)
+            self.last_logged = elapsed
+
+    def stop(self) -> None:
+        if self.spinner is not None:
+            self.spinner.stop()
+            self.spinner = None
+        self.last_logged = None
+
+
+_running = _Running()
+
+
+def _still_running(step: Step, elapsed: str, *, width: int) -> None:
+    text = (
+        f"  [dim]{step.id:>{width}}.[/] {escape(step.title.ljust(TITLE_WIDTH))} "
+        f"[{RISK_STYLE[step.risk]}]\\[{step.risk}][/] [yellow]running[/] "
+        f"[dim]{escape(elapsed)}[/]"
+    )
+    _running.show(text, _seconds(elapsed))
+
+
+def _seconds(shown: str) -> float:
+    """`5m 12s` back to seconds — the executor sends the elapsed time as words."""
+    total = 0.0
+    for part in shown.split():
+        unit, number = part[-1], part[:-1]
+        if number.isdigit():
+            total += int(number) * {"h": 3600, "m": 60, "s": 1}.get(unit, 0)
+    return total
 
 
 def _report(result: ExecutionResult, built: Plan, plan_file: Path | None) -> None:

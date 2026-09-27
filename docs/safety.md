@@ -204,7 +204,16 @@ makes narrower ones instead:
 - **No stale applies.** The state fingerprint is recomputed at apply time; if the world
   moved since the plan was made, deltaplan stops.
 - **One run at a time.** A lock table (with a TTL, and `force-unlock` if a run dies)
-  keeps two applies off the same tables.
+  keeps two applies off the same tables. A long step keeps the lock alive while it
+  runs.
+- **A step takes as long as it takes.** Reading live state has a five-minute budget,
+  because a read that takes that long has gone wrong. A step has none: a rewrite of a
+  big table takes as long as it takes, and `apply` waits, saying every half minute how
+  long it has been. deltaplan never reports a statement as failed while it is still
+  running — a statement that outlives a budget is cancelled on the warehouse first.
+- **Ctrl-C cancels.** Interrupting `apply` asks the warehouse to stop the statement that
+  is running, releases the lock, and leaves the run resumable: the next `apply` of the
+  same plan continues from that step.
 
 ## Honest about Databricks
 

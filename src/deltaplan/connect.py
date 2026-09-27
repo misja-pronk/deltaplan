@@ -128,6 +128,22 @@ class Connection:
             raise NotConnected("this connection has neither a client nor a runner")
         return WarehouseRunner(self.client, self.warehouse_id)
 
+    def patient(self) -> SqlRunner:
+        """The runner `apply` uses: one that waits for as long as a step takes.
+
+        Reads have a budget (`runner`), because a read that takes five minutes
+        is a read that has gone wrong. A step has none: a rewrite of a big table
+        takes as long as it takes, and the only wrong thing to do about that is
+        to stop watching — which is what a five-minute budget did, leaving a
+        REPLACE running behind a step reported as failed. A runner a host handed
+        over comes back as it is; its patience is the host's business.
+        """
+        if self._runner is not None:
+            return self._runner
+        if self.client is None:  # pragma: no cover - the constructor sees to this
+            raise NotConnected("this connection has neither a client nor a runner")
+        return WarehouseRunner(self.client, self.warehouse_id, timeout_seconds=None)
+
     def introspector(
         self, manage: Manage = EVERYTHING, parallel: int = 8
     ) -> Introspector:

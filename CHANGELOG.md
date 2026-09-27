@@ -6,36 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- **The pull-request comment shows the comparison, not a list of changes.** The
-  page `deltaplan ui` serves shows each object as *what it is now* beside *what
-  it becomes*; the comment — where most reviewing actually happens — had the
-  weakest view of the four. It now builds its per-object block from
-  the same `render/compare.py` rows, in the five columns that page's *changes
-  only* lens uses: the marker, the thing, both sides, and the sentence about the
-  difference. Only the rows that moved are in the table and the rest are counted
-  underneath, because a comment is that lens by nature. The title, the summary,
-  the alerts, the steps and the folded SQL are unchanged, and the ladder that
-  keeps a comment under GitHub's limit has a new rung — comparison, comparison
-  without SQL, change list, table names — each saying what it left out.
-
 ### Added
 
-- **Transcripts: what the workspace actually answered, kept.** The fake
-  warehouse proves that deltaplan's SQL matches deltaplan's *reading* of the
-  manual — where that reading is wrong, the fake is wrong the same way and the
-  offline suite agrees with the mistake. A transcript is one live run written
-  down: every statement sent, and the rows or the error that came back. With
-  `DELTAPLAN_RECORD=tests/transcripts` a live run writes one per assumption
-  (with the date and the runtime that answered), and `tests/unit/` replays each
-  through the probe it was recorded for — offline, with no credentials. A
-  statement a recording doesn't cover fails loudly, with the statement in the
-  message, so a recording that has stopped being evidence says so instead of
-  passing quietly. The suite now has four layers, and `docs/testing.md` says what
-  each can and cannot prove.
-
-### Added
+- **A heartbeat while a step runs.** `apply` shows how long the current step
+  has been going — a spinner in a terminal, a line every five minutes in a log
+  — so a long rewrite is never silence. A program using `deltaplan.apply()`
+  hears the same through its `observer`, as status `running`.
+- **The unit suite runs on Windows** in CI, next to Linux and macOS. Paths in
+  messages are now written with forward slashes on every platform, so what
+  Windows prints is what the docs show.
 
 - **`deltaplan adopt`.** The other half of `drift`. A column someone added by
   hand at 2am to unblock a load is usually *wanted*, and until now the only ways
@@ -97,6 +76,47 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   approves it. It renders the same `Plan` the terminal and the Markdown comment
   do, with the same words, and it is read-only: no apply button, nothing
   written, no call to a workspace. `render_html` is public.
+
+- **Transcripts: what the workspace actually answered, kept.** The fake
+  warehouse proves that deltaplan's SQL matches deltaplan's *reading* of the
+  manual — where that reading is wrong, the fake is wrong the same way and the
+  offline suite agrees with the mistake. A transcript is one live run written
+  down: every statement sent, and the rows or the error that came back. With
+  `DELTAPLAN_RECORD=tests/transcripts` a live run writes one per assumption
+  (with the date and the runtime that answered), and `tests/unit/` replays each
+  through the probe it was recorded for — offline, with no credentials. A
+  statement a recording doesn't cover fails loudly, with the statement in the
+  message, so a recording that has stopped being evidence says so instead of
+  passing quietly. The suite now has four layers, and `docs/testing.md` says what
+  each can and cannot prove.
+
+### Changed
+
+- **The pull-request comment shows the comparison, not a list of changes.** The
+  page `deltaplan ui` serves shows each object as *what it is now* beside *what
+  it becomes*; the comment — where most reviewing actually happens — had the
+  weakest view of the four. It now builds its per-object block from
+  the same `render/compare.py` rows, in the five columns that page's *changes
+  only* lens uses: the marker, the thing, both sides, and the sentence about the
+  difference. Only the rows that moved are in the table and the rest are counted
+  underneath, because a comment is that lens by nature. The title, the summary,
+  the alerts, the steps and the folded SQL are unchanged, and the ladder that
+  keeps a comment under GitHub's limit has a new rung — comparison, comparison
+  without SQL, change list, table names — each saying what it left out.
+
+### Fixed
+
+- **A step can take longer than five minutes.** Every statement had a
+  five-minute budget — including the `REPLACE` of a table with four hundred
+  gigabytes in it. At the deadline `apply` reported the step as failed and
+  stopped, while the statement kept running on the warehouse: the table was
+  rewritten behind a run that said it wasn't, nothing was cancelled, and the
+  lock stayed held until its TTL. Now a read keeps its budget (a read that
+  takes five minutes has gone wrong), a step has none, and a statement that
+  outlives a budget is **cancelled on the warehouse before it is reported** —
+  deltaplan never says a statement failed while it is still running. Ctrl-C
+  during `apply` cancels the running statement the same way, releases the lock
+  and leaves the run resumable. A long step keeps the lock alive while it runs.
 
 ## [0.2.0a4] - 2026-09-23
 

@@ -289,6 +289,17 @@ dev · 6 steps · highest risk destructive
 Applied 5 steps, skipped 1 · run 3f9a2b1c4d5e
 ```
 
+A step that takes a while — a rewrite of a big table — shows how long it has been
+running, updated every half minute in a terminal and once every five minutes in a log:
+
+```
+  3. REPLACE TABLE                [rewrite]  running 12m 30s
+```
+
+There is no time limit on a step: it takes as long as it takes. **Ctrl-C** cancels the
+statement on the warehouse, releases the lock, and leaves the run resumable — the next
+`apply` of the same plan continues from that step.
+
 Four promises, and no others — DDL is not transactional across statements, so there is
 no rollback:
 

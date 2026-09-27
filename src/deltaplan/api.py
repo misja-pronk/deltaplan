@@ -111,6 +111,12 @@ def apply(
 ) -> ExecutionResult:
     """Run a plan, and record what it did.
 
+    `observer` is told about each step as it resolves — and, while one runs,
+    every half minute with status `running` and how long it has been going, so
+    a long rewrite is never silence. Ctrl-C while a step runs cancels the
+    statement on the warehouse before the `KeyboardInterrupt` reaches you; the
+    run is left resumable.
+
     The run is written to the project's `history_schema`, unless a host passes
     its own `history` — `MemoryHistory` for a test, its own store otherwise. A
     project with no `history_schema` records nothing and takes no lock; the
@@ -125,7 +131,8 @@ def apply(
     """
     store = history if history is not None else history_for(project, target, connection)
     executor = Executor(
-        runner=connection.runner,
+        # A step takes as long as it takes; only a read has a budget.
+        runner=connection.patient(),
         # The same reading of live state the plan was made with: anything
         # else and the two disagree by what the project handed over.
         introspector=connection.introspector(plan.manage),
