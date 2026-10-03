@@ -48,7 +48,7 @@ jobs:
         with:
           enable-cache: true
       # The bundle tests ask the real CLI what a bundle resolves to.
-      - uses: databricks/setup-cli@v1.17.0
+      - uses: databricks/setup-cli@v1.19.0
       - id: creds
         name: Credentials configured?
         run: |
